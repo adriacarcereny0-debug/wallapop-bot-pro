@@ -41,7 +41,13 @@ class BuyerIntent(str, Enum):
     OTHER = "otros"
 
 
+#: El orden importa: se devuelve la PRIMERA intencion que coincide.
+#: Las incidencias van primero porque deben atenderlas personas, y frases como
+#: "me ha llegado roto" contienen palabras de envio que, si no, ganarian.
 _INTENT_PATTERNS: list[tuple[BuyerIntent, tuple[str, ...]]] = [
+    (BuyerIntent.COMPLAINT, ("problema", "roto", "rota", "defecto", "defectuos",
+                             "reclamacion", "devolver", "devolucion", "no funciona",
+                             "mal estado", "danado", "incidencia")),
     (BuyerIntent.PURCHASE, ("lo quiero", "me lo quedo", "como lo compro", "quiero comprar",
                             "reservar", "lo reservo", "como hago el pedido", "pedido")),
     (BuyerIntent.AVAILABILITY, ("disponible", "queda", "quedan", "teneis", "tienes", "hay stock",
@@ -55,7 +61,6 @@ _INTENT_PATTERNS: list[tuple[BuyerIntent, tuple[str, ...]]] = [
     (BuyerIntent.PAYMENT, ("pago", "pagar", "bizum", "transferencia", "tarjeta", "efectivo",
                            "financiar", "plazos")),
     (BuyerIntent.LOCATION, ("donde estais", "tienda", "recoger", "direccion", "ubicacion", "zona")),
-    (BuyerIntent.COMPLAINT, ("problema", "roto", "defecto", "reclamacion", "devolver", "devolucion")),
     (BuyerIntent.GREETING, ("hola", "buenas", "buenos dias", "buenas tardes")),
 ]
 

@@ -14,10 +14,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from lot_bot.catalog.duplicates import DuplicateGroup, find_duplicates
 from lot_bot.catalog.validation import QualityReport, validate_listing_data
+from lot_bot.core.text import contains, fold
 from lot_bot.database.engine import Database
 from lot_bot.database.models import Account, Listing, ListingStatus
 from lot_bot.wallapop.capabilities import Capability
@@ -124,14 +125,6 @@ class ListingService:
                 refs.append(criteria.account_ref)
             if refs:
                 stmt = stmt.where(Account.internal_ref.in_(refs))
-            if criteria.text:
-                pattern = f"%{criteria.text.lower()}%"
-                stmt = stmt.where(
-                    or_(
-                        func.lower(Listing.title).like(pattern),
-                        func.lower(func.coalesce(Listing.description, "")).like(pattern),
-                    )
-                )
             if criteria.status:
                 stmt = stmt.where(Listing.status == criteria.status)
             if criteria.min_price is not None:
@@ -142,21 +135,32 @@ class ListingService:
             rows = session.execute(stmt.order_by(Account.id, Listing.title).limit(criteria.limit)).all()
             views = [self._to_view(listing, account) for listing, account in rows]
 
+        # El filtro de texto se aplica en Python para que sea insensible a los
+        # acentos: «canapé» debe encontrar «canape» y viceversa.
+        if criteria.text:
+            views = [
+                v
+                for v in views
+                if contains(v.title, criteria.text)
+                or contains(v.description, criteria.text)
+                or contains(str(v.attributes), criteria.text)
+            ]
+
         # Filtros sobre atributos JSON (mas comodo en Python que en SQL).
         if criteria.size:
-            target = str(criteria.size).lower().replace(" ", "")
+            target = fold(criteria.size).replace(" ", "")
             views = [
                 v
                 for v in views
-                if target in str(v.attributes.get("medida", "")).lower().replace(" ", "")
-                or target in v.title.lower().replace(" ", "")
+                if target in fold(v.attributes.get("medida", "")).replace(" ", "")
+                or target in fold(v.title).replace(" ", "")
             ]
         if criteria.color:
-            target = criteria.color.lower()
+            target = fold(criteria.color)
             views = [
                 v
                 for v in views
-                if target in str(v.attributes.get("color", "")).lower() or target in v.title.lower()
+                if target in fold(v.attributes.get("color", "")) or target in fold(v.title)
             ]
         if criteria.product_sku:
             views = [v for v in views if (v.product_sku or "").lower() == criteria.product_sku.lower()]

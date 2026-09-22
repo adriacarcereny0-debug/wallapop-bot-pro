@@ -160,9 +160,20 @@ class TemplateEngine:
         }
         for key, value in (product.get("features") or {}).items():
             context.setdefault(key, value)
-        if extra:
-            context.update(extra)
-        return {k: v for k, v in context.items()}
+
+        # Cualquier otro dato del negocio (precios de oferta, textos propios)
+        # queda disponible como variable con su mismo nombre.
+        for key, value in business.items():
+            if value not in (None, ""):
+                context.setdefault(key, value)
+
+        # `extra` tiene la ultima palabra, pero un valor vacio nunca debe
+        # tapar un dato real ya presente.
+        for key, value in (extra or {}).items():
+            if value in (None, "") and context.get(key) not in (None, ""):
+                continue
+            context[key] = value
+        return context
 
 
 def _format_price(value: Any) -> str | None:

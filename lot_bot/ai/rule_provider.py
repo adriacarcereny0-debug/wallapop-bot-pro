@@ -19,7 +19,7 @@ from lot_bot.ai.provider import AIProvider, ProviderReply, ToolCall
 
 logger = logging.getLogger(__name__)
 
-_SIZE_RE = re.compile(r"(\d{2,3})\s*[x×]\s*(\d{2,3})")
+_SIZE_RE = re.compile(r"(\d{2,3})\s*[x×]\s*(\d{2,3})", re.IGNORECASE)
 _PRICE_RE = re.compile(r"(\d{1,6}(?:[.,]\d{1,2})?)\s*(?:€|eur|euros)", re.IGNORECASE)
 _BARE_NUMBER_RE = re.compile(r"\b(\d{2,6}(?:[.,]\d{1,2})?)\b")
 

@@ -8,10 +8,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 from lot_bot.catalog.duplicates import DuplicateGroup, find_duplicates
 from lot_bot.catalog.validation import QualityReport, validate_listing_data
+from lot_bot.core.text import contains
 from lot_bot.database.engine import Database
 from lot_bot.database.models import (
     Account,
@@ -23,7 +24,7 @@ from lot_bot.database.models import (
 
 logger = logging.getLogger(__name__)
 
-_SIZE_RE = re.compile(r"(\d{2,3})\s*[x×]\s*(\d{2,3})")
+_SIZE_RE = re.compile(r"(\d{2,3})\s*[x×]\s*(\d{2,3})", re.IGNORECASE)
 
 
 def normalize_size(text: str | None) -> str | None:
@@ -138,18 +139,6 @@ class CatalogService:
 
             if criteria.sku:
                 stmt = stmt.where(func.lower(Product.sku) == criteria.sku.lower())
-            if criteria.text:
-                pattern = f"%{criteria.text.lower()}%"
-                stmt = stmt.where(
-                    or_(
-                        func.lower(Product.name).like(pattern),
-                        func.lower(Product.sku).like(pattern),
-                        func.lower(func.coalesce(Product.description, "")).like(pattern),
-                        func.lower(func.coalesce(Product.product_type, "")).like(pattern),
-                        func.lower(func.coalesce(Product.size, "")).like(pattern),
-                        func.lower(func.coalesce(Product.color, "")).like(pattern),
-                    )
-                )
             if criteria.product_type:
                 stmt = stmt.where(
                     func.lower(func.coalesce(Product.product_type, "")).like(
@@ -185,9 +174,26 @@ class CatalogService:
                     .where(ProductAssignment.enabled.is_(True))
                 )
 
-            stmt = stmt.order_by(Product.sku).limit(criteria.limit)
+            # Sin filtro de texto podemos limitar en SQL; con el, filtramos
+            # despues en Python para ignorar acentos.
+            stmt = stmt.order_by(Product.sku)
+            if not criteria.text:
+                stmt = stmt.limit(criteria.limit)
             products = session.scalars(stmt).unique().all()
-            return [self._to_view(session, product) for product in products]
+            views = [self._to_view(session, product) for product in products]
+
+        if criteria.text:
+            views = [
+                v
+                for v in views
+                if contains(v.name, criteria.text)
+                or contains(v.sku, criteria.text)
+                or contains(v.description, criteria.text)
+                or contains(v.product_type, criteria.text)
+                or contains(v.size, criteria.text)
+                or contains(v.color, criteria.text)
+            ][: criteria.limit]
+        return views
 
     def get_product(self, identifier: str | int) -> ProductView | None:
         with self._db.session_scope() as session:
