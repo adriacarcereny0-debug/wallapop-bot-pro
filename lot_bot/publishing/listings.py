@@ -1,0 +1,392 @@
+"""Consulta y sincronizacion de anuncios locales.
+
+Los anuncios se guardan en local como espejo de lo que hay en Wallapop, para
+poder buscar, analizar y detectar duplicados sin castigar la API.
+
+AISLAMIENTO: toda consulta lleva `account_id`. Nunca se devuelven anuncios de
+una cuenta cuando se pregunta por otra.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import func, or_, select
+
+from lot_bot.catalog.duplicates import DuplicateGroup, find_duplicates
+from lot_bot.catalog.validation import QualityReport, validate_listing_data
+from lot_bot.database.engine import Database
+from lot_bot.database.models import Account, Listing, ListingStatus
+from lot_bot.wallapop.capabilities import Capability
+from lot_bot.wallapop.dto import Item
+from lot_bot.wallapop.service import WallapopService
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True)
+class ListingView:
+    """Anuncio en formato plano para la interfaz y el agente IA."""
+
+    id: int
+    account_ref: str
+    account_alias: str
+    wallapop_item_id: str | None
+    title: str
+    description: str | None
+    price: float | None
+    currency: str
+    category: str | None
+    status: str
+    views: int
+    favorites: int
+    product_sku: str | None
+    attributes: dict[str, Any] = field(default_factory=dict)
+    image_urls: list[str] = field(default_factory=list)
+    published_at: datetime | None = None
+    last_synced_at: datetime | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "cuenta": self.account_alias,
+            "cuenta_ref": self.account_ref,
+            "anuncio_wallapop": self.wallapop_item_id,
+            "titulo": self.title,
+            "precio": self.price,
+            "moneda": self.currency,
+            "estado": self.status,
+            "visitas": self.views,
+            "favoritos": self.favorites,
+            "sku": self.product_sku,
+            "caracteristicas": self.attributes,
+            "fotografias": len(self.image_urls),
+        }
+
+
+@dataclass(slots=True)
+class ListingFilter:
+    text: str | None = None
+    account_ref: str | None = None
+    account_refs: list[str] = field(default_factory=list)
+    size: str | None = None
+    color: str | None = None
+    status: ListingStatus | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+    product_sku: str | None = None
+    limit: int = 500
+
+    def describe(self) -> str:
+        parts: list[str] = []
+        if self.text:
+            parts.append(f"texto '{self.text}'")
+        if self.size:
+            parts.append(f"medida {self.size}")
+        if self.color:
+            parts.append(f"color {self.color}")
+        if self.min_price is not None:
+            parts.append(f"precio ≥ {self.min_price:.2f} €")
+        if self.max_price is not None:
+            parts.append(f"precio ≤ {self.max_price:.2f} €")
+        if self.account_ref:
+            parts.append(f"cuenta {self.account_ref}")
+        if self.account_refs:
+            parts.append(f"cuentas {', '.join(self.account_refs)}")
+        if self.status:
+            parts.append(f"estado {self.status.value}")
+        return ", ".join(parts) or "todos los anuncios"
+
+
+class ListingService:
+    """Espejo local de los anuncios de Wallapop."""
+
+    def __init__(self, database: Database, wallapop: WallapopService) -> None:
+        self._db = database
+        self._wallapop = wallapop
+
+    def set_backend(self, wallapop: WallapopService) -> None:
+        self._wallapop = wallapop
+
+    # ------------------------------------------------------------------
+    # Consulta local
+    # ------------------------------------------------------------------
+    def search(self, criteria: ListingFilter | None = None) -> list[ListingView]:
+        criteria = criteria or ListingFilter()
+        with self._db.session_scope() as session:
+            stmt = select(Listing, Account).join(Account, Account.id == Listing.account_id)
+
+            refs = list(criteria.account_refs)
+            if criteria.account_ref:
+                refs.append(criteria.account_ref)
+            if refs:
+                stmt = stmt.where(Account.internal_ref.in_(refs))
+            if criteria.text:
+                pattern = f"%{criteria.text.lower()}%"
+                stmt = stmt.where(
+                    or_(
+                        func.lower(Listing.title).like(pattern),
+                        func.lower(func.coalesce(Listing.description, "")).like(pattern),
+                    )
+                )
+            if criteria.status:
+                stmt = stmt.where(Listing.status == criteria.status)
+            if criteria.min_price is not None:
+                stmt = stmt.where(Listing.price >= criteria.min_price)
+            if criteria.max_price is not None:
+                stmt = stmt.where(Listing.price <= criteria.max_price)
+
+            rows = session.execute(stmt.order_by(Account.id, Listing.title).limit(criteria.limit)).all()
+            views = [self._to_view(listing, account) for listing, account in rows]
+
+        # Filtros sobre atributos JSON (mas comodo en Python que en SQL).
+        if criteria.size:
+            target = str(criteria.size).lower().replace(" ", "")
+            views = [
+                v
+                for v in views
+                if target in str(v.attributes.get("medida", "")).lower().replace(" ", "")
+                or target in v.title.lower().replace(" ", "")
+            ]
+        if criteria.color:
+            target = criteria.color.lower()
+            views = [
+                v
+                for v in views
+                if target in str(v.attributes.get("color", "")).lower() or target in v.title.lower()
+            ]
+        if criteria.product_sku:
+            views = [v for v in views if (v.product_sku or "").lower() == criteria.product_sku.lower()]
+        return views
+
+    def get(self, listing_id: int) -> ListingView | None:
+        with self._db.session_scope() as session:
+            row = session.execute(
+                select(Listing, Account)
+                .join(Account, Account.id == Listing.account_id)
+                .where(Listing.id == listing_id)
+            ).first()
+            if row is None:
+                return None
+            return self._to_view(row[0], row[1])
+
+    def count_by_account(self) -> dict[str, int]:
+        with self._db.session_scope() as session:
+            rows = session.execute(
+                select(Account.internal_ref, func.count(Listing.id))
+                .join(Listing, Listing.account_id == Account.id, isouter=True)
+                .group_by(Account.internal_ref)
+            ).all()
+            return {ref: count for ref, count in rows}
+
+    def stats(self) -> dict[str, Any]:
+        with self._db.session_scope() as session:
+            total = session.scalar(select(func.count(Listing.id))) or 0
+            active = session.scalar(
+                select(func.count(Listing.id)).where(Listing.status == ListingStatus.ACTIVE)
+            ) or 0
+            avg_price = session.scalar(select(func.avg(Listing.price))) or 0.0
+            views = session.scalar(select(func.sum(Listing.views))) or 0
+            return {
+                "total": total,
+                "activos": active,
+                "precio_medio": round(float(avg_price), 2),
+                "visitas": int(views),
+            }
+
+    @staticmethod
+    def _to_view(listing: Listing, account: Account) -> ListingView:
+        return ListingView(
+            id=listing.id,
+            account_ref=account.internal_ref,
+            account_alias=account.alias,
+            wallapop_item_id=listing.wallapop_item_id,
+            title=listing.title,
+            description=listing.description,
+            price=listing.price,
+            currency=listing.currency,
+            category=listing.category,
+            status=listing.status.value,
+            views=listing.views,
+            favorites=listing.favorites,
+            product_sku=listing.product.sku if listing.product else None,
+            attributes=dict(listing.attributes or {}),
+            image_urls=list(listing.image_urls or []),
+            published_at=listing.published_at,
+            last_synced_at=listing.last_synced_at,
+        )
+
+    # ------------------------------------------------------------------
+    # Sincronizacion con Wallapop
+    # ------------------------------------------------------------------
+    def sync_account(self, account_ref: str, limit: int = 200) -> dict[str, int]:
+        """Descarga los anuncios de UNA cuenta y actualiza el espejo local."""
+        self._wallapop.require(Capability.LIST_ITEMS)
+        items = self._wallapop.list_items(account_ref, limit=limit)
+        created = updated = 0
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+        with self._db.session_scope() as session:
+            account = session.scalar(select(Account).where(Account.internal_ref == account_ref))
+            if account is None:
+                raise ValueError(f"Cuenta '{account_ref}' no encontrada.")
+
+            seen: set[str] = set()
+            for item in items:
+                seen.add(item.item_id)
+                listing = session.scalar(
+                    select(Listing)
+                    .where(Listing.account_id == account.id)
+                    .where(Listing.wallapop_item_id == item.item_id)
+                )
+                if listing is None:
+                    listing = Listing(account_id=account.id, wallapop_item_id=item.item_id)
+                    session.add(listing)
+                    created += 1
+                else:
+                    updated += 1
+                _apply_item(listing, item)
+                listing.last_synced_at = now
+
+            # Los anuncios que ya no aparecen se marcan como retirados,
+            # nunca se borran del historial local sin avisar.
+            missing = session.scalars(
+                select(Listing)
+                .where(Listing.account_id == account.id)
+                .where(Listing.wallapop_item_id.notin_(seen or {"__none__"}))
+                .where(Listing.status != ListingStatus.REMOVED)
+            ).all()
+            for listing in missing:
+                listing.status = ListingStatus.REMOVED
+                listing.status_detail = "Ya no aparece en Wallapop."
+
+            account.last_sync_at = now
+
+        logger.info(
+            "Sincronizacion de '%s': %d nuevos, %d actualizados, %d retirados.",
+            account_ref,
+            created,
+            updated,
+            len(missing),
+        )
+        return {"nuevos": created, "actualizados": updated, "retirados": len(missing)}
+
+    def sync_all(self, account_refs: list[str]) -> dict[str, dict[str, int]]:
+        results: dict[str, dict[str, int]] = {}
+        for ref in account_refs:
+            try:
+                results[ref] = self.sync_account(ref)
+            except Exception as exc:  # se registra y se continua con el resto
+                logger.warning("Fallo al sincronizar '%s': %s", ref, exc)
+                results[ref] = {"error": 1}
+        return results
+
+    def register_published(
+        self, account_ref: str, item_id: str, product_id: int | None, data: dict[str, Any]
+    ) -> int:
+        """Guarda en local un anuncio recien publicado."""
+        with self._db.session_scope() as session:
+            account = session.scalar(select(Account).where(Account.internal_ref == account_ref))
+            if account is None:
+                raise ValueError(f"Cuenta '{account_ref}' no encontrada.")
+            listing = session.scalar(
+                select(Listing)
+                .where(Listing.account_id == account.id)
+                .where(Listing.wallapop_item_id == item_id)
+            )
+            if listing is None:
+                listing = Listing(account_id=account.id, wallapop_item_id=item_id)
+                session.add(listing)
+            listing.product_id = product_id
+            listing.title = data.get("title", "")
+            listing.description = data.get("description")
+            listing.price = data.get("price")
+            listing.currency = data.get("currency", "EUR")
+            listing.category = data.get("category")
+            listing.condition = data.get("condition")
+            listing.attributes = dict(data.get("attributes") or {})
+            listing.image_urls = list(data.get("image_urls") or [])
+            listing.status = ListingStatus.ACTIVE
+            listing.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            listing.last_synced_at = listing.published_at
+            session.flush()
+            return listing.id
+
+    def apply_local_price(self, listing_id: int, price: float) -> None:
+        with self._db.session_scope() as session:
+            listing = session.get(Listing, listing_id)
+            if listing is not None:
+                listing.price = price
+
+    def apply_local_changes(self, listing_id: int, changes: dict[str, Any]) -> None:
+        allowed = {"title", "description", "price", "category", "condition", "attributes", "image_urls"}
+        with self._db.session_scope() as session:
+            listing = session.get(Listing, listing_id)
+            if listing is None:
+                return
+            for key, value in changes.items():
+                if key in allowed:
+                    setattr(listing, key, value)
+
+    def mark_removed(self, listing_id: int) -> None:
+        with self._db.session_scope() as session:
+            listing = session.get(Listing, listing_id)
+            if listing is not None:
+                listing.status = ListingStatus.REMOVED
+                listing.status_detail = "Eliminado desde LOT Bot."
+
+    # ------------------------------------------------------------------
+    # Calidad y duplicados sobre anuncios ya publicados
+    # ------------------------------------------------------------------
+    def quality_reports(self, criteria: ListingFilter | None = None) -> list[QualityReport]:
+        reports: list[QualityReport] = []
+        for view in self.search(criteria):
+            reports.append(
+                validate_listing_data(
+                    title=view.title,
+                    description=view.description,
+                    price=view.price,
+                    category=view.category,
+                    condition=view.attributes.get("estado"),
+                    features=view.attributes,
+                    images=[{"file_format": "JPEG", "is_primary": i == 0} for i in range(len(view.image_urls))],
+                    subject=f"{view.account_alias} · {view.title}",
+                )
+            )
+        return reports
+
+    def find_duplicates(self, criteria: ListingFilter | None = None) -> list[DuplicateGroup]:
+        records = [
+            {
+                "id": view.id,
+                "titulo": view.title,
+                "sku": view.product_sku,
+                "wallapop_item_id": None,  # el mismo id en cuentas distintas no aplica
+                "caracteristicas": view.attributes,
+                "cuenta": view.account_alias,
+                "cuenta_ref": view.account_ref,
+                "precio": view.price,
+            }
+            for view in self.search(criteria)
+        ]
+        return find_duplicates(records)
+
+
+def _apply_item(listing: Listing, item: Item) -> None:
+    listing.title = item.title
+    listing.description = item.description
+    listing.price = item.price
+    listing.currency = item.currency
+    listing.category = item.category
+    listing.condition = item.condition
+    listing.attributes = dict(item.attributes)
+    listing.image_urls = item.image_urls
+    listing.views = item.views
+    listing.favorites = item.favorites
+    try:
+        listing.status = ListingStatus(item.status)
+    except ValueError:
+        listing.status = ListingStatus.ACTIVE
