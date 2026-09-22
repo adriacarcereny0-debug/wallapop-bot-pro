@@ -1,0 +1,54 @@
+# ---- Secretos y datos del cliente (NUNCA subir) ----
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+secrets/
+data/
+user_data/
+*.db
+*.sqlite
+*.sqlite3
+lot_bot_data/
+endpoint_map.local.yaml
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+develop-eggs/
+
+# ---- Build / empaquetado ----
+build/work/
+dist/
+*.spec.bak
+installer_output/
+
+# ---- Tests / tooling ----
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# ---- Logs ----
+logs/
+*.log
+
+# ---- Sistema operativo / IDE ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
