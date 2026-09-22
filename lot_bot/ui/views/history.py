@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QTextEdit
+from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLineEdit, QTextEdit
 
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
@@ -15,7 +15,6 @@ from lot_bot.ui.widgets.common import (
     fill_table,
     selected_row_data,
 )
-from PySide6.QtWidgets import QHBoxLayout
 
 
 class HistoryView(BaseView):

@@ -143,7 +143,6 @@ def test_preparar_respuesta_no_envia_nada(app_with_data):
     from lot_bot.ai.tools.base import ToolContext
 
     conversacion = app_with_data.messages.list_conversations()[0]
-    mensajes_antes = len(conversacion.messages)
     registro = build_registry()
     resultado = registro.execute(
         "prepare_message_response",

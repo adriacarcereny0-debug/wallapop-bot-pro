@@ -3,8 +3,8 @@
 from lot_bot.publishing.listings import ListingService, ListingView
 from lot_bot.publishing.service import (
     ListingPreview,
-    PublishOutcome,
     PublishingService,
+    PublishOutcome,
 )
 
 __all__ = [

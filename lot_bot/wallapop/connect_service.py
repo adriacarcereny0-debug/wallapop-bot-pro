@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -542,10 +542,9 @@ def _as_datetime(value: Any) -> datetime | None:
         return value
     if isinstance(value, (int, float)):
         try:
-            from datetime import timezone as _tz
 
             seconds = value / 1000 if value > 1e11 else value
-            return datetime.fromtimestamp(seconds, tz=_tz.utc)
+            return datetime.fromtimestamp(seconds, tz=UTC)
         except (OverflowError, OSError, ValueError):
             return None
     try:

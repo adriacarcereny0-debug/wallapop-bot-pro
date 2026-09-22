@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -14,7 +15,6 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from PySide6.QtCore import Qt
 
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
@@ -188,8 +188,8 @@ class MessagesView(BaseView):
         self.app.messages.mark_read(int(conversation_id))
 
     def _show_facts(self, view) -> None:
-        from lot_bot.ai.tools.message_tools import _sales_context
         from lot_bot.ai.tools.base import ToolContext
+        from lot_bot.ai.tools.message_tools import _sales_context
 
         context = _sales_context(ToolContext(app=self.app), view)
         known = context.known_facts()

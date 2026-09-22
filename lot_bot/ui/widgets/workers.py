@@ -54,12 +54,17 @@ class TaskRunner:
     def run(
         self,
         function: Callable[..., Any],
+        *args: Any,
         on_success: Callable[[Any], None] | None = None,
         on_error: Callable[[str, str], None] | None = None,
         on_done: Callable[[], None] | None = None,
-        *args: Any,
         **kwargs: Any,
     ) -> None:
+        """Ejecuta `function(*args, **kwargs)` en segundo plano.
+
+        Los tres callbacks son solo por nombre para que nunca puedan
+        confundirse con los argumentos de la funcion.
+        """
         task = _Task(function, *args, **kwargs)
         if on_success is not None:
             task.signals.finished.connect(on_success)

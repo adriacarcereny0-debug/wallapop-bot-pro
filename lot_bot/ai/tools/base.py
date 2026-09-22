@@ -41,7 +41,7 @@ class ToolCategory(str, Enum):
 class ToolContext:
     """Todo lo que una herramienta necesita para trabajar."""
 
-    app: "Application"
+    app: Application
     confirmed: bool = False
     actor: str = "asistente"
 

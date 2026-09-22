@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -60,7 +60,7 @@ class AutomationView:
 class AutomationScheduler:
     """Registra, activa y ejecuta las tareas programadas."""
 
-    def __init__(self, app: "Application", database: Database, events: EventBus) -> None:
+    def __init__(self, app: Application, database: Database, events: EventBus) -> None:
         self._app = app
         self._db = database
         self._events = events
@@ -137,7 +137,7 @@ class AutomationScheduler:
                 return None
             row.enabled = enabled
             row.next_run_at = (
-                datetime.now(timezone.utc).replace(tzinfo=None)
+                datetime.now(UTC).replace(tzinfo=None)
                 + timedelta(minutes=row.interval_minutes)
                 if enabled
                 else None
@@ -224,7 +224,7 @@ class AutomationScheduler:
             if row is None:
                 return {}
             row.last_status = AutomationStatus.RUNNING
-            row.last_run_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            row.last_run_at = datetime.now(UTC).replace(tzinfo=None)
             return dict(row.options or {})
 
     def _store_result(self, job_key: str, result: JobResult) -> None:
@@ -236,7 +236,7 @@ class AutomationScheduler:
             row.last_result = result.summary[:1000]
             row.last_error = None if result.ok else result.summary[:1000]
             row.next_run_at = (
-                datetime.now(timezone.utc).replace(tzinfo=None)
+                datetime.now(UTC).replace(tzinfo=None)
                 + timedelta(minutes=row.interval_minutes)
                 if row.enabled
                 else None

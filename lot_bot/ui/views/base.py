@@ -22,7 +22,7 @@ class BaseView(QWidget):
     title: str = ""
     subtitle: str = ""
 
-    def __init__(self, app: "Application", runner: TaskRunner, parent: QWidget | None = None) -> None:
+    def __init__(self, app: Application, runner: TaskRunner, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.app = app
         self.runner = runner
@@ -56,14 +56,14 @@ class BaseView(QWidget):
         button.clicked.connect(slot)
         return self.header.add_action(button)
 
-    def run_task(self, function, on_success=None, on_done=None, *args, **kwargs) -> None:
+    def run_task(self, function, *args, on_success=None, on_done=None, **kwargs) -> None:
         """Ejecuta algo en segundo plano mostrando los errores al usuario."""
         self.runner.run(
             function,
+            *args,
             on_success=on_success,
             on_error=self._on_task_error,
             on_done=on_done,
-            *args,
             **kwargs,
         )
 

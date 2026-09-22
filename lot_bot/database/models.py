@@ -9,9 +9,10 @@ credenciales entre cuentas.
 from __future__ import annotations
 
 import enum
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Enum,
@@ -19,7 +20,6 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -28,7 +28,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -115,13 +115,13 @@ class Account(Base, TimestampMixin):
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text)
 
-    listings: Mapped[list["Listing"]] = relationship(
+    listings: Mapped[list[Listing]] = relationship(
         back_populates="account", cascade="all, delete-orphan"
     )
-    assignments: Mapped[list["ProductAssignment"]] = relationship(
+    assignments: Mapped[list[ProductAssignment]] = relationship(
         back_populates="account", cascade="all, delete-orphan"
     )
-    conversations: Mapped[list["Conversation"]] = relationship(
+    conversations: Mapped[list[Conversation]] = relationship(
         back_populates="account", cascade="all, delete-orphan"
     )
 
@@ -160,16 +160,16 @@ class Product(Base, TimestampMixin):
     template_id: Mapped[int | None] = mapped_column(ForeignKey("templates.id"))
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    images: Mapped[list["ProductImage"]] = relationship(
+    images: Mapped[list[ProductImage]] = relationship(
         back_populates="product",
         cascade="all, delete-orphan",
         order_by="ProductImage.position",
     )
-    assignments: Mapped[list["ProductAssignment"]] = relationship(
+    assignments: Mapped[list[ProductAssignment]] = relationship(
         back_populates="product", cascade="all, delete-orphan"
     )
-    listings: Mapped[list["Listing"]] = relationship(back_populates="product")
-    template: Mapped["Template | None"] = relationship()
+    listings: Mapped[list[Listing]] = relationship(back_populates="product")
+    template: Mapped[Template | None] = relationship()
 
     __table_args__ = (
         Index("ix_products_type_size", "product_type", "size"),
@@ -310,7 +310,7 @@ class Conversation(Base, TimestampMixin):
 
     account: Mapped[Account] = relationship(back_populates="conversations")
     listing: Mapped[Listing | None] = relationship()
-    messages: Mapped[list["Message"]] = relationship(
+    messages: Mapped[list[Message]] = relationship(
         back_populates="conversation",
         cascade="all, delete-orphan",
         order_by="Message.sent_at",

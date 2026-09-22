@@ -9,13 +9,13 @@ from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import (
     Card,
     SectionTitle,
+    ask_confirmation,
     build_table,
     fill_table,
     info_box,
     selected_row_data,
     show_error,
 )
-from lot_bot.ui.widgets.common import ask_confirmation
 
 
 class AccountsView(BaseView):

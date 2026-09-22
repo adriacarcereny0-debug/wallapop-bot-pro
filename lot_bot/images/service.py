@@ -245,7 +245,7 @@ class ImageService:
         problems: list[str] = []
         seen_hashes: set[str] = set()
 
-        for index, path in enumerate(paths):
+        for path in paths:
             try:
                 info = self.import_image(path, product_sku, position=len(imported))
             except ImageValidationError as exc:

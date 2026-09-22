@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QTextEdit
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSpinBox, QTextEdit
 
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView

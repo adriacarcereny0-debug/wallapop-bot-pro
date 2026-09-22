@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -231,7 +231,7 @@ class ListingService:
         self._wallapop.require(Capability.LIST_ITEMS)
         items = self._wallapop.list_items(account_ref, limit=limit)
         created = updated = 0
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = datetime.now(UTC).replace(tzinfo=None)
 
         with self._db.session_scope() as session:
             account = session.scalar(select(Account).where(Account.internal_ref == account_ref))
@@ -314,7 +314,7 @@ class ListingService:
             listing.attributes = dict(data.get("attributes") or {})
             listing.image_urls = list(data.get("image_urls") or [])
             listing.status = ListingStatus.ACTIVE
-            listing.published_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            listing.published_at = datetime.now(UTC).replace(tzinfo=None)
             listing.last_synced_at = listing.published_at
             session.flush()
             return listing.id

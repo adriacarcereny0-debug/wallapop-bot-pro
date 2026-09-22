@@ -13,7 +13,6 @@ from PySide6.QtWidgets import (
 )
 
 from lot_bot.publishing.listings import ListingFilter
-from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import (
     Card,
@@ -24,7 +23,6 @@ from lot_bot.ui.widgets.common import (
     build_table,
     fill_table,
     info_box,
-    show_error,
 )
 
 
@@ -189,8 +187,8 @@ class PricingView(BaseView):
             text = analysis.summary()
             if not analysis.has_external_data:
                 text += (
-                    f"\n\nNota: no hay ninguna fuente de mercado externa autorizada. "
-                    f"El análisis se basa solo en tus propios anuncios."
+                    "\n\nNota: no hay ninguna fuente de mercado externa autorizada. "
+                    "El análisis se basa solo en tus propios anuncios."
                 )
             self.analysis.setPlainText(text)
 

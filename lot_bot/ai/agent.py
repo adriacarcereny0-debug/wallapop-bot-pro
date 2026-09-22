@@ -72,7 +72,7 @@ class Agent:
 
     def __init__(
         self,
-        app: "Application",
+        app: Application,
         registry: ToolRegistry,
         provider: AIProvider,
     ) -> None:

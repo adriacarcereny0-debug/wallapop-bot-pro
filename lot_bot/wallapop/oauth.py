@@ -19,7 +19,7 @@ import threading
 import urllib.parse
 import webbrowser
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import httpx
 
@@ -170,7 +170,7 @@ class OAuthClient:
         expires_at = None
         expires_in = payload.get("expires_in")
         if isinstance(expires_in, (int, float)):
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+            expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
 
         scope_raw = payload.get("scope") or ""
         scopes = scope_raw.split() if isinstance(scope_raw, str) else list(scope_raw)
@@ -236,7 +236,7 @@ class LocalCallbackServer:
         self._server: http.server.HTTPServer | None = None
         self._thread: threading.Thread | None = None
 
-    def __enter__(self) -> "LocalCallbackServer":
+    def __enter__(self) -> LocalCallbackServer:
         handler = type("_Handler", (_CallbackHandler,), {"result": {}})
         self._handler = handler
         self._server = http.server.HTTPServer((self.host, self.port), handler)

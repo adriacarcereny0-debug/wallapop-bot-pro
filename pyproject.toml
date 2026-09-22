@@ -31,4 +31,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
-ignore = ["E501"]
+ignore = [
+    "E501",
+    # Los enums heredan de (str, Enum) a proposito: asi se serializan solos a
+    # JSON en las herramientas de la IA y encajan con sqlalchemy.Enum.
+    "UP042",
+]

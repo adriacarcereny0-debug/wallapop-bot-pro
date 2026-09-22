@@ -55,7 +55,7 @@ class AppPaths:
     config: Path
     resources: Path
 
-    def ensure(self) -> "AppPaths":
+    def ensure(self) -> AppPaths:
         for directory in (self.root, self.logs, self.images, self.exports, self.config):
             directory.mkdir(parents=True, exist_ok=True)
         self.database.parent.mkdir(parents=True, exist_ok=True)

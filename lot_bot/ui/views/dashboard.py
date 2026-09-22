@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel
 
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
-from lot_bot.ui.widgets.common import Badge, Card, SectionTitle, StatCard, build_table, fill_table
+from lot_bot.ui.widgets.common import Card, SectionTitle, StatCard, build_table, fill_table
 
 
 class DashboardView(BaseView):

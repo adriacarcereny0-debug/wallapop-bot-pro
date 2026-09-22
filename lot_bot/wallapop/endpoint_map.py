@@ -159,7 +159,7 @@ class EndpointMap:
 
     # -- Carga ------------------------------------------------------------
     @classmethod
-    def load(cls, path: str | Path) -> "EndpointMap":
+    def load(cls, path: str | Path) -> EndpointMap:
         file_path = Path(path).expanduser()
         if not file_path.is_file():
             raise ConfigurationError(
@@ -181,7 +181,7 @@ class EndpointMap:
         return instance
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "EndpointMap":
+    def from_dict(cls, data: dict[str, Any]) -> EndpointMap:
         api = data.get("api") or {}
         oauth_raw = data.get("oauth") or {}
         operations_raw = data.get("operations") or {}

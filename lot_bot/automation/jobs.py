@@ -40,7 +40,7 @@ class JobDefinition:
     description: str
     default_interval_minutes: int
     writes: bool
-    run: Callable[["Application", dict[str, Any]], JobResult]
+    run: Callable[[Application, dict[str, Any]], JobResult]
 
     @property
     def safety_note(self) -> str:
@@ -52,11 +52,11 @@ class JobDefinition:
 # ---------------------------------------------------------------------------
 # Implementacion de las tareas
 # ---------------------------------------------------------------------------
-def _connected_accounts(app: "Application") -> list[str]:
+def _connected_accounts(app: Application) -> list[str]:
     return [a.internal_ref for a in app.accounts.list_accounts() if a.is_connected]
 
 
-def job_sync_listings(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_sync_listings(app: Application, options: dict[str, Any]) -> JobResult:
     """Descarga los anuncios de todas las cuentas conectadas."""
     refs = _connected_accounts(app)
     if not refs:
@@ -72,7 +72,7 @@ def job_sync_listings(app: "Application", options: dict[str, Any]) -> JobResult:
     )
 
 
-def job_sync_messages(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_sync_messages(app: Application, options: dict[str, Any]) -> JobResult:
     """Descarga las conversaciones nuevas."""
     if not app.messages.messaging_available:
         return JobResult(False, "La mensajería no está disponible con los permisos actuales.")
@@ -86,7 +86,7 @@ def job_sync_messages(app: "Application", options: dict[str, Any]) -> JobResult:
     )
 
 
-def job_quality_review(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_quality_review(app: Application, options: dict[str, Any]) -> JobResult:
     """Revisa la calidad de los anuncios publicados y avisa de incidencias."""
     reports = app.listings.quality_reports()
     blocked = [r for r in reports if not r.can_publish]
@@ -102,7 +102,7 @@ def job_quality_review(app: "Application", options: dict[str, Any]) -> JobResult
     )
 
 
-def job_catalog_quality(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_catalog_quality(app: Application, options: dict[str, Any]) -> JobResult:
     """Revisa los productos del catalogo con informacion incompleta."""
     reports = app.catalog.validate_all()
     incomplete = [r for r in reports if not r.can_publish]
@@ -114,7 +114,7 @@ def job_catalog_quality(app: "Application", options: dict[str, Any]) -> JobResul
     )
 
 
-def job_detect_duplicates(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_detect_duplicates(app: Application, options: dict[str, Any]) -> JobResult:
     """Busca anuncios y productos duplicados. No elimina nada."""
     listing_groups = app.listings.find_duplicates()
     product_groups = app.catalog.find_duplicate_products()
@@ -130,7 +130,7 @@ def job_detect_duplicates(app: "Application", options: dict[str, Any]) -> JobRes
     )
 
 
-def job_inventory_sync(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_inventory_sync(app: Application, options: dict[str, Any]) -> JobResult:
     """Compara el stock del catalogo con los anuncios activos."""
     from lot_bot.catalog.service import ProductFilter
 
@@ -149,7 +149,7 @@ def job_inventory_sync(app: "Application", options: dict[str, Any]) -> JobResult
     )
 
 
-def job_prepare_publications(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_prepare_publications(app: Application, options: dict[str, Any]) -> JobResult:
     """Prepara vistas previas de los productos listos, SIN publicarlos."""
     from lot_bot.catalog.service import ProductFilter
     from lot_bot.database.models import ProductStatus
@@ -183,7 +183,7 @@ def job_prepare_publications(app: "Application", options: dict[str, Any]) -> Job
     )
 
 
-def job_error_review(app: "Application", options: dict[str, Any]) -> JobResult:
+def job_error_review(app: Application, options: dict[str, Any]) -> JobResult:
     """Revisa los errores recientes del historial."""
     entries = app.audit.recent(limit=200, only_errors=True)
     return JobResult(

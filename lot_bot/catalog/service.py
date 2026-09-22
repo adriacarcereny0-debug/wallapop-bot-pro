@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -355,7 +355,7 @@ class CatalogService:
     def set_status(self, identifier: str | int, status: ProductStatus) -> ProductView:
         changes: dict[str, Any] = {"status": status}
         if status is ProductStatus.PUBLISHED:
-            changes["published_at"] = datetime.now(timezone.utc).replace(tzinfo=None)
+            changes["published_at"] = datetime.now(UTC).replace(tzinfo=None)
         return self.update_product(identifier, changes)
 
     def delete_product(self, identifier: str | int) -> bool:

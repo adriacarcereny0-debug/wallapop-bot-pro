@@ -50,7 +50,7 @@ class PriceStats:
     p75: float
 
     @classmethod
-    def from_prices(cls, prices: list[float]) -> "PriceStats | None":
+    def from_prices(cls, prices: list[float]) -> PriceStats | None:
         clean = sorted(p for p in prices if p is not None and p > 0)
         if not clean:
             return None

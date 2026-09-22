@@ -217,7 +217,7 @@ class RuleBasedProvider(AIProvider):
                 lines.append(str(payload))
                 continue
             lines.append(_format_tool_payload(data))
-        return "\n\n".join(l for l in lines if l) or "Hecho."
+        return "\n\n".join(linea for linea in lines if linea) or "Hecho."
 
     @staticmethod
     def _help(attempted: str = "") -> str:

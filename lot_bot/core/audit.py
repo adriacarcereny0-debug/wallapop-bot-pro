@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
 
 from lot_bot.database.engine import Database
-from lot_bot.database.models import ActionResult, Account, AuditLog
+from lot_bot.database.models import Account, ActionResult, AuditLog
 from lot_bot.logs.redaction import redact
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,7 @@ class AuditService:
             ]
 
     def stats(self, days: int = 7) -> dict[str, int]:
-        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+        since = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
         with self._db.session_scope() as session:
             total = session.scalar(
                 select(func.count(AuditLog.id)).where(AuditLog.timestamp >= since)
@@ -145,7 +145,7 @@ class AuditService:
             return {"total": total, "errores": errors, "correctas": total - errors, "dias": days}
 
     def purge_older_than(self, days: int = 180) -> int:
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+        cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
         with self._db.session_scope() as session:
             result = session.execute(delete(AuditLog).where(AuditLog.timestamp < cutoff))
             return result.rowcount or 0

@@ -63,7 +63,7 @@ NAVIGATION = [
 class MainWindow(QMainWindow):
     """Ventana principal."""
 
-    def __init__(self, app: "Application") -> None:
+    def __init__(self, app: Application) -> None:
         super().__init__()
         self.app = app
         self.runner = TaskRunner()
@@ -87,7 +87,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self.views: list = []
-        for index, (label, _icon, view_class) in enumerate(NAVIGATION):
+        for label, _icon, view_class in NAVIGATION:
             try:
                 view = view_class(self.app, self.runner)
             except Exception:  # una vista rota no debe impedir abrir el programa
@@ -177,7 +177,7 @@ class MainWindow(QMainWindow):
         self.brand_sub.setText(mode)
         self.mode_label.setText(
             f"Datos en:\n{self.app.paths.root}" if not backend.demo else
-            f"MODO DEMO\nNada de lo que hagas afecta a Wallapop."
+            "MODO DEMO\nNada de lo que hagas afecta a Wallapop."
         )
 
     def refresh_current(self) -> None:

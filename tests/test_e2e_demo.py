@@ -10,7 +10,6 @@ from __future__ import annotations
 import pytest
 from PIL import Image
 
-from lot_bot.catalog.service import ProductFilter
 from lot_bot.database.models import ProductStatus
 from lot_bot.publishing.listings import ListingFilter
 from lot_bot.publishing.service import ConfirmationRequiredError

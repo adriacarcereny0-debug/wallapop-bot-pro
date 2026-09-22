@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -162,7 +162,7 @@ class MessageService:
                     wallapop_message_id=remote.message_id,
                     direction=remote.direction,
                     body=remote.body,
-                    sent_at=_naive(remote.sent_at) or datetime.now(timezone.utc).replace(tzinfo=None),
+                    sent_at=_naive(remote.sent_at) or datetime.now(UTC).replace(tzinfo=None),
                 )
             )
             added += 1
@@ -315,7 +315,7 @@ class MessageService:
                     )
                 )
                 conversation.unread = 0
-                conversation.last_message_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                conversation.last_message_at = datetime.now(UTC).replace(tzinfo=None)
 
         self._audit.record_success(
             "Envío de mensaje",
@@ -344,4 +344,4 @@ def _naive(value: datetime | None) -> datetime | None:
         return None
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.astimezone(UTC).replace(tzinfo=None)

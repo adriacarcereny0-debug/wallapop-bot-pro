@@ -120,10 +120,13 @@ def test_el_repositorio_no_contiene_secretos():
     from pathlib import Path
 
     raiz = Path(__file__).resolve().parents[1]
+    # Los patrones NO deben cruzar saltos de linea: `CLAVE=` seguida de una
+    # linea nueva es un ejemplo vacio, no un secreto.
     patrones = [
         re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),
-        re.compile(r"WALLAPOP_CLIENT_SECRET\s*=\s*[^\s\"'#]{8,}"),
-        re.compile(r"ANTHROPIC_API_KEY\s*=\s*[^\s\"'#]{8,}"),
+        re.compile(r"WALLAPOP_CLIENT_SECRET[ \t]*=[ \t]*[^\s\"'#]{8,}"),
+        re.compile(r"ANTHROPIC_API_KEY[ \t]*=[ \t]*[^\s\"'#]{8,}"),
+        re.compile(r"LOT_BOT_MASTER_KEY[ \t]*=[ \t]*[^\s\"'#]{8,}"),
     ]
     revisados = 0
     for fichero in list(raiz.rglob("*.py")) + list(raiz.rglob("*.yaml")) + list(raiz.rglob("*.md")):

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
@@ -290,7 +290,7 @@ class AccountManager:
             expires_at = account.token_expires_at
             needs_refresh = (
                 expires_at is not None
-                and expires_at <= datetime.now(timezone.utc).replace(tzinfo=None) + REFRESH_MARGIN
+                and expires_at <= datetime.now(UTC).replace(tzinfo=None) + REFRESH_MARGIN
             )
             refresh_enc = account.refresh_token_enc
             access = self._box.decrypt(account.access_token_enc)
@@ -329,7 +329,7 @@ class AccountManager:
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
             if account is not None:
-                account.last_sync_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                account.last_sync_at = datetime.now(UTC).replace(tzinfo=None)
                 account.status = AccountStatus.CONNECTED
                 account.status_detail = None
 
@@ -365,4 +365,4 @@ def _naive_utc(value: datetime | None) -> datetime | None:
         return None
     if value.tzinfo is None:
         return value
-    return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value.astimezone(UTC).replace(tzinfo=None)

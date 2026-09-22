@@ -11,8 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import select
-
 from lot_bot import APP_NAME, __version__
 from lot_bot.ai.agent import Agent
 from lot_bot.ai.provider import AIProvider
