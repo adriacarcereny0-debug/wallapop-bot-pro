@@ -303,7 +303,8 @@ class Conversation(Base, TimestampMixin):
     listing_id: Mapped[int | None] = mapped_column(ForeignKey("listings.id"))
     buyer_name: Mapped[str | None] = mapped_column(String(150))
     subject: Mapped[str | None] = mapped_column(String(250))
-    unread_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    #: Mensajes del comprador sin leer en esta conversacion.
+    unread: Mapped[int] = mapped_column("unread_count", Integer, default=0, nullable=False)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 

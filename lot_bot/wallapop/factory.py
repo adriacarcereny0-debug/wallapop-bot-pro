@@ -53,7 +53,7 @@ def build_backend(
             endpoint_map=empty_map(),
             oauth_client=None,
             demo=True,
-            reason="Modo DEMO activado en la configuracion.",
+            reason="Modo DEMO activado en la configuración.",
         )
 
     if not settings.has_wallapop_credentials:
@@ -65,7 +65,7 @@ def build_backend(
             demo=True,
             reason=(
                 "Faltan WALLAPOP_CLIENT_ID, WALLAPOP_CLIENT_SECRET o WALLAPOP_REDIRECT_URI. "
-                "La aplicacion sigue en modo DEMO para no simular una conexion real."
+                "La aplicación sigue en modo DEMO para no simular una conexión real."
             ),
         )
 
@@ -79,7 +79,7 @@ def build_backend(
             demo=True,
             reason=(
                 "No se ha encontrado el fichero de endpoints oficiales "
-                "(WALLAPOP_ENDPOINT_MAP). Sin el, LOT Bot no conoce ninguna ruta de "
+                "(WALLAPOP_ENDPOINT_MAP). Sin él, LOT Bot no conoce ninguna ruta de "
                 "Wallapop y no inventa ninguna: se mantiene el modo DEMO."
             ),
         )
@@ -124,5 +124,5 @@ def build_backend(
         endpoint_map=endpoint_map,
         oauth_client=oauth_client,
         demo=False,
-        reason=f"Integracion real activa ({len(granted)} operaciones autorizadas).",
+        reason=f"Integración real activa ({len(granted)} operaciones autorizadas).",
     )
