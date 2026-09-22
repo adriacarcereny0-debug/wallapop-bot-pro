@@ -205,8 +205,23 @@ def _error_placeholder(label: str) -> QWidget:
 
 
 def _build_icon() -> QIcon:
-    """Icono generado en memoria: evita depender de un fichero externo."""
+    """Icono de la aplicacion.
+
+    Usa el fichero empaquetado si esta disponible y, si no, lo dibuja en
+    memoria para que el programa funcione igualmente.
+    """
     from PySide6.QtGui import QColor, QPainter
+
+    from lot_bot.config.paths import get_paths
+
+    for candidate in (
+        get_paths().resources / "lot_bot.ico",
+        get_paths().resources / "lot_bot.png",
+    ):
+        if candidate.is_file():
+            icon = QIcon(str(candidate))
+            if not icon.isNull():
+                return icon
 
     pixmap = QPixmap(64, 64)
     pixmap.fill(QColor(theme.BG_ELEVATED))
