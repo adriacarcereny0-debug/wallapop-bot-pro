@@ -44,13 +44,15 @@ def _install_exception_hook() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     """Arranca la aplicación de escritorio."""
-    from PySide6.QtCore import Qt
+    from PySide6.QtCore import QLocale, Qt
     from PySide6.QtWidgets import QApplication
 
     from lot_bot.bootstrap import create_application, seed_demo_catalog
     from lot_bot.ui.main_window import MainWindow
     from lot_bot.ui.theme import stylesheet
 
+    # Números y precios con formato español (11,44 €) en toda la interfaz.
+    QLocale.setDefault(QLocale(QLocale.Language.Spanish, QLocale.Country.Spain))
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontShowIconsInMenus, False)
     qt_app = QApplication(argv if argv is not None else sys.argv)
     qt_app.setApplicationName(APP_NAME)

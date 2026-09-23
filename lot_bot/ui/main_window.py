@@ -31,6 +31,7 @@ from lot_bot.ui.views import (
     InventoryView,
     ListingsView,
     LogsView,
+    MasterAdView,
     MessagesView,
     PricingView,
     ProductsView,
@@ -47,6 +48,7 @@ logger = logging.getLogger(__name__)
 NAVIGATION = [
     ("Panel", "▦", DashboardView),
     ("Asistente IA", "✦", AssistantView),
+    ("Anuncio principal", "★", MasterAdView),
     ("Cuentas de Wallapop", "◉", AccountsView),
     ("Productos", "▤", ProductsView),
     ("Anuncios", "◨", ListingsView),
@@ -81,9 +83,21 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self._build_sidebar())
 
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(0)
+        # Franja fija: en DEMO debe ser imposible no darse cuenta.
+        self.demo_banner = QLabel()
+        self.demo_banner.setWordWrap(True)
+        self.demo_banner.setStyleSheet(
+            f"background: {theme.WARNING}; color: #1a1300; font-weight: 700; "
+            f"padding: 8px 18px;"
+        )
+        right.addWidget(self.demo_banner)
         self.stack = QStackedWidget()
         self.stack.setObjectName("Content")
-        layout.addWidget(self.stack, 1)
+        right.addWidget(self.stack, 1)
+        layout.addLayout(right, 1)
         self.setCentralWidget(central)
 
         self.views: list = []
@@ -102,8 +116,8 @@ class MainWindow(QMainWindow):
         self.setStatusBar(status)
         self._update_status()
 
-        self.nav_buttons[0].setChecked(True)
-        self._go_to(0)
+        # El asistente es el centro de la aplicación: se abre directamente ahí.
+        self._go_to(1)
 
     # ------------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
@@ -188,6 +202,11 @@ class MainWindow(QMainWindow):
         )
         self.brand_sub.setText("MODO DEMO" if backend.demo else "WALLAPOP REAL")
         self.mode_label.setText(detail)
+        self.demo_banner.setVisible(backend.demo)
+        self.demo_banner.setText(
+            "MODO DEMO — Datos simulados. Nada de lo que hagas se envía a Wallapop: "
+            "las publicaciones, precios y mensajes son de prueba."
+        )
 
     def refresh_current(self) -> None:
         self._on_page_changed(self.stack.currentIndex())

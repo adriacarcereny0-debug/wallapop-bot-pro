@@ -7,7 +7,6 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -61,7 +60,9 @@ class ProductDialog(QDialog):
         self.sku = QLineEdit(product.sku if product else "")
         self.sku.setPlaceholderText("Se genera automáticamente si lo dejas vacío")
         self.product_type = QLineEdit(product.product_type if product else "Canapé abatible")
-        self.category = QLineEdit(product.category if product else "Hogar y jardín")
+        self.category = QLineEdit(product.category if product else "")
+        self.category.setPlaceholderText("Obligatoria para publicar")
+        self.subcategory = QLineEdit(product.subcategory or "" if product else "")
         self.size = QLineEdit(product.size if product else "")
         self.size.setPlaceholderText("135x190")
         self.color = QLineEdit(product.color if product else "")
@@ -80,11 +81,31 @@ class ProductDialog(QDialog):
         self.stock.setValue(product.stock if product else 0)
         self.description = QPlainTextEdit(product.description or "" if product else "")
         self.description.setFixedHeight(90)
+        self.status = QComboBox()
+        for value, label in STATUS_LABELS.items():
+            self.status.addItem(label, value)
+        if product:
+            index = self.status.findData(product.status)
+            if index >= 0:
+                self.status.setCurrentIndex(index)
+        self.features = QPlainTextEdit()
+        self.features.setFixedHeight(70)
+        self.features.setPlaceholderText("Una por línea, «nombre: valor». Ej.: almacenaje: sí")
+        if product:
+            extra = {
+                k: v
+                for k, v in product.features.items()
+                if k not in {"medida", "color", "material", "estado"}
+            }
+            self.features.setPlainText("\n".join(f"{k}: {v}" for k, v in extra.items()))
+        self.tags = QLineEdit(", ".join(product.tags) if product else "")
+        self.tags.setPlaceholderText("Separadas por comas")
 
         form.addRow("Nombre*", self.name)
         form.addRow("SKU", self.sku)
         form.addRow("Tipo", self.product_type)
         form.addRow("Categoría", self.category)
+        form.addRow("Subcategoría", self.subcategory)
         form.addRow("Medida", self.size)
         form.addRow("Color", self.color)
         form.addRow("Material", self.material)
@@ -92,6 +113,9 @@ class ProductDialog(QDialog):
         form.addRow("Precio", self.price)
         form.addRow("Stock", self.stock)
         form.addRow("Descripción", self.description)
+        form.addRow("Características", self.features)
+        form.addRow("Etiquetas", self.tags)
+        form.addRow("Situación", self.status)
         layout.addLayout(form)
 
         buttons = spanish_buttons(QDialogButtonBox(
@@ -114,7 +138,20 @@ class ProductDialog(QDialog):
             "price": self.price.value() or None,
             "stock": self.stock.value(),
             "description": self.description.toPlainText().strip(),
+            "subcategory": self.subcategory.text().strip(),
+            "status": self.status.currentData(),
+            "features": self._features(),
+            "tags": [t.strip() for t in self.tags.text().split(",") if t.strip()],
         }
+
+    def _features(self) -> dict:
+        features: dict[str, str] = {}
+        for line in self.features.toPlainText().splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                if key.strip() and value.strip():
+                    features[key.strip()] = value.strip()
+        return features
 
 
 class ProductsView(BaseView):
@@ -343,27 +380,9 @@ class ProductsView(BaseView):
         product_id = self._selected_id()
         if product_id is None:
             return
-        product = self.app.catalog.get_product(product_id)
-        paths, _ = QFileDialog.getOpenFileNames(
-            self,
-            "Selecciona las fotografías",
-            "",
-            "Imágenes (*.jpg *.jpeg *.png *.webp)",
-        )
-        if not paths:
-            return
-        imported, problems = self.app.images.import_many(paths, product.sku)
-        for info in imported:
-            self.app.catalog.add_image(product_id, info.to_dict())
-        self.app.audit.record_success(
-            "Importación de fotografías",
-            target=product.sku,
-            detail=f"{len(imported)} importadas, {len(problems)} descartadas",
-        )
-        message = f"{len(imported)} fotografía(s) añadidas a {product.sku}."
-        if problems:
-            message += "\n\nIncidencias:\n" + "\n".join(f"• {p}" for p in problems)
-        info_box(self, "Fotografías", message)
+        from lot_bot.ui.widgets.images_dialog import ImagesDialog, product_adapter
+
+        ImagesDialog(product_adapter(self.app, product_id), self).exec()
         self.refresh()
 
     def _assign(self) -> None:

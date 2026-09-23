@@ -307,7 +307,7 @@ class CatalogService:
                 features=dict(data.get("features") or data.get("caracteristicas") or {}),
                 tags=list(data.get("tags") or data.get("etiquetas") or []),
                 template_id=data.get("template_id"),
-                status=ProductStatus.DRAFT,
+                status=_status(data.get("status")) or ProductStatus.DRAFT,
             )
             _sync_feature_fields(product)
             session.add(product)
@@ -556,6 +556,16 @@ class CatalogService:
             counter += 1
             candidate = f"{base}-{counter}"
         return candidate
+
+
+def _status(value: Any) -> ProductStatus | None:
+    """Acepta el estado como enumerado o como texto («ready»)."""
+    if isinstance(value, ProductStatus):
+        return value
+    try:
+        return ProductStatus(str(value)) if value else None
+    except ValueError:
+        return None
 
 
 def _clean(value: Any) -> str | None:

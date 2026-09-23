@@ -25,6 +25,7 @@ from lot_bot.ui.widgets.common import (
     build_table,
     fill_table,
     info_box,
+    listing_status_label,
     selected_row_data,
     show_error,
     spanish_buttons,
@@ -58,7 +59,7 @@ class ListingsView(BaseView):
 
         card = Card()
         self.table = build_table(
-            ["Cuenta", "Título", "Precio", "Estado", "Visitas", "Favoritos", "Fotos", "SKU"]
+            ["Cuenta", "Título", "Precio", "Estado", "Visitas", "Favoritos", "Fotos", "Origen"]
         )
         self.table.itemSelectionChanged.connect(self._on_selection)
         card.add(self.table)
@@ -122,17 +123,19 @@ class ListingsView(BaseView):
                     v.account_alias,
                     v.title,
                     f"{v.price:.2f} €" if v.price else "—",
-                    v.status,
+                    listing_status_label(v.status),
                     v.views,
                     v.favorites,
                     len(v.image_urls),
-                    v.product_sku or "—",
+                    ("★ Anuncio principal" + (" (con cambios)" if v.overrides else ""))
+                    if v.master_ad_id
+                    else (v.product_sku or "—"),
                 ]
                 for v in listings
             ],
             row_data=[v.id for v in listings],
             colorizer=lambda row, col, value: (
-                theme.STATUS_COLORS.get(str(value)) if col == 3 else None
+                theme.STATUS_COLORS.get(listings[row].status) if col == 3 and row < len(listings) else None
             ),
         )
         stats = self.app.listings.stats()

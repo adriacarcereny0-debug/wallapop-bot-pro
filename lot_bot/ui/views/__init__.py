@@ -9,6 +9,7 @@ from lot_bot.ui.views.history import HistoryView
 from lot_bot.ui.views.inventory import InventoryView
 from lot_bot.ui.views.listings import ListingsView
 from lot_bot.ui.views.logs import LogsView
+from lot_bot.ui.views.master_ad import MasterAdView
 from lot_bot.ui.views.messages import MessagesView
 from lot_bot.ui.views.pricing import PricingView
 from lot_bot.ui.views.products import ProductsView
@@ -28,4 +29,5 @@ __all__ = [
     "HistoryView",
     "SettingsView",
     "LogsView",
+    "MasterAdView",
 ]

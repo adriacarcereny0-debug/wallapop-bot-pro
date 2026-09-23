@@ -11,6 +11,7 @@ from lot_bot.ui.widgets.common import (
     Card,
     StatCard,
     Toolbar,
+    ask_confirmation,
     build_table,
     fill_table,
     info_box,
@@ -107,6 +108,15 @@ class InventoryView(BaseView):
         if not ids:
             return
         value = self.stock_spin.value()
+        names = [p.sku for p in self._products if p.id in ids]
+        if not ask_confirmation(
+            self,
+            "Cambiar inventario",
+            f"Voy a poner el stock de {len(ids)} producto(s) a {value} unidades:\n\n"
+            + "\n".join(f"• {n}" for n in names[:20])
+            + ("\n…" if len(names) > 20 else ""),
+        ):
+            return
         for product_id in ids:
             self.app.catalog.update_stock(product_id, value)
         self.app.audit.record_success(

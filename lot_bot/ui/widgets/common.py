@@ -374,3 +374,19 @@ def spanish_buttons(box):
         if translated:
             button.setText(translated)
     return box
+
+
+#: Estados de anuncio en español, para las tablas.
+LISTING_STATUS_LABELS = {
+    "draft": "Borrador",
+    "pending": "Pendiente",
+    "active": "Activo",
+    "inactive": "Inactivo",
+    "sold": "Vendido",
+    "removed": "Retirado",
+    "error": "Error",
+}
+
+
+def listing_status_label(value: str) -> str:
+    return LISTING_STATUS_LABELS.get(value, value)

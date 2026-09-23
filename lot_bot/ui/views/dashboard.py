@@ -69,7 +69,9 @@ class DashboardView(BaseView):
         self.sync_button.setEnabled(True)
 
         accounts = self.app.accounts.list_accounts()
-        connected = [a for a in accounts if a.is_connected]
+        connected = [
+            a for a in accounts if a.is_connected and (backend.demo or not a.is_demo)
+        ]
         listing_stats = self.app.listings.stats()
         product_counts = self.app.catalog.count_products()
         audit_stats = self.app.audit.stats(days=7)
@@ -80,8 +82,11 @@ class DashboardView(BaseView):
         self.stats["anuncios"].update_value(
             listing_stats["activos"], f"de {listing_stats['total']} en total"
         )
+        master_stats = self.app.master_ads.stats()
         self.stats["productos"].update_value(
-            product_counts["total"], f"{product_counts.get('published', 0)} publicados"
+            product_counts["total"],
+            f"{product_counts.get('published', 0)} publicados · anuncio principal: "
+            f"{master_stats['publicaciones']} publicaciones",
         )
         unread = self.app.messages.unread_count() if self.app.messages.messaging_available else "—"
         self.stats["mensajes"].update_value(
@@ -104,7 +109,7 @@ class DashboardView(BaseView):
             [
                 [
                     a.alias,
-                    a.status_label,
+                    "Solo demostración" if (a.is_demo and not backend.demo) else a.status_label,
                     listings_by_account.get(a.internal_ref, 0),
                     a.last_sync_at.strftime("%d/%m/%Y %H:%M") if a.last_sync_at else "nunca",
                 ]
