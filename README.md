@@ -68,7 +68,7 @@ teléfono son variables editables, no texto fijo.
 * «publica 10 canapés» → reparte copias entre cuentas y pide confirmación.
 * Un cambio en una publicación concreta **no toca** la plantilla; solo
   «actualiza la plantilla» (con confirmación) la modifica.
-* «Restaurar original» devuelve los datos del cliente.
+* «Restaurar datos originales» devuelve los datos del cliente.
 
 ## Principios de diseño
 

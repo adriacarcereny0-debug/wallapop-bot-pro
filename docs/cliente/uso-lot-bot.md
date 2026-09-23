@@ -49,11 +49,11 @@ título, características, precio, descripción con las tres medidas y tu WhatsA
 * Cuando cambias el precio **de una publicación concreta**, tu anuncio principal
   **no cambia**.
 * Solo cambia si lo pides expresamente: «actualiza la plantilla» (y confirmas).
-* El botón **Restaurar original** devuelve los datos iniciales.
+* El botón **Restaurar datos originales** devuelve los datos iniciales.
 
 ## 5. Fotos
 
-Desde **Anuncio principal** o **Productos**, pulsa **Imágenes** para:
+Desde **Anuncio principal** o **Productos**, pulsa **Fotografías** para:
 añadir fotos, verlas, cambiar su orden (la primera es la portada), eliminarlas y
 comprobar que tienen buena calidad. LOT Bot avisa si una foto es demasiado pequeña
 o está repetida.
