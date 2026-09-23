@@ -35,6 +35,7 @@ from lot_bot.ui.views import (
     MessagesView,
     PricingView,
     ProductsView,
+    PublishQueueView,
     SettingsView,
 )
 from lot_bot.ui.widgets.workers import TaskRunner
@@ -49,6 +50,7 @@ NAVIGATION = [
     ("Panel", "▦", DashboardView),
     ("Asistente IA", "✦", AssistantView),
     ("Anuncio principal", "★", MasterAdView),
+    ("Publicación automática", "⇪", PublishQueueView),
     ("Cuentas de Wallapop", "◉", AccountsView),
     ("Productos", "▤", ProductsView),
     ("Anuncios", "◨", ListingsView),
@@ -160,6 +162,12 @@ class MainWindow(QMainWindow):
         return sidebar
 
     # ------------------------------------------------------------------
+    def go_to_view(self, label: str) -> None:
+        for index, (name, _icon, _view) in enumerate(NAVIGATION):
+            if name == label:
+                self._go_to(index)
+                return
+
     def _go_to(self, index: int) -> None:
         """Muestra una pantalla y recarga sus datos."""
         self.stack.setCurrentIndex(index)
@@ -192,15 +200,15 @@ class MainWindow(QMainWindow):
             connected = sum(1 for a in accounts if a.is_connected)
             detail = "MODO DEMO\nNada de lo que hagas afecta a Wallapop."
         else:
-            mode = f"WALLAPOP REAL — {self.app.auth_method.describe()}"
+            mode = f"{backend.label} — {self.app.auth_method.describe()}"
             connected = sum(1 for a in accounts if a.is_connected and not a.is_demo)
-            detail = f"WALLAPOP REAL\nDatos en:\n{self.app.paths.root}"
+            detail = f"{backend.label}\nDatos en:\n{self.app.paths.root}"
 
         self.status_label.setText(
             f"  {mode}   ·   {connected}/{len(accounts)} cuentas conectadas   ·   "
             f"Asistente: {self.app.agent.provider.describe()}"
         )
-        self.brand_sub.setText("MODO DEMO" if backend.demo else "WALLAPOP REAL")
+        self.brand_sub.setText(backend.label)
         self.mode_label.setText(detail)
         self.demo_banner.setVisible(backend.demo)
         self.demo_banner.setText(

@@ -34,7 +34,8 @@ class AccountsView(BaseView):
     subtitle = "Cada cuenta está aislada: nunca se mezclan anuncios ni mensajes"
 
     def build(self) -> None:
-        self.add_header_button("Añadir cuenta", self._add_account, primary=True)
+        self.add_header_button("Añadir cuenta Wallapop", self._add_browser_account, primary=True)
+        self.add_header_button("Añadir cuenta", self._add_account)
         self.add_header_button("Actualizar", self.refresh)
 
         # --- Estado del acceso ---
@@ -83,6 +84,14 @@ class AccountsView(BaseView):
         self.sync_button.clicked.connect(self._sync)
         actions.addWidget(self.sync_button)
 
+        self.browser_button = QPushButton("Abrir navegador")
+        self.browser_button.setToolTip(
+            "Abre el navegador de esta cuenta para completar a mano una verificación "
+            "que pida Wallapop."
+        )
+        self.browser_button.clicked.connect(self._open_browser)
+        actions.addWidget(self.browser_button)
+
         self.rename_button = QPushButton("Renombrar")
         self.rename_button.clicked.connect(self._rename)
         actions.addWidget(self.rename_button)
@@ -108,6 +117,15 @@ class AccountsView(BaseView):
                 f"Las cuentas que ves son simuladas y nada afecta a Wallapop."
             )
             self.details_button.setVisible(True)
+        elif self.app.browser_auth is not None:
+            self.notice.setText(
+                f"<b style='color:{theme.SUCCESS}'>WALLAPOP (NAVEGADOR)</b> — las cuentas "
+                f"conectadas aquí son cuentas autorizadas para el uso personal del titular de "
+                f"LOT Bot. No es una integración oficial de Wallapop. Tú inicias sesión en el "
+                f"navegador; LOT Bot no ve ni guarda tu contraseña y cada cuenta tiene su "
+                f"propio perfil de navegador aislado."
+            )
+            self.details_button.setVisible(False)
         else:
             self.notice.setText(
                 f"<b style='color:{theme.SUCCESS}'>WALLAPOP REAL</b> — acceso mediante "
@@ -188,6 +206,11 @@ class AccountsView(BaseView):
         ):
             button.setEnabled(has)
 
+        self.browser_button.setEnabled(
+            has
+            and self.app.browser_auth is not None
+            and account.auth_method == AuthKind.BROWSER_SESSION.value
+        )
         method_ready = self.app.auth_method.is_ready
         conectada = bool(account) and self._really_connected(account, self.app.demo_mode)
         self.connect_button.setEnabled(has and method_ready and not conectada)
@@ -255,6 +278,9 @@ class AccountsView(BaseView):
     def _connect_account(self, account, reauth: bool = False) -> None:
         """Lanza el mecanismo de acceso que corresponda."""
         method = self.app.auth_method
+        if self.app.browser_auth is not None and not account.is_demo:
+            self._browser_login(account, new=False)
+            return
 
         if method.kind is AuthKind.DEMO and not self.app.demo_mode:
             self._show_missing()
@@ -316,6 +342,118 @@ class AccountsView(BaseView):
         self.run_task(work, on_success=success, on_done=done)
 
     # ------------------------------------------------------------------
+    # Integración por navegador
+    # ------------------------------------------------------------------
+    def _add_browser_account(self) -> None:
+        if self.app.browser_auth is None:
+            info_box(
+                self,
+                "Integración por navegador desactivada",
+                "Para conectar tus cuentas de Wallapop, activa primero la integración en "
+                "Configuración → Wallapop → «Integración mediante navegador».\n\n"
+                "Mientras tanto LOT Bot funciona en modo demostración.",
+            )
+            return
+        alias, accepted = QInputDialog.getText(
+            self, "Añadir cuenta Wallapop", "Nombre para reconocer esta cuenta en LOT Bot:"
+        )
+        if not accepted or not alias.strip():
+            return
+        if not ask_confirmation(
+            self,
+            "Iniciar sesión en Wallapop",
+            "Se abrirá una ventana del navegador con Wallapop.\n\n"
+            "1. Inicia sesión tú mismo con la cuenta que quieras conectar.\n"
+            "2. Si Wallapop te pide una verificación, complétala en esa ventana.\n"
+            "3. Cuando LOT Bot detecte la sesión, te pedirá confirmación.\n\n"
+            "LOT Bot no ve ni guarda tu contraseña. Esta conexión es para tu uso "
+            "personal autorizado; no es una integración oficial de Wallapop.",
+        ):
+            return
+        try:
+            account = self.app.accounts.add_account(alias.strip(), is_demo=False)
+        except ValueError as exc:
+            show_error(self, str(exc))
+            return
+        self.app.audit.record_success("Alta de cuenta", target=account.alias, detail="navegador")
+        self.refresh()
+        self._browser_login(account, new=True)
+
+    def _browser_login(self, account, *, new: bool) -> None:
+        method = self.app.browser_auth
+        self.connect_button.setEnabled(False)
+        self.connect_button.setText("Esperando inicio de sesión…")
+
+        def work():
+            return method.wait_for_login(account.internal_ref)
+
+        def success(result) -> None:
+            if not result.ok:
+                self.app.audit.record_error(
+                    "Conexión de cuenta por navegador",
+                    error=result.message,
+                    account_ref=account.internal_ref,
+                    target=account.alias,
+                )
+                if new:
+                    self.app.accounts.remove_account(account.internal_ref)
+                show_error(self, "No se ha conectado la cuenta.", result.message)
+                return
+            shown = f"«{result.login}»" if result.login else "la cuenta con la que has iniciado sesión"
+            if not ask_confirmation(
+                self,
+                "Confirmar cuenta",
+                f"Se ha detectado la sesión de {shown}.\n\n"
+                f"¿Quieres conectarla a LOT Bot como «{account.alias}»?\n\n"
+                f"Quedará guardada en un perfil de navegador exclusivo de esta cuenta, "
+                f"en tu ordenador, para reutilizarla. Puedes borrarla con «Desconectar».",
+            ):
+                if new:
+                    self.app.accounts.remove_account(account.internal_ref)
+                else:
+                    self.app.accounts.disconnect(account.internal_ref)
+                self.app.audit.record_cancelled(
+                    "Conexión de cuenta por navegador", target=account.alias
+                )
+                return
+            outcome = self.app.accounts.connect(
+                account.internal_ref, method=method, login_detected=True, login=result.login
+            )
+            if outcome.success:
+                self.app.audit.record_success(
+                    "Conexión de cuenta",
+                    account_ref=account.internal_ref,
+                    target=account.alias,
+                    detail=method.describe(),
+                )
+                info_box(self, "Cuenta conectada", f"«{account.alias}» está conectada.")
+            else:
+                show_error(self, outcome.message)
+
+        def done(_=None) -> None:
+            self.connect_button.setText("Conectar")
+            self.refresh()
+
+        self.run_task(work, on_success=success, on_done=done)
+
+    def _open_browser(self) -> None:
+        account = self._selected()
+        method = self.app.browser_auth
+        if account is None or method is None:
+            return
+        info_box(
+            self,
+            "Abrir navegador",
+            f"Se abrirá el navegador de «{account.alias}». Haz lo que Wallapop te pida "
+            f"(por ejemplo, una verificación) y cierra la ventana al terminar.",
+        )
+        self.run_task(
+            method.open_for_user,
+            account.internal_ref,
+            on_done=lambda *_: self.refresh(),
+        )
+
+    # ------------------------------------------------------------------
     def _disconnect(self) -> None:
         account = self._selected()
         if account is None:
@@ -323,7 +461,8 @@ class AccountsView(BaseView):
         if not ask_confirmation(
             self,
             "Desconectar cuenta",
-            f"Se borrará la credencial guardada de «{account.alias}».\n\n"
+            f"Se borrará la credencial guardada de «{account.alias}» (y, si se conectó "
+            f"por navegador, su sesión y cookies guardadas).\n\n"
             f"Los anuncios seguirán en Wallapop; solo se corta el acceso de LOT Bot.",
         ):
             return

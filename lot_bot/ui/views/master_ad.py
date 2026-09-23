@@ -463,20 +463,23 @@ class MasterAdView(BaseView):
         if blocked:
             reasons = sorted({i.message for p in blocked for i in (p.quality.errors if p.quality else [])})
             text += f"\n\nNO se podrán publicar {len(blocked)}: " + "; ".join(reasons)
+        queue = self.app.publish_queue
+        text += (
+            f"\n\nSe publicarán de uno en uno, con al menos {queue.interval} segundos entre "
+            f"publicaciones. Puedes seguir el progreso en «Publicación automática»."
+        )
         if self.app.demo_mode:
             text += "\n\nMODO DEMO: no se enviará nada a Wallapop; es una simulación."
         if not ask_confirmation(self, "Confirmar publicación", text):
             return
-
-        def done(outcomes) -> None:
-            ok_count = sum(1 for o in outcomes if o.success)
-            detail = "\n".join(f"• {aliases.get(o.account_ref, o.account_ref)}: {o.message}" for o in outcomes)
-            info_box(self, "Resultado", f"Publicados {ok_count} de {len(outcomes)}.\n\n{detail}")
-            self.refresh()
-
-        self.run_task(
-            lambda: self.app.master_ads.publish(
-                master.key, refs, copies, overrides, confirmed=True, actor="usuario"
-            ),
-            on_success=done,
-        )
+        try:
+            queue.enqueue_master(master.key, refs, copies, overrides, actor="usuario")
+        except ValueError as exc:
+            show_error(self, str(exc))
+            return
+        window = self.window()
+        if hasattr(window, "go_to_view"):
+            window.go_to_view("Publicación automática")
+        else:
+            info_box(self, "Cola creada", "Sigue el progreso en «Publicación automática».")
+        self.refresh()

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -36,7 +38,7 @@ class SettingsView(BaseView):
         self.tabs = QTabWidget()
         self.tabs.addTab(self._business_tab(), "Negocio")
         self.tabs.addTab(self._templates_tab(), "Plantillas")
-        self.tabs.addTab(self._ai_tab(), "IA")
+        self.tabs.addTab(self._ai_tab(), "IA / Imágenes")
         self.tabs.addTab(self._wallapop_tab(), "Wallapop")
         self.tabs.addTab(self._about_tab(), "Acerca de")
         self.body.addWidget(self.tabs, 1)
@@ -171,12 +173,170 @@ class SettingsView(BaseView):
         apply_button.clicked.connect(self._apply_ai)
         card.add(apply_button)
         layout.addWidget(card)
+        layout.addWidget(self._flux_card())
         layout.addStretch(1)
         return widget
+
+    def _flux_card(self) -> QWidget:
+        card = Card()
+        card.add(SectionTitle("Imágenes automáticas — FLUX.2 Pro (Black Forest Labs)"))
+        explanation = QLabel(
+            "Genera una fotografía de producto distinta para cada anuncio que publica la "
+            "cola. La clave se guarda cifrada en este ordenador (no en ningún fichero de "
+            "texto) y nunca aparece en los registros. En modo DEMO no se usa: se generan "
+            "imágenes de prueba sin gastar créditos."
+        )
+        explanation.setWordWrap(True)
+        explanation.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        card.add(explanation)
+
+        row = QHBoxLayout()
+        self.flux_key = QLineEdit()
+        self.flux_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.flux_key.setPlaceholderText("Pega aquí la clave de API de Black Forest Labs")
+        row.addWidget(self.flux_key, 1)
+        self.flux_show = QPushButton("Mostrar")
+        self.flux_show.setCheckable(True)
+        self.flux_show.toggled.connect(self._toggle_flux_visibility)
+        row.addWidget(self.flux_show)
+        card.body.addLayout(row)
+
+        self.flux_status = QLabel()
+        self.flux_status.setWordWrap(True)
+        card.add(self.flux_status)
+
+        buttons = QHBoxLayout()
+        save = QPushButton("Guardar")
+        save.setObjectName("Primary")
+        save.clicked.connect(self._save_flux_key)
+        buttons.addWidget(save)
+        self.flux_test = QPushButton("Probar conexión y ver saldo")
+        self.flux_test.clicked.connect(self._test_flux)
+        buttons.addWidget(self.flux_test)
+        delete = QPushButton("Eliminar clave")
+        delete.setObjectName("Danger")
+        delete.clicked.connect(self._delete_flux_key)
+        buttons.addWidget(delete)
+        buttons.addStretch(1)
+        card.body.addLayout(buttons)
+        return card
+
+    # -- FLUX -------------------------------------------------------------
+    def _toggle_flux_visibility(self, visible: bool) -> None:
+        from lot_bot.config.api_keys import FLUX
+
+        if visible and not self.flux_key.text():
+            self.flux_key.setText(self.app.api_keys.get(FLUX) or "")
+        self.flux_key.setEchoMode(
+            QLineEdit.EchoMode.Normal if visible else QLineEdit.EchoMode.Password
+        )
+        self.flux_show.setText("Ocultar" if visible else "Mostrar")
+
+    def _refresh_flux(self) -> None:
+        from lot_bot.config.api_keys import FLUX
+
+        key = self.app.api_keys.get(FLUX)
+        self.flux_key.clear()
+        self.flux_show.setChecked(False)
+        self.flux_status.setText(
+            f"Clave guardada: {mask(key)}" if key else "No hay ninguna clave guardada."
+        )
+
+    def _save_flux_key(self) -> None:
+        from lot_bot.config.api_keys import FLUX
+
+        try:
+            self.app.api_keys.set(FLUX, self.flux_key.text())
+        except ValueError as exc:
+            show_error(self, str(exc))
+            return
+        self.app.refresh_image_generator()
+        self.app.audit.record_success("Clave de FLUX.2 Pro guardada", actor="usuario")
+        self._refresh_flux()
+        info_box(self, "Clave guardada", "La clave se ha guardado cifrada en este ordenador.")
+
+    def _delete_flux_key(self) -> None:
+        from lot_bot.config.api_keys import FLUX
+        from lot_bot.ui.widgets.common import ask_confirmation
+
+        if not ask_confirmation(
+            self, "Eliminar clave", "Se borrará la clave de FLUX.2 Pro de este ordenador."
+        ):
+            return
+        self.app.api_keys.delete(FLUX)
+        self.app.refresh_image_generator()
+        self.app.audit.record_success("Clave de FLUX.2 Pro eliminada", actor="usuario")
+        self._refresh_flux()
+
+    def _test_flux(self) -> None:
+        from lot_bot.config.api_keys import FLUX
+        from lot_bot.images.generation import FluxImageService, GenerationError
+
+        typed = self.flux_key.text().strip()
+        key = typed or self.app.api_keys.get(FLUX)
+        if not key:
+            show_error(self, "Escribe o guarda antes una clave.")
+            return
+        self.flux_test.setEnabled(False)
+        self.flux_status.setText("Comprobando con Black Forest Labs…")
+
+        def work():
+            try:
+                return ("ok", FluxImageService(lambda: key).get_credits())
+            except GenerationError as exc:
+                return ("error", exc.user_message)
+
+        def success(result) -> None:
+            status, value = result
+            if status == "ok":
+                credits = "no disponible" if value is None else f"{value:g} créditos"
+                self.flux_status.setText(f"Conexión correcta. Saldo: {credits}.")
+            else:
+                self.flux_status.setText(f"<span style='color:{theme.DANGER}'>{value}</span>")
+
+        self.run_task(work, on_success=success, on_done=lambda *_: self.flux_test.setEnabled(True))
 
     def _wallapop_tab(self) -> QWidget:
         widget = QWidget()
         layout = QVBoxLayout(widget)
+
+        integration = Card()
+        integration.add(SectionTitle("Integración con Wallapop"))
+        form = QFormLayout()
+        self.integration_mode = QComboBox()
+        self.integration_mode.addItem("Modo demostración (sin Wallapop)", "demo")
+        self.integration_mode.addItem(
+            "Integración mediante navegador (uso personal autorizado)", "navegador"
+        )
+        form.addRow("Modo", self.integration_mode)
+        self.publish_interval = QSpinBox()
+        self.publish_interval.setRange(60, 3600)
+        self.publish_interval.setSuffix(" s")
+        form.addRow("Intervalo mínimo entre publicaciones", self.publish_interval)
+        self.publish_images = QCheckBox("Generar una imagen distinta para cada anuncio")
+        form.addRow("Imágenes", self.publish_images)
+        integration.body.addLayout(form)
+        integration_note = QLabel(
+            "Con la integración por navegador tú inicias sesión en Wallapop y LOT Bot "
+            "publica por ti desde ese navegador, con un mínimo de 60 segundos entre "
+            "anuncios. Es para el uso personal autorizado del titular de LOT Bot; no es "
+            "una integración oficial de Wallapop. Los pasos de la web están en "
+            "wallapop_browser.yaml."
+        )
+        integration_note.setWordWrap(True)
+        integration_note.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        integration.add(integration_note)
+        self.selectors_label = QLabel()
+        self.selectors_label.setWordWrap(True)
+        self.selectors_label.setTextInteractionFlags(
+            self.selectors_label.textInteractionFlags().TextSelectableByMouse
+        )
+        integration.add(self.selectors_label)
+        apply_integration = QPushButton("Aplicar")
+        apply_integration.setObjectName("Primary")
+        apply_integration.clicked.connect(self._apply_integration)
+        integration.add(apply_integration)
+        layout.addWidget(integration)
 
         card = Card()
         card.add(SectionTitle("Acceso a Wallapop"))
@@ -260,6 +420,19 @@ class SettingsView(BaseView):
             self.ai_provider.setCurrentIndex(index)
         self.ai_key_label.setText(mask(settings.anthropic_api_key))
         self.ai_model_label.setText(settings.ai_model)
+        self._refresh_flux()
+
+        index = self.integration_mode.findData(self.app.integration_mode or "demo")
+        self.integration_mode.setCurrentIndex(max(index, 0))
+        queue_settings = self.app.publish_queue.settings()
+        self.publish_interval.setValue(queue_settings["minimum_publish_interval_seconds"])
+        self.publish_images.setChecked(bool(queue_settings["generate_images"]))
+        from lot_bot.wallapop.browser.config import local_config_path
+
+        self.selectors_label.setText(
+            f"Para ajustar los pasos de la web, copia el fichero incluido a: "
+            f"{local_config_path()}"
+        )
 
         backend = self.app.backend
         method = self.app.auth_method
@@ -281,8 +454,8 @@ class SettingsView(BaseView):
             )
         elif backend.demo:
             self.missing_label.setPlainText(
-                "Estás en modo DEMO por configuración. Pon LOT_BOT_DEMO_MODE=false y "
-                "configura un perfil de acceso para conectar con Wallapop real."
+                "Estás en modo DEMO. Para publicar en Wallapop, elige arriba «Integración "
+                "mediante navegador» y conecta tus cuentas en Cuentas → «Añadir cuenta Wallapop»."
             )
         else:
             pendientes = [m for m in self.app.missing_access_data]
@@ -396,6 +569,21 @@ class SettingsView(BaseView):
         self.app.set_ai_provider(provider)
         self.app.audit.record_success("Cambio de asistente IA", detail=provider.describe())
         info_box(self, "Asistente actualizado", f"Modo activo: {provider.describe()}")
+        self.refresh()
+
+    def _apply_integration(self) -> None:
+        mode = self.integration_mode.currentData()
+        try:
+            self.app.publish_queue.save_settings(
+                minimum_publish_interval_seconds=self.publish_interval.value(),
+                generate_images=self.publish_images.isChecked(),
+            )
+            if mode != (self.app.integration_mode or "demo"):
+                self.app.set_integration_mode(mode)
+        except (ValueError, RuntimeError) as exc:
+            show_error(self, "No se ha podido aplicar la configuración.", str(exc))
+            return
+        info_box(self, "Configuración aplicada", f"Modo activo: {self.app.backend_label}")
         self.refresh()
 
     def _select_access_profile(self) -> None:
