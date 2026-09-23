@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     #: Nombre anterior del fichero, aceptado para no romper instalaciones.
     wallapop_endpoint_map: str = Field(default="", alias="WALLAPOP_ENDPOINT_MAP")
     wallapop_scopes: str = Field(default="", alias="WALLAPOP_SCOPES")
+    #: «navegador» = integración mediante navegador con sesión del usuario.
+    #: Normalmente se elige en Configuración → Wallapop (se guarda en la base
+    #: de datos local); esta variable solo sirve para forzarlo.
+    wallapop_integration: Literal["", "perfil", "navegador"] = Field(
+        default="", alias="LOT_BOT_WALLAPOP_INTEGRATION"
+    )
 
     # --- IA ---
     ai_provider: Literal["anthropic", "rules"] = Field(default="rules", alias="LOT_BOT_AI_PROVIDER")
@@ -151,6 +157,11 @@ class Settings(BaseSettings):
         """
         path = self.access_profile_path
         return path is not None and path.is_file()
+
+    @property
+    def demo_forced(self) -> bool:
+        """True si LOT_BOT_DEMO_MODE=true se ha indicado expresamente."""
+        return self.demo_mode and "demo_mode" in self.model_fields_set
 
     @property
     def effective_demo_mode(self) -> bool:

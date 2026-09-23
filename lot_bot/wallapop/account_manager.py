@@ -108,6 +108,21 @@ class AccountManager:
         self._db = database
         self._box = secret_box or get_secret_box()
         self._auth = auth_method or DemoAuthMethod()
+        #: Perfiles de navegador por cuenta (integración por navegador).
+        self._browser_profiles: Any = None
+
+    def set_browser_profiles(self, store: Any) -> None:
+        """Almacén de perfiles de navegador: al desconectar o eliminar una
+        cuenta conectada por navegador, se borra su sesión guardada."""
+        self._browser_profiles = store
+
+    def _forget_browser_session(self, internal_ref: str) -> None:
+        if self._browser_profiles is None:
+            return
+        try:
+            self._browser_profiles.delete(internal_ref)
+        except Exception as exc:  # nunca debe impedir desconectar
+            logger.warning("No se ha podido borrar la sesión del navegador: %s", type(exc).__name__)
 
     # ------------------------------------------------------------------
     # Mecanismo activo
@@ -230,7 +245,8 @@ class AccountManager:
                 return False
             session.delete(account)
             logger.info("Cuenta eliminada: %s", internal_ref)
-            return True
+        self._forget_browser_session(internal_ref)
+        return True
 
     # ------------------------------------------------------------------
     # Conexion
@@ -321,7 +337,11 @@ class AccountManager:
             account.status_detail = "Desconectada por el usuario"
             session.flush()
 
-        if credential is not None and credential.kind is not AuthKind.DEMO:
+        self._forget_browser_session(internal_ref)
+        if credential is not None and credential.kind not in (
+            AuthKind.DEMO,
+            AuthKind.BROWSER_SESSION,
+        ):
             try:
                 self._auth.revoke(credential)
             except Exception as exc:  # revocar es «mejor esfuerzo»

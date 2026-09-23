@@ -15,7 +15,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\bBearer\s+[A-Za-z0-9._\-]{8,}", re.IGNORECASE), "Bearer ***REDACTED***"),
     (re.compile(r"\beyJ[A-Za-z0-9._\-]{20,}"), "***JWT-REDACTED***"),
     (
-        re.compile(r"((?:client_secret|access_token|refresh_token|api_key)\"?\s*[:=]\s*\"?)[^\s\",}]+", re.IGNORECASE),
+        re.compile(r"((?:client_secret|access_token|refresh_token|api_key|x-key|x_key)\"?\s*[:=]\s*\"?)[^\s\",}]+", re.IGNORECASE),
         r"\1***REDACTED***",
     ),
 ]
@@ -55,17 +55,11 @@ class RedactingFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
-            if isinstance(record.msg, str):
-                record.msg = redact(record.msg)
-            if record.args:
-                if isinstance(record.args, dict):
-                    record.args = {
-                        k: redact(v) if isinstance(v, str) else v for k, v in record.args.items()
-                    }
-                else:
-                    record.args = tuple(
-                        redact(a) if isinstance(a, str) else a for a in record.args
-                    )
+            # Se formatea primero y se redacta el texto final: si se redactara
+            # la plantilla («x-key: %s») se perderia el marcador y el registro
+            # fallaria al formatearse.
+            record.msg = redact(record.getMessage())
+            record.args = None
         except Exception:  # pragma: no cover - el logging nunca debe romper la app
             return True
         return True

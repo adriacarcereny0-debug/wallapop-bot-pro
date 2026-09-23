@@ -53,6 +53,10 @@ class AuthKind(str, enum.Enum):
     #: Wallapop emite una credencial delegada por cuenta (no un client_secret
     #: global): el usuario la pega una vez y LOT Bot la guarda cifrada.
     DELEGATED_CREDENTIAL = "delegated_credential"
+    #: El usuario inicia sesión él mismo en un navegador controlado por LOT
+    #: Bot. La sesión queda en un perfil de navegador propio de la cuenta; LOT
+    #: Bot no ve ni guarda la contraseña.
+    BROWSER_SESSION = "browser_session"
 
 
 #: Etiquetas legibles para la interfaz.
@@ -61,6 +65,7 @@ AUTH_KIND_LABELS: dict[AuthKind, str] = {
     AuthKind.OAUTH: "Autorización OAuth de Wallapop",
     AuthKind.SESSION_HANDOFF: "Inicio de sesión autorizado",
     AuthKind.DELEGATED_CREDENTIAL: "Credencial delegada por cuenta",
+    AuthKind.BROWSER_SESSION: "Sesión en navegador (uso personal autorizado)",
 }
 
 

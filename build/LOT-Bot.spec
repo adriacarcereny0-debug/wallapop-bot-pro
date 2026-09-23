@@ -38,6 +38,15 @@ for package in ("keyring",):
     except Exception:  # el paquete puede no estar instalado en desarrollo
         pass
 
+# Playwright (integración por navegador): incluye su «driver». Los navegadores
+# NO se empaquetan: se usa el Chrome o Edge ya instalado en Windows.
+try:
+    from PyInstaller.utils.hooks import collect_data_files
+
+    datas += collect_data_files("playwright")
+except Exception:  # Playwright no instalado: el programa funciona en DEMO
+    pass
+
 docs = PROJECT_ROOT / "docs" / "cliente"
 if docs.is_dir():
     datas.append((str(docs), "docs/cliente"))
@@ -62,6 +71,10 @@ hiddenimports = [
     "apscheduler.executors.pool",
 ]
 hiddenimports += collect_submodules("lot_bot")
+try:
+    hiddenimports += collect_submodules("playwright")
+except Exception:
+    pass
 
 # --- Lo que NO hace falta empaquetar (reduce mucho el tamano) ---
 excludes = [

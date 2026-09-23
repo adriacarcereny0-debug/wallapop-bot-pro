@@ -15,6 +15,22 @@ endpoint_map.local.yaml
 access_profile.local.yaml
 *.local.yaml
 
+# ---- Sesiones de navegador, cookies y claves (NUNCA subir) ----
+# Los perfiles viven en la carpeta de datos del usuario, fuera del proyecto;
+# estas reglas son una segunda barrera por si alguien los copia aquí.
+browser_profiles/
+**/browser_profiles/
+storage_state*.json
+*.har
+Cookies
+Cookies-journal
+Login Data
+Login Data-journal
+Local State
+playwright-report/
+test-results/
+claves_api*
+
 # ---- Python ----
 __pycache__/
 *.py[cod]

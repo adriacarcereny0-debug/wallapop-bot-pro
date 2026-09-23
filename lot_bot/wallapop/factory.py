@@ -45,7 +45,11 @@ class WallapopBackend:
 
     @property
     def label(self) -> str:
-        return "MODO DEMO" if self.demo else "WALLAPOP REAL"
+        if self.demo:
+            return "MODO DEMO"
+        if self.auth_method.kind.value == "browser_session":
+            return "WALLAPOP (NAVEGADOR)"
+        return "WALLAPOP REAL"
 
     @property
     def endpoint_map(self):
@@ -69,14 +73,91 @@ def _demo_backend(reason: str, missing: list[str] | None = None) -> WallapopBack
     )
 
 
-def build_backend(
-    settings: Settings, account_manager: AccountManager | None = None
+INTEGRATION_BROWSER = "navegador"
+
+
+def _browser_backend(
+    settings: Settings,
+    account_manager: AccountManager | None,
+    launcher=None,
 ) -> WallapopBackend:
-    """Construye el backend que corresponde a la configuracion actual."""
+    """Integración por navegador: sesión iniciada por el propio usuario."""
+    from lot_bot.config.paths import get_paths
+    from lot_bot.database.models import AccountStatus
+    from lot_bot.wallapop.auth.base import AuthKind
+    from lot_bot.wallapop.browser import (
+        BrowserProfileStore,
+        BrowserSessionAuthMethod,
+        BrowserWallapopService,
+        UnsafeProfileLocation,
+    )
+
+    if account_manager is None:
+        raise ValueError("Se requiere AccountManager para la integración por navegador.")
+    paths = get_paths()
+    try:
+        profiles = BrowserProfileStore(paths.root / "browser_profiles")
+    except UnsafeProfileLocation as exc:
+        return _demo_backend(str(exc), [str(exc)])
+
+    def connected(ref: str) -> bool:
+        info = account_manager.get_account(ref)
+        return (
+            info is not None
+            and info.status == AccountStatus.CONNECTED
+            and info.auth_method == AuthKind.BROWSER_SESSION.value
+            and profiles.exists(ref)
+        )
+
+    service = BrowserWallapopService(
+        profiles,
+        launcher=launcher,
+        screenshots_dir=paths.logs / "navegador",
+        is_account_connected=connected,
+    )
+    auth_method = BrowserSessionAuthMethod(service)
+    account_manager.set_browser_profiles(profiles)
+    pending = auth_method.missing_requirements()
+    if pending:
+        return _demo_backend(
+            "La integración por navegador no se puede usar todavía.",
+            [f"{r.label} — {r.description}" for r in pending],
+        )
+    not_granted = sorted(c.value for c in Capability if c not in service.capabilities())
+    return WallapopBackend(
+        service=service,
+        profile=empty_profile(),
+        auth_method=auth_method,
+        demo=False,
+        reason=(
+            "Integración mediante navegador con sesión iniciada por el usuario "
+            "(uso personal autorizado)."
+            + ("" if service.site.verified else " Selectores de la web pendientes de verificar.")
+        ),
+        missing=[f"Operación no disponible por navegador: {name}" for name in not_granted],
+    )
+
+
+def build_backend(
+    settings: Settings,
+    account_manager: AccountManager | None = None,
+    integration: str | None = None,
+    launcher=None,
+) -> WallapopBackend:
+    """Construye el backend que corresponde a la configuracion actual.
+
+    `integration` es la elección guardada en Configuración («navegador» o
+    «demo»). `LOT_BOT_DEMO_MODE=true` explícito siempre gana.
+    """
+    chosen = settings.wallapop_integration or (integration or "")
 
     # --- 1. DEMO explicito ---
-    if settings.demo_mode:
+    if settings.demo_forced or (settings.demo_mode and chosen != INTEGRATION_BROWSER):
         return _demo_backend("Modo DEMO activado en la configuración.")
+
+    # --- 1b. Integración por navegador ---
+    if chosen == INTEGRATION_BROWSER:
+        return _browser_backend(settings, account_manager, launcher)
 
     # --- 2. Perfil de acceso ---
     profile_path = settings.access_profile_path

@@ -131,3 +131,35 @@ class AccessNotConfiguredError(WallapopError):
         if self.missing:
             detail += " Falta: " + " | ".join(self.missing)
         super().__init__(detail)
+
+
+class VerificationRequiredError(WallapopError):
+    """Wallapop pide una verificación (CAPTCHA, código, confirmación...).
+
+    LOT Bot NUNCA intenta resolverla: se detiene y el usuario la completa a
+    mano en la ventana del navegador de esa cuenta.
+    """
+
+    user_message = (
+        "Wallapop está pidiendo una verificación. Complétala tú en la ventana del "
+        "navegador de esta cuenta (Cuentas → Abrir navegador) y reanuda la cola."
+    )
+
+
+class BrowserStepError(WallapopError):
+    """Un paso del formulario de Wallapop no se ha podido completar.
+
+    Suele indicar que la web de Wallapop ha cambiado: el paso y los selectores
+    están en wallapop_browser.yaml.
+    """
+
+    def __init__(self, step: str, detail: str = "", screenshot: str | None = None) -> None:
+        self.step = step
+        self.screenshot = screenshot
+        super().__init__(
+            detail or f"Paso «{step}» no completado.",
+            user_message=(
+                f"No se ha podido completar el paso «{step}» en la web de Wallapop. "
+                "Puede que la web haya cambiado: revisa wallapop_browser.yaml."
+            ),
+        )

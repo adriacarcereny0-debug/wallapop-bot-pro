@@ -1,0 +1,132 @@
+# =============================================================================
+#  LOT Bot — Integración con Wallapop mediante navegador
+#  UNICO sitio donde se describe la interfaz web de Wallapop.
+# =============================================================================
+#
+#  IMPORTANTE — LEE ESTO ANTES DE USARLO
+#  -------------------------------------
+#  * Esto NO es una API. Son las páginas públicas de es.wallapop.com, que el
+#    propio usuario usa con su sesión, desde un navegador visible.
+#  * Los selectores se han escrito a partir de los textos visibles de la web
+#    (botones, etiquetas) y NO se han podido comprobar contra una sesión real
+#    al escribirlos. Por eso figura «verificado: false».
+#  * Cuando Wallapop cambie su web, se corrige AQUÍ, sin tocar el código:
+#    copia este fichero a  <carpeta de datos>/config/wallapop_browser.local.yaml
+#    (Configuración → Wallapop muestra la ruta exacta) y edita esa copia.
+#  * Cada objetivo admite varias alternativas: se usa la primera visible.
+#    Sintaxis de Playwright: CSS, «text=...», «role=button[name=/.../i]».
+#  * Nunca se intenta resolver CAPTCHA ni verificaciones: si aparecen, la
+#    cola se pausa y el usuario las completa a mano en la ventana.
+# =============================================================================
+
+verificado: false
+
+navegador:
+  # Siempre visible: el usuario ve lo que ocurre y puede intervenir.
+  visible: true
+  # Orden de preferencia. «chrome» y «msedge» usan el navegador ya instalado
+  # en Windows; «chromium» usa el que instala Playwright.
+  canales: ["chrome", "msedge", "chromium"]
+  idioma: "es-ES"
+  tiempo_espera_ms: 20000
+
+urls:
+  inicio: "https://es.wallapop.com/"
+  subir: "https://es.wallapop.com/app/catalog/upload"
+  # Patrón de la dirección pública de un anuncio.
+  anuncio_regex: "https://es\\.wallapop\\.com/item/[A-Za-z0-9\\-_%]+"
+
+sesion:
+  # Visible solo con sesión iniciada.
+  iniciada:
+    - "a[href*='/app/chat']"
+    - "a[href*='/app/profile']"
+    - "role=link[name=/Buzón/i]"
+  # Visible solo SIN sesión.
+  sin_sesion:
+    - "role=button[name=/Regístrate o inicia sesión/i]"
+    - "text=/Regístrate o inicia sesión/i"
+  # Cualquier verificación que debe completar el usuario.
+  verificacion:
+    - "iframe[src*='captcha']"
+    - "iframe[title*='captcha' i]"
+    - "iframe[src*='challenge']"
+    - "text=/verifica que eres/i"
+    - "text=/no soy un robot/i"
+  # Opcional: nombre visible del usuario (se muestra al confirmar la cuenta).
+  nombre_usuario: []
+
+publicar:
+  formato_precio: "coma"   # «coma» → 11,44   ·   «punto» → 11.44
+  pasos:
+    - nombre: "Abrir el formulario de subida"
+      accion: ir
+      url: subir
+    - nombre: "Elegir tipo de anuncio"
+      accion: pulsar
+      opcional: true
+      objetivos:
+        - "role=button[name=/Algo que ya no necesito/i]"
+        - "text=/Algo que ya no necesito/i"
+    - nombre: "Título"
+      accion: escribir
+      valor: "{titulo}"
+      objetivos:
+        - "input[name='summary']"
+        - "#summary"
+        - "role=textbox[name=/Resumen del producto|Título/i]"
+    - nombre: "Categoría"
+      accion: elegir
+      opcion: "{categoria}"
+      opcional_si_vacio: true
+      objetivos:
+        - "role=combobox[name=/Categoría/i]"
+        - "role=button[name=/Categoría/i]"
+        - "text=/^Categoría$/i"
+    - nombre: "Subcategoría"
+      accion: elegir
+      opcion: "{subcategoria}"
+      opcional: true
+      opcional_si_vacio: true
+      objetivos:
+        - "role=combobox[name=/Subcategoría/i]"
+        - "role=button[name=/Subcategoría/i]"
+    - nombre: "Fotografías"
+      accion: subir_archivos
+      objetivos:
+        - "input[type='file']"
+    - nombre: "Descripción"
+      accion: escribir
+      valor: "{descripcion}"
+      objetivos:
+        - "textarea[name='description']"
+        - "#description"
+        - "role=textbox[name=/Descripción/i]"
+    - nombre: "Precio"
+      accion: escribir
+      valor: "{precio}"
+      objetivos:
+        - "input[name='sale_price']"
+        - "#sale_price"
+        - "role=spinbutton[name=/Precio/i]"
+        - "role=textbox[name=/Precio/i]"
+    - nombre: "Estado del producto"
+      accion: elegir
+      opcion: "{estado}"
+      opcional: true
+      opcional_si_vacio: true
+      objetivos:
+        - "role=combobox[name=/Estado/i]"
+        - "role=button[name=/Estado/i]"
+    - nombre: "Publicar"
+      accion: pulsar
+      objetivos:
+        - "role=button[name=/^Subir producto$/i]"
+        - "role=button[name=/^Publicar/i]"
+        - "button[type='submit']"
+  # Cómo se sabe que ha terminado bien.
+  exito:
+    url_regex: "/item/|/app/catalog/published"
+    textos:
+      - "text=/ya está a la venta|producto subido|anuncio publicado/i"
+    tiempo_espera_ms: 60000

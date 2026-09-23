@@ -30,5 +30,10 @@ Jinja2>=3.1
 # --- IA ---
 anthropic>=0.40
 
+# --- Integración con Wallapop mediante navegador ---
+# Usa el Chrome o Edge ya instalado. Para el navegador propio de Playwright:
+#   python -m playwright install chromium
+playwright>=1.45,<2.0
+
 # --- Utilidades ---
 rapidfuzz>=3.9
