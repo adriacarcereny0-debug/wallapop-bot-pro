@@ -10,7 +10,7 @@ Python ni ninguna herramienta de desarrollo.
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 SPEC_DIR = Path(SPECPATH).resolve()
 PROJECT_ROOT = SPEC_DIR.parent
@@ -28,6 +28,16 @@ resources = PROJECT_ROOT / "lot_bot" / "resources"
 if resources.is_dir() and any(resources.iterdir()):
     datas.append((str(resources), "lot_bot/resources"))
 
+# keyring descubre sus backends mediante «entry points», que viven en los
+# metadatos del paquete. Sin copiarlos, en el .exe caeria siempre al backend
+# nulo y la clave maestra iria a fichero en vez de al Administrador de
+# credenciales de Windows.
+for package in ("keyring",):
+    try:
+        datas += copy_metadata(package)
+    except Exception:  # el paquete puede no estar instalado en desarrollo
+        pass
+
 docs = PROJECT_ROOT / "docs" / "cliente"
 if docs.is_dir():
     datas.append((str(docs), "docs/cliente"))
@@ -40,7 +50,10 @@ hiddenimports = [
     "keyring.backends.SecretService",
     "keyring.backends.macOS",
     "keyring.backends.fail",
-    "win32timezone",
+    # keyring usa win32ctypes para hablar con el Administrador de credenciales
+    "win32ctypes",
+    "win32ctypes.pywin32",
+    "win32ctypes.pywin32.win32cred",
     # SQLAlchemy carga su dialecto de forma dinamica
     "sqlalchemy.dialects.sqlite",
     # APScheduler resuelve sus planificadores por nombre

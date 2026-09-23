@@ -10,23 +10,27 @@ from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from lot_bot.config.paths import get_paths, is_frozen, resource_root
+from lot_bot.config.paths import app_dir, get_paths
 
 
 def _env_file_candidates() -> list[Path]:
-    """Ficheros .env a cargar, de menor a mayor prioridad."""
-    candidates = [Path.cwd() / ".env"]
-    if is_frozen():
-        # Junto al ejecutable, para que el cliente pueda editarlo sin recompilar.
-        candidates.append(resource_root() / ".env")
-        candidates.append(Path(__file__).resolve().parents[2] / ".env")
-    else:
-        candidates.append(Path(__file__).resolve().parents[2] / ".env")
+    """Ficheros .env a cargar, de MAYOR a menor prioridad.
+
+    `load_dotenv(override=False)` no pisa lo ya cargado, asi que el primero
+    que exista manda. El primero es el que esta junto a LOT-Bot.exe (o en la
+    raiz del proyecto), que es donde la documentacion le dice al usuario que
+    lo ponga.
+    """
+    candidates = [app_dir() / ".env", Path.cwd() / ".env"]
     try:
         candidates.append(get_paths().config / ".env")
     except Exception:  # pragma: no cover - solo en entornos muy restringidos
         pass
-    return candidates
+    unique: list[Path] = []
+    for candidate in candidates:
+        if candidate not in unique:
+            unique.append(candidate)
+    return unique
 
 
 def load_env_files() -> None:
@@ -105,8 +109,23 @@ class Settings(BaseSettings):
         """
         raw = self.wallapop_access_profile or self.wallapop_endpoint_map
         if not raw:
+            # Sin variable: se busca el nombre estandar en config/ junto al
+            # programa, para que baste con dejar el fichero ahi.
+            for candidate in (
+                app_dir() / "config" / "access_profile.local.yaml",
+                get_paths().config / "access_profile.local.yaml",
+            ):
+                if candidate.is_file():
+                    return candidate
             return None
-        return Path(raw).expanduser()
+        path = Path(raw).expanduser()
+        if not path.is_absolute():
+            # Relativa al programa, no a la carpeta desde la que se lanzo.
+            for base in (app_dir(), Path.cwd()):
+                if (base / path).is_file():
+                    return base / path
+            return app_dir() / path
+        return path
 
     @property
     def endpoint_map_path(self) -> Path | None:

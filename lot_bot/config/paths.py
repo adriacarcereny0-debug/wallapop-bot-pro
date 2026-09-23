@@ -20,11 +20,27 @@ def is_frozen() -> bool:
 
 
 def resource_root() -> Path:
-    """Carpeta que contiene los recursos de solo lectura (plantillas, iconos)."""
+    """Carpeta del paquete `lot_bot` (contiene `resources/`).
+
+    En el ejecutable, PyInstaller copia los datos en `sys._MEIPASS` respetando
+    la ruta declarada en la receta (`lot_bot/resources`), asi que hay que
+    apuntar a `_MEIPASS/lot_bot` y no a `_MEIPASS` a secas.
+    """
     if is_frozen():
-        # PyInstaller descomprime los datos en sys._MEIPASS
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        return bundle / "lot_bot"
     return Path(__file__).resolve().parents[1]
+
+
+def app_dir() -> Path:
+    """Carpeta del programa: donde esta LOT-Bot.exe o la raiz del proyecto.
+
+    Es donde el usuario puede dejar su `.env` y su carpeta `config/` para
+    configurar el programa sin recompilar.
+    """
+    if is_frozen():
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[2]
 
 
 def _default_user_root() -> Path:
