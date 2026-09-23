@@ -44,6 +44,11 @@ class ToolContext:
     app: Application
     confirmed: bool = False
     actor: str = "asistente"
+    #: De qué se está hablando ahora mismo: el anuncio, la conversación o la
+    #: plantilla que se acaba de mostrar. Es lo que da sentido a frases como
+    #: «cambia el precio de este anuncio» o «prepara una respuesta para este
+    #: cliente». Solo contiene identificadores, nunca datos sensibles.
+    focus: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -73,6 +78,8 @@ class ToolResult:
     data: dict[str, Any] = field(default_factory=dict)
     confirmation: ConfirmationRequest | None = None
     unavailable: bool = False
+    #: Nuevo foco de la conversación (p. ej. {"listing_ids": [7]}).
+    focus: dict[str, Any] = field(default_factory=dict)
 
     @property
     def needs_confirmation(self) -> bool:

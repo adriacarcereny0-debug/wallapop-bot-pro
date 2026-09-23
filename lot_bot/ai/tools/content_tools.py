@@ -59,10 +59,39 @@ def _product_context(context: ToolContext, identifier: str) -> tuple[Any, dict[s
     return (product, {"template": template, "context": ctx})
 
 
+def _master_content(context: ToolContext, field: str) -> ToolResult:
+    """Sin producto indicado, se trabaja sobre el anuncio principal.
+
+    Se devuelve el texto ACTUAL de la plantilla y NO se modifica: cambiar el
+    texto del cliente requiere que lo pida expresamente («actualiza la
+    plantilla») y lo confirme.
+    """
+    master = context.app.master_ads.get(context.focus.get("master_key"))
+    if master is None:
+        return fail("Indica el producto.")
+    value = master.title if field == "titulo" else master.description
+    natural = context.app.agent.provider.natural_language if hasattr(context.app, "agent") else False
+    note = (
+        "Este es el texto actual del anuncio principal. Si propones otro, muéstraselo al "
+        "usuario y aplícalo SOLO con update_master_ad cuando lo confirme."
+        if natural
+        else "Este es el texto actual del anuncio principal. En modo de órdenes directas "
+        "LOT Bot no redacta textos nuevos por su cuenta: si quieres cambiarlo, escribe el "
+        "texto nuevo y di «actualiza la plantilla con la descripción \"…\"»."
+    )
+    result = ok(
+        f"{field.capitalize()} actual de «{master.name}». No se ha modificado nada.",
+        **{field: value},
+        nota=note,
+    )
+    result.focus = {"master_key": master.key}
+    return result
+
+
 def _generate_title(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     identifier = args.get("producto")
     if not identifier:
-        return fail("Indica el producto.")
+        return _master_content(context, "titulo")
     loaded = _product_context(context, str(identifier))
     if loaded is None:
         return fail(f"No se encuentra el producto '{identifier}'.")
@@ -86,7 +115,7 @@ def _generate_title(context: ToolContext, args: dict[str, Any]) -> ToolResult:
 def _generate_description(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     identifier = args.get("producto")
     if not identifier:
-        return fail("Indica el producto.")
+        return _master_content(context, "descripcion")
     loaded = _product_context(context, str(identifier))
     if loaded is None:
         return fail(f"No se encuentra el producto '{identifier}'.")
@@ -267,10 +296,13 @@ CONTENT_TOOLS: list[Tool] = [
         ),
         parameters={
             "properties": {
-                "producto": {"type": "string"},
+                "producto": {
+                    "type": "string",
+                    "description": "SKU del producto. Omítelo para usar el anuncio principal.",
+                },
                 "plantilla": {"type": "string", "description": "Patrón alternativo, opcional."},
             },
-            "required": ["producto"],
+            "required": [],
         },
         handler=_generate_title,
         category=ToolCategory.CONTENT,
@@ -280,7 +312,7 @@ CONTENT_TOOLS: list[Tool] = [
         description="Genera la descripción comercial de un producto a partir de su plantilla.",
         parameters={
             "properties": {"producto": {"type": "string"}, "plantilla": {"type": "string"}},
-            "required": ["producto"],
+            "required": [],
         },
         handler=_generate_description,
         category=ToolCategory.CONTENT,

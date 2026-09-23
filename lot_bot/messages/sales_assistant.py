@@ -107,6 +107,8 @@ class SalesContext:
     whatsapp: str | None = None
     business_name: str | None = None
     extra_facts: dict[str, str] = field(default_factory=dict)
+    #: Ofertas por medida del anuncio principal: {"135x190": 270.0}.
+    offers: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_available(self) -> bool | None:
@@ -135,6 +137,8 @@ class SalesContext:
         }
         facts.update({k: v for k, v in mapping.items() if v not in (None, "")})
         facts.update({k: v for k, v in self.extra_facts.items() if v})
+        for medida, precio in self.offers.items():
+            facts[f"oferta_{medida}"] = f"{precio:.2f} {self.currency}"
         return facts
 
     def unknown_fields(self) -> list[str]:
@@ -172,6 +176,14 @@ class SuggestedReply:
         }
 
 
+def _sentence(text: str | None) -> str:
+    """Añade punto final si falta (las condiciones las escribe el cliente)."""
+    text = (text or "").strip()
+    if text and text[-1] not in ".!?…":
+        text += "."
+    return text
+
+
 class SalesAssistant:
     """Genera respuestas basadas exclusivamente en datos reales."""
 
@@ -181,6 +193,7 @@ class SalesAssistant:
     # ------------------------------------------------------------------
     def suggest(self, buyer_message: str, context: SalesContext) -> SuggestedReply:
         intent = detect_intent(buyer_message)
+        context = _focus_on_offer(buyer_message, context)
         builder = {
             BuyerIntent.AVAILABILITY: self._availability,
             BuyerIntent.PRICE: self._price,
@@ -228,7 +241,7 @@ class SalesAssistant:
         text = f"Sí, tenemos disponible {product}."
         used: dict[str, Any] = {"unidades_disponibles": ctx.stock}
         if ctx.delivery_policy:
-            text += f" {ctx.delivery_policy}"
+            text += f" {_sentence(ctx.delivery_policy)}"
             used["envio"] = ctx.delivery_policy
         text += self._closing(ctx)
         return text, used, []
@@ -240,7 +253,7 @@ class SalesAssistant:
         text = f"El precio de {product} es {ctx.price:.2f} {'€' if ctx.currency == 'EUR' else ctx.currency}."
         used = {"precio": ctx.price}
         if ctx.delivery_policy:
-            text += f" {ctx.delivery_policy}"
+            text += f" {_sentence(ctx.delivery_policy)}"
             used["envio"] = ctx.delivery_policy
         text += self._closing(ctx)
         return text, used, []
@@ -259,10 +272,10 @@ class SalesAssistant:
     def _delivery(self, ctx: SalesContext) -> tuple[str, dict[str, Any], list[str]]:
         if not ctx.delivery_policy:
             return (UNKNOWN_ANSWER, {}, ["envio"])
-        text = ctx.delivery_policy
+        text = _sentence(ctx.delivery_policy)
         used = {"envio": ctx.delivery_policy}
         if ctx.assembly_policy:
-            text += f" {ctx.assembly_policy}"
+            text += f" {_sentence(ctx.assembly_policy)}"
             used["montaje"] = ctx.assembly_policy
         text += self._closing(ctx)
         return text, used, []
@@ -270,13 +283,13 @@ class SalesAssistant:
     def _assembly(self, ctx: SalesContext) -> tuple[str, dict[str, Any], list[str]]:
         if not ctx.assembly_policy:
             return (UNKNOWN_ANSWER, {}, ["montaje"])
-        return ctx.assembly_policy + self._closing(ctx), {"montaje": ctx.assembly_policy}, []
+        return _sentence(ctx.assembly_policy) + self._closing(ctx), {"montaje": ctx.assembly_policy}, []
 
     def _payment(self, ctx: SalesContext) -> tuple[str, dict[str, Any], list[str]]:
         if not ctx.payment_policy:
             return (UNKNOWN_ANSWER, {}, ["formas_de_pago"])
         return (
-            ctx.payment_policy + self._closing(ctx),
+            _sentence(ctx.payment_policy) + self._closing(ctx),
             {"formas_de_pago": ctx.payment_policy},
             [],
         )
@@ -285,7 +298,7 @@ class SalesAssistant:
         if not ctx.location_policy:
             return (UNKNOWN_ANSWER, {}, ["recogida"])
         return (
-            ctx.location_policy + self._closing(ctx),
+            _sentence(ctx.location_policy) + self._closing(ctx),
             {"recogida": ctx.location_policy},
             [],
         )
@@ -300,7 +313,7 @@ class SalesAssistant:
             used["precio"] = ctx.price
         text = ", ".join(parts) + "."
         if ctx.delivery_policy:
-            text += f" {ctx.delivery_policy}"
+            text += f" {_sentence(ctx.delivery_policy)}"
             used["envio"] = ctx.delivery_policy
         if ctx.whatsapp:
             text += f" Para cerrar el pedido escríbenos por WhatsApp al {ctx.whatsapp} y lo gestionamos."
@@ -356,18 +369,52 @@ class SalesAssistant:
         return " Si quieres, te indico cómo realizar el pedido."
 
 
+def _focus_on_offer(message: str, context: SalesContext) -> SalesContext:
+    """Si el comprador pregunta por una medida con oferta, se responde con
+    ESA oferta (precio y medida reales), no con el precio genérico."""
+    if not context.offers:
+        return context
+    normalized = _normalize(message).replace(" ", "")
+    for medida, precio in context.offers.items():
+        short = medida.split("x")[0]
+        if medida in normalized or re.search(rf"(?<!\d){short}(?!\d)", normalized):
+            from dataclasses import replace
+
+            # «Canapé + colchón» es literalmente como el cliente llama a la
+            # oferta en su descripción.
+            return replace(context, size=medida, price=precio, product_name="canapé + colchón")
+    return context
+
+
 def build_context_from_data(
     *,
     product: dict[str, Any] | None,
     listing: dict[str, Any] | None,
     business: dict[str, Any] | None,
+    master: Any | None = None,
 ) -> SalesContext:
     """Construye el contexto a partir de datos reales del catalogo/anuncio."""
     product = product or {}
     listing = listing or {}
-    business = business or {}
+    business = dict(business or {})
     attributes = listing.get("caracteristicas") or {}
+    if not isinstance(attributes, dict):
+        attributes = {}
+    offers: dict[str, float] = {}
+    if master is not None:
+        for variant in master.variants:
+            try:
+                offers[str(variant["medida"])] = float(variant["precio"])
+            except (KeyError, TypeError, ValueError):
+                continue
+        # Datos que el cliente ha escrito en su propio anuncio.
+        business.setdefault("whatsapp", None)
+        if not business.get("whatsapp") and master.contact_whatsapp:
+            business["whatsapp"] = master.contact_whatsapp
+        if not business.get("delivery") and master.delivery_note:
+            business["delivery"] = master.delivery_note
     return SalesContext(
+        offers=offers,
         product_name=product.get("tipo") or product.get("nombre") or listing.get("titulo"),
         size=product.get("medida") or attributes.get("medida"),
         color=product.get("color") or attributes.get("color"),

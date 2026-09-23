@@ -81,6 +81,8 @@ class Agent:
         self._provider = provider
         self._messages: list[dict[str, Any]] = []
         self._pending: PendingAction | None = None
+        #: De qué se está hablando (ver ToolContext.focus).
+        self._focus: dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     @property
@@ -98,6 +100,11 @@ class Agent:
     def reset(self) -> None:
         self._messages.clear()
         self._pending = None
+        self._focus = {}
+
+    @property
+    def focus(self) -> dict[str, Any]:
+        return dict(self._focus)
 
     def history(self) -> list[dict[str, Any]]:
         return list(self._messages)
@@ -228,8 +235,18 @@ class Agent:
             ", ".join(call.arguments),
             " [CONFIRMADA]" if confirmed else "",
         )
-        context = ToolContext(app=self._app, confirmed=confirmed, actor="asistente")
-        return self._registry.execute(call.name, call.arguments, context)
+        context = ToolContext(
+            app=self._app, confirmed=confirmed, actor="asistente", focus=dict(self._focus)
+        )
+        result = self._registry.execute(call.name, call.arguments, context)
+        if result.focus:
+            self._focus.update(result.focus)
+        if result.confirmation is not None and self._app.demo_mode:
+            # Que nadie confunda una confirmación DEMO con una operación real.
+            note = "MODO DEMO: no se enviará nada a Wallapop; es una simulación."
+            if note not in result.confirmation.lines:
+                result.confirmation.lines.append(note)
+        return result
 
     # ------------------------------------------------------------------
     def confirm(self, token: str) -> AgentResponse:

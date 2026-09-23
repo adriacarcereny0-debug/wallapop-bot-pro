@@ -74,7 +74,8 @@ def test_el_asistente_muestra_la_confirmacion(qt_app, app_with_data):
     # isVisibleTo: el panel esta mostrado dentro de su vista (que en la prueba
     # no esta dentro de una ventana abierta).
     assert vista.confirmation.isVisibleTo(vista)
-    assert "modificar" in vista.confirmation.title.text().lower()
+    titulo = vista.confirmation.title.text().lower()
+    assert "cambiar el precio" in titulo and "269,00 €" in titulo
     # La ejecucion real tras confirmar se prueba en test_ai_agent.py, donde no
     # hace falta bombear el bucle de eventos de Qt.
 

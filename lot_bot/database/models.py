@@ -254,6 +254,51 @@ class Template(Base, TimestampMixin):
 
 
 # ---------------------------------------------------------------------------
+# Anuncio principal (plantilla maestra del negocio)
+# ---------------------------------------------------------------------------
+class MasterAd(Base, TimestampMixin):
+    """Anuncio que el negocio publica de forma recurrente.
+
+    Es la plantilla MAESTRA: publicar desde ella crea anuncios nuevos pero
+    nunca la modifica. Solo cambia cuando el usuario lo pide expresamente
+    («actualiza la plantilla») o la edita en su pantalla.
+
+    Los textos se guardan tal cual los proporciona el cliente. LOT Bot no los
+    corrige ni los reinterpreta.
+    """
+
+    __tablename__ = "master_ads"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(150), nullable=False)
+    title: Mapped[str] = mapped_column(String(250), nullable=False, default="")
+    #: Caracteristicas en el orden en que se muestran («Nuevo · ...»).
+    features: Mapped[list] = mapped_column(JSON, default=list)
+    price: Mapped[float | None] = mapped_column(Float)
+    #: Descripcion con variables ({whatsapp}, {precio_135x190}...).
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: Ofertas por medida: [{"medida": "135x190", "precio": 270}, ...]
+    variants: Mapped[list] = mapped_column(JSON, default=list)
+    contact_whatsapp: Mapped[str | None] = mapped_column(String(40))
+    delivery_note: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(120))
+    subcategory: Mapped[str | None] = mapped_column(String(120))
+    condition: Mapped[str | None] = mapped_column(String(50))
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    keywords: Mapped[list] = mapped_column(JSON, default=list)
+    #: Fotografias: [{"path": ..., "position": 0, "is_primary": True, ...}]
+    images: Mapped[list] = mapped_column(JSON, default=list)
+    #: Expresiones con las que el usuario se refiere a este anuncio.
+    aliases: Mapped[list] = mapped_column(JSON, default=list)
+    #: Variables adicionales de la descripcion.
+    variables: Mapped[dict] = mapped_column(JSON, default=dict)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    #: Copia de los datos originales del cliente, para poder restaurarlos.
+    original: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ---------------------------------------------------------------------------
 # Anuncios publicados
 # ---------------------------------------------------------------------------
 class Listing(Base, TimestampMixin):
@@ -266,6 +311,12 @@ class Listing(Base, TimestampMixin):
         ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False
     )
     product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"))
+    #: Anuncio principal del que procede esta publicacion (si procede de uno).
+    master_ad_id: Mapped[int | None] = mapped_column(
+        ForeignKey("master_ads.id", ondelete="SET NULL")
+    )
+    #: Cambios aplicados SOLO a esta publicacion (no tocan la plantilla).
+    overrides: Mapped[dict] = mapped_column(JSON, default=dict)
     wallapop_item_id: Mapped[str | None] = mapped_column(String(120))
     title: Mapped[str] = mapped_column(String(250), nullable=False, default="")
     description: Mapped[str | None] = mapped_column(Text)
@@ -286,6 +337,7 @@ class Listing(Base, TimestampMixin):
 
     account: Mapped[Account] = relationship(back_populates="listings")
     product: Mapped[Product | None] = relationship(back_populates="listings")
+    master_ad: Mapped[MasterAd | None] = relationship()
 
     __table_args__ = (
         UniqueConstraint("account_id", "wallapop_item_id", name="uq_listing_account_item"),

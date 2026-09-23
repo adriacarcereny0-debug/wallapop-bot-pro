@@ -59,6 +59,30 @@ def _extract_quoted(text: str) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def _extract_accounts(text: str) -> list[str] | None:
+    """«la cuenta 1», «cuentas 1 y 3» -> ["Cuenta 1", "Cuenta 3"]."""
+    normalized = _normalize(text)
+    match = re.search(r"\bcuentas?\s+((?:\d+\s*(?:,|y)?\s*)+)", normalized)
+    if match:
+        numbers = re.findall(r"\d+", match.group(1))
+        return [f"Cuenta {n}" for n in numbers] or None
+    return None
+
+
+def _extract_copies(normalized: str) -> int | None:
+    """«publica 10 canapés», «sube 3 anuncios» -> 10 / 3.
+
+    No confunde el número con una medida (135x190) ni con un precio (12 €).
+    """
+    match = re.search(
+        r"(?<![\dx.,])(\d{1,3})\s+(?:canape|canapes|anuncio|anuncios|copia|copias|publicacion|publicaciones|veces)\b",
+        normalized,
+    )
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _extract_product_term(normalized: str) -> str | None:
     """Extrae el tipo de producto mencionado ('canape', 'colchon'...)."""
     for term in ("canape", "colchon", "sofa", "cabecero", "somier", "almohada"):
@@ -99,98 +123,166 @@ class RuleBasedProvider(AIProvider):
 
     # ------------------------------------------------------------------
     def _match(self, text: str) -> ToolCall | None:
+        """Traduce una orden en español a UNA llamada de herramienta.
+
+        El orden de las reglas importa: primero lo más específico (plantilla,
+        mensajes) y después lo general, para que «prepara una respuesta para
+        este cliente» no se confunda con «prepara el anuncio de canapé».
+        """
         normalized = _normalize(text)
         size = _extract_size(normalized)
         term = _extract_product_term(normalized)
+        accounts = _extract_accounts(text)
+        quoted = _extract_quoted(text)
+        copies = _extract_copies(normalized)
 
         def call(name: str, **args: Any) -> ToolCall:
-            return ToolCall(id=f"rule-{name}", name=name, arguments={k: v for k, v in args.items() if v is not None})
+            return ToolCall(
+                id=f"rule-{name}",
+                name=name,
+                arguments={k: v for k, v in args.items() if v not in (None, [], {})},
+            )
 
-        # --- Precio ---
-        if re.search(r"\b(cambia|cambiar|pon|poner|actualiza|sube|baja|modifica)\b.*\bprecio\b", normalized) or (
+        mentions_master = bool(term == "canape") or bool(
+            re.search(r"\b(anuncio principal|plantilla)\b", normalized)
+        )
+        explicit_template = bool(re.search(r"\bplantilla\b", normalized))
+
+        # --- 1. Cambiar la PLANTILLA (solo si lo dice expresamente) ---
+        if explicit_template and re.search(
+            r"\b(actualiza|actualizar|cambia|cambiar|modifica|modificar|pon|poner|edita)\b",
+            normalized,
+        ):
+            changes: dict[str, Any] = {}
+            if "precio" in normalized:
+                price = _extract_price(normalized)
+                if price is not None and not size:
+                    changes["precio"] = price
+            if "titulo" in normalized and quoted:
+                changes["titulo"] = quoted
+            elif "descripcion" in normalized and quoted:
+                changes["descripcion"] = quoted
+            whatsapp = re.search(r"whatsapp\D*(\d[\d ]{7,})", normalized)
+            if whatsapp:
+                changes["whatsapp"] = whatsapp.group(1).replace(" ", "")
+            if changes:
+                return call("update_master_ad", cambios=changes)
+            return call("get_master_ad")
+
+        # --- 2. Mensajes y compradores ---
+        if re.search(r"\b(mensaje|mensajes|comprador|compradores|cliente|clientes|conversacion)", normalized):
+            if re.search(r"\b(responde|responder|contesta|contestar|respuesta|prepara|genera)\b", normalized):
+                number = re.search(r"\b(?:conversacion|numero|n)\s*(\d+)\b", normalized)
+                return call(
+                    "prepare_message_response",
+                    conversacion=int(number.group(1)) if number else None,
+                )
+            unread = bool(re.search(r"\b(nuevo|nuevos|sin leer|pendiente|pendientes)\b", normalized))
+            return call("get_messages", solo_sin_leer=unread or None)
+
+        # --- 3. Cambio de precio ---
+        if re.search(r"\b(cambia|cambiar|pon|poner|actualiza|sube|baja|modifica|deja)\b.*\bprecio\b", normalized) or (
             re.search(r"\bprecio\b", normalized) and re.search(r"\ba\s+\d", normalized)
         ):
-            price = _extract_price(normalized)
+            number = re.search(r"\banuncio\s+(?:n\s*)?(\d+)\b", normalized)
+            without_id = re.sub(r"\banuncio\s+(?:n\s*)?\d+\b", "anuncio", normalized)
+            price = _extract_price(without_id)
             if price is None:
                 return None
-            return call("update_price", precio=price, medida=size, texto=term)
+            singular = bool(
+                re.search(r"\b(este anuncio|esta publicacion|ese anuncio|el anuncio)\b", normalized)
+            )
+            return call(
+                "update_price",
+                precio=price,
+                anuncios=[int(number.group(1))] if number else None,
+                medida=size,
+                texto=term,
+                cuentas=accounts,
+                solo_uno=True if singular and not number else None,
+            )
 
-        # --- Analisis de precios / mercado ---
+        # --- 4. Publicar / preparar el anuncio principal ---
+        publish_verb = re.search(
+            r"\b(publica|publicar|sube|subir|crea|crear|lanza|lanzar|pon a la venta)\b", normalized
+        )
+        prepare_verb = re.search(r"\b(prepara|preparar|vista previa|previsualiza)\b", normalized)
+        if (publish_verb or prepare_verb) and (
+            mentions_master or re.search(r"\beste anuncio\b", normalized)
+        ) and not quoted:
+            if prepare_verb and not publish_verb:
+                return call("preview_master_ad", copias=copies, cuentas=accounts)
+            return call("publish_master_ad", copias=copies, cuentas=accounts)
+
+        # --- 5. Análisis de precios / mercado ---
         if re.search(r"\b(analiza|analizar|compara|comparar)\b.*\b(precio|precios|mercado)\b", normalized):
             if "mercado" in normalized:
                 return call("get_market_data", consulta=term or "", medida=size)
-            return call("analyze_prices", texto=term, medida=size)
+            return call("analyze_prices", texto=term, medida=size, cuentas=accounts)
 
-        # --- Duplicados ---
+        # --- 6. Duplicados ---
         if "duplicad" in normalized or "repetid" in normalized:
             if "imagen" in normalized or "foto" in normalized:
                 return call("find_duplicate_images")
             ambito = "anuncios" if "anuncio" in normalized else ("productos" if "producto" in normalized else "todo")
             return call("detect_duplicates", ambito=ambito, texto=term)
 
-        # --- Revision de calidad ---
+        # --- 7. Revisión de calidad ---
         if re.search(r"\b(revisa|revisar|comprueba|comprobar|dime)\b", normalized) and re.search(
             r"\b(incomplet|incorrect|falta|error|mal)\w*", normalized
         ):
             if "producto" in normalized or "catalogo" in normalized:
                 return call("validate_products", texto=term, medida=size)
-            return call("validate_listings", texto=term)
+            return call("validate_listings", texto=term, cuentas=accounts)
 
-        # --- Busqueda de anuncios ---
-        if re.search(r"\b(busca|buscar|encuentra|muestra|ensename|lista|listar|dame)\b", normalized) and (
-            "anuncio" in normalized or "publicad" in normalized
-        ):
-            return call("search_listings", texto=term, medida=size)
+        show_verb = re.search(
+            r"\b(busca|buscar|encuentra|muestra|muestrame|ensena|ensename|ver|lista|listar|dame|dime|cuales|que)\b",
+            normalized,
+        )
 
-        # --- Busqueda de productos ---
-        if re.search(r"\b(busca|buscar|encuentra|muestra|lista|listar|dame)\b", normalized) and (
-            "producto" in normalized or "catalogo" in normalized
-        ):
+        # --- 8. Publicaciones del anuncio principal ---
+        if show_verb and mentions_master and re.search(r"\bpublicacion", normalized):
+            return call("list_master_publications")
+
+        # --- 9. Búsqueda de anuncios ---
+        if show_verb and ("anuncios" in normalized or "publicad" in normalized or accounts):
+            return call("search_listings", texto=term, medida=size, cuentas=accounts)
+
+        # --- 10. Ver el anuncio principal ---
+        if mentions_master and (show_verb or re.search(r"\b(el anuncio|la plantilla)\b", normalized)):
+            return call("get_master_ad")
+
+        # --- 11. Búsqueda de productos ---
+        if show_verb and ("producto" in normalized or "catalogo" in normalized):
             return call("search_products", texto=term, medida=size)
 
-        # --- Inventario / stock ---
+        # --- 12. Inventario / stock ---
         if "inventario" in normalized or "stock" in normalized:
             return call("get_inventory", texto=term, medida=size)
 
-        # --- Cuentas ---
+        # --- 13. Cuentas ---
         if "cuenta" in normalized and re.search(r"\b(estado|conectad|cuantas|lista|ver)\b", normalized):
             return call("get_account_status")
 
-        # --- Mensajes ---
-        if "mensaje" in normalized or "comprador" in normalized or "conversacion" in normalized:
-            if re.search(r"\b(responde|contesta|genera|prepara)\b", normalized):
-                number = re.search(r"\b(\d+)\b", normalized)
-                if number:
-                    return call("prepare_message_response", conversacion=int(number.group(1)))
-                return call("get_messages", solo_sin_leer=True)
-            return call("get_messages")
-
-        # --- Generacion de contenido ---
-        if re.search(r"\b(genera|generar|crea|redacta)\b.*\b(titulo|descripcion|etiqueta)\w*", normalized):
-            reference = _extract_quoted(text)
-            if not reference:
-                return None
+        # --- 14. Generación de contenido ---
+        if re.search(r"\b(genera|generar|crea|redacta|escribe|mejora)\b.*\b(titulo|descripcion|etiqueta)\w*", normalized):
             if "descripcion" in normalized:
-                return call("generate_description", producto=reference)
+                return call("generate_description", producto=quoted)
             if "etiqueta" in normalized:
-                return call("generate_tags", producto=reference)
-            return call("generate_title", producto=reference)
+                return call("generate_tags", producto=quoted) if quoted else None
+            return call("generate_title", producto=quoted)
 
-        # --- Vista previa / preparar publicacion ---
-        if re.search(r"\b(prepara|preparar|vista previa|previsualiza)\b", normalized):
-            reference = _extract_quoted(text)
-            return call("preview_listing", producto=reference) if reference else None
+        # --- 15. Vista previa / publicación de un producto concreto (SKU) ---
+        if prepare_verb and quoted:
+            return call("preview_listing", producto=quoted)
+        if publish_verb and quoted:
+            return call("create_listing", producto=quoted)
 
-        # --- Publicar ---
-        if re.search(r"\b(publica|publicar|sube|subir)\b", normalized):
-            reference = _extract_quoted(text)
-            return call("create_listing", producto=reference) if reference else None
-
-        # --- Sincronizar ---
-        if re.search(r"\b(sincroniza|sincronizar|actualiza los anuncios|descarga)\b", normalized):
+        # --- 16. Sincronizar ---
+        if re.search(r"\b(sincroniza|sincronizar|descarga)\b", normalized):
             return call("sync_listings")
 
-        # --- Operaciones disponibles ---
+        # --- 17. Operaciones disponibles ---
         if re.search(r"\b(que puedes hacer|ayuda|funciones|operaciones)\b", normalized):
             return call("get_available_operations")
 
@@ -230,16 +322,15 @@ class RuleBasedProvider(AIProvider):
             )
         return prefix + (
             "Puedo hacer, por ejemplo:\n"
-            "• «Cambia el precio de los canapés de 135x190 a 269 €»\n"
-            "• «Busca todos los anuncios de canapés»\n"
-            "• «Revisa qué anuncios tienen información incompleta»\n"
-            "• «Comprueba si hay duplicados»\n"
-            "• «Analiza los precios de los canapés»\n"
-            "• «Muéstrame el inventario»\n"
-            "• «Estado de las cuentas»\n"
-            "• «Genera el título de \"CAN-135X190-GRI\"»\n"
-            "• «Prepara la vista previa de \"CAN-135X190-GRI\"»\n"
-            "• «Mensajes sin leer»\n\n"
+            "• «Publica el anuncio de canapé» / «Publica 10 canapés»\n"
+            "• «Prepara el anuncio de canapé» (vista previa, sin publicar)\n"
+            "• «Muéstrame los anuncios de la cuenta 1»\n"
+            "• «Cambia el precio de los canapés de 135x190 a 270 €»\n"
+            "• «Para este anuncio pon el precio a 12 €»\n"
+            "• «Actualiza la plantilla: precio a 12 €»\n"
+            "• «¿Qué mensajes nuevos hay?» / «Prepara una respuesta para este cliente»\n"
+            "• «Busca duplicados» / «Revisa qué anuncios tienen información incompleta»\n"
+            "• «Muéstrame el inventario» / «Estado de las cuentas»\n\n"
             "Para entender lenguaje natural libre, configura una clave de IA en "
             "Ajustes → IA."
         )

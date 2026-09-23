@@ -34,11 +34,17 @@ def _get_messages(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         only_unread=bool(args.get("solo_sin_leer")),
         limit=int(args.get("limite") or 50),
     )
-    return ok(
-        f"{len(conversations)} conversación(es).",
+    unread = context.app.messages.unread_count()
+    label = "sin leer" if args.get("solo_sin_leer") else "en total"
+    result = ok(
+        f"{len(conversations)} conversación(es) {label}. Mensajes sin leer: {unread}.",
         conversaciones=[c.to_dict() for c in conversations[:50]],
-        sin_leer=context.app.messages.unread_count(),
+        sin_leer=unread,
     )
+    if conversations:
+        # La primera (la más reciente) pasa a ser «este cliente».
+        result.focus = {"conversation_id": conversations[0].id}
+    return result
 
 
 def _get_conversation(context: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -59,9 +65,15 @@ def _get_conversation(context: ToolContext, args: dict[str, Any]) -> ToolResult:
 
 
 def _sales_context(context: ToolContext, view) -> Any:
-    """Construye el contexto de venta SOLO con datos reales."""
+    """Construye el contexto de venta SOLO con datos reales.
+
+    Si el anuncio procede del anuncio principal, se añaden las ofertas por
+    medida, el WhatsApp y la nota de transporte que figuran en la plantilla:
+    son datos que el cliente ha escrito en su propio anuncio.
+    """
     listing = None
     product = None
+    master = None
     if view.listing_id:
         listing_view = context.app.listings.get(view.listing_id)
         if listing_view is not None:
@@ -70,16 +82,29 @@ def _sales_context(context: ToolContext, view) -> Any:
                 product_view = context.app.catalog.get_product(listing_view.product_sku)
                 if product_view is not None:
                     product = product_view.to_dict()
+            if listing_view.master_ad_id:
+                master = context.app.master_ads.get(str(listing_view.master_ad_id))
     return build_context_from_data(
-        product=product, listing=listing, business=context.app.business_settings
+        product=product,
+        listing=listing,
+        business=context.app.business_settings,
+        master=master,
     )
 
 
 def _prepare_message_response(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Prepara una respuesta SIN enviarla. Nunca inventa datos."""
-    conversation_id = args.get("conversacion")
+    conversation_id = args.get("conversacion") or context.focus.get("conversation_id")
     if conversation_id is None:
-        return fail("Indica la conversación para la que preparar la respuesta.")
+        # «Este cliente» sin haber abierto ninguna conversación: la más
+        # reciente con mensajes sin leer, y se dice cuál es.
+        pending = context.app.messages.list_conversations(only_unread=True, limit=1)
+        if not pending:
+            return fail(
+                "No hay ninguna conversación seleccionada ni mensajes sin leer. "
+                "Pídeme antes los mensajes o indica el número de conversación."
+            )
+        conversation_id = pending[0].id
     view = context.app.messages.get_conversation(int(conversation_id))
     if view is None:
         return fail(f"No se encuentra la conversación {conversation_id}.")
@@ -96,8 +121,9 @@ def _prepare_message_response(context: ToolContext, args: dict[str, Any]) -> Too
     suggestion = assistant.suggest(buyer_message, sales_context)
     context.app.messages.save_draft(int(conversation_id), suggestion.text, generated_by_ai=True)
 
-    return ok(
-        f"Respuesta preparada (intención detectada: {suggestion.intent.value}). "
+    result = ok(
+        f"Respuesta preparada para {view.buyer_name or 'el comprador'} "
+        f"({view.account_alias}) — intención detectada: {suggestion.intent.value}. "
         f"NO se ha enviado: revísala y confírmala.",
         respuesta=suggestion.text,
         datos_usados=suggestion.used_facts,
@@ -106,10 +132,12 @@ def _prepare_message_response(context: ToolContext, args: dict[str, Any]) -> Too
         pregunta_comprador=buyer_message,
         hechos_disponibles=sales_context.known_facts(),
     )
+    result.focus = {"conversation_id": view.id}
+    return result
 
 
 def _send_message(context: ToolContext, args: dict[str, Any]) -> ToolResult:
-    conversation_id = args.get("conversacion")
+    conversation_id = args.get("conversacion") or context.focus.get("conversation_id")
     body = args.get("texto")
     if conversation_id is None or not body:
         return fail("Indica la conversación y el texto del mensaje.")
@@ -217,10 +245,13 @@ MESSAGE_TOOLS: list[Tool] = [
         ),
         parameters={
             "properties": {
-                "conversacion": {"type": "integer"},
+                "conversacion": {
+                    "type": "integer",
+                    "description": "Omítelo para usar la conversación de la que se está hablando.",
+                },
                 "mensaje_comprador": {"type": "string"},
             },
-            "required": ["conversacion"],
+            "required": [],
         },
         handler=_prepare_message_response,
         category=ToolCategory.MESSAGES,
@@ -233,7 +264,7 @@ MESSAGE_TOOLS: list[Tool] = [
         ),
         parameters={
             "properties": {"conversacion": {"type": "integer"}, "texto": {"type": "string"}},
-            "required": ["conversacion", "texto"],
+            "required": ["texto"],
         },
         handler=_send_message,
         category=ToolCategory.MESSAGES,

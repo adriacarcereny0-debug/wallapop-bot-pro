@@ -49,11 +49,20 @@ class ListingView:
     image_urls: list[str] = field(default_factory=list)
     published_at: datetime | None = None
     last_synced_at: datetime | None = None
+    #: Anuncio principal del que procede (si procede de uno).
+    master_ad_id: int | None = None
+    master_ad_name: str | None = None
+    #: Cambios propios de esta publicación (no afectan a la plantilla).
+    overrides: dict[str, Any] = field(default_factory=dict)
+    #: True si pertenece a una cuenta de demostración.
+    is_demo: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "cuenta": self.account_alias,
+            "demo": self.is_demo,
+            "plantilla": self.master_ad_name,
             "cuenta_ref": self.account_ref,
             "anuncio_wallapop": self.wallapop_item_id,
             "titulo": self.title,
@@ -132,7 +141,13 @@ class ListingService:
             if criteria.max_price is not None:
                 stmt = stmt.where(Listing.price <= criteria.max_price)
 
-            rows = session.execute(stmt.order_by(Account.id, Listing.title).limit(criteria.limit)).all()
+            python_filters = any(
+                (criteria.text, criteria.size, criteria.color, criteria.product_sku)
+            )
+            stmt = stmt.order_by(Account.id, Listing.title)
+            if not python_filters:
+                stmt = stmt.limit(criteria.limit)
+            rows = session.execute(stmt).all()
             views = [self._to_view(listing, account) for listing, account in rows]
 
         # El filtro de texto se aplica en Python para que sea insensible a los
@@ -164,7 +179,7 @@ class ListingService:
             ]
         if criteria.product_sku:
             views = [v for v in views if (v.product_sku or "").lower() == criteria.product_sku.lower()]
-        return views
+        return views[: criteria.limit]
 
     def get(self, listing_id: int) -> ListingView | None:
         with self._db.session_scope() as session:
@@ -203,10 +218,15 @@ class ListingService:
 
     @staticmethod
     def _to_view(listing: Listing, account: Account) -> ListingView:
+        alias = account.alias
+        # Una cuenta de demostración siempre se ve como tal, se llame como se
+        # llame: nunca debe parecer una cuenta real de Wallapop.
+        if account.is_demo and "demo" not in alias.lower():
+            alias = f"{alias} (DEMO)"
         return ListingView(
             id=listing.id,
             account_ref=account.internal_ref,
-            account_alias=account.alias,
+            account_alias=alias,
             wallapop_item_id=listing.wallapop_item_id,
             title=listing.title,
             description=listing.description,
@@ -221,6 +241,10 @@ class ListingService:
             image_urls=list(listing.image_urls or []),
             published_at=listing.published_at,
             last_synced_at=listing.last_synced_at,
+            master_ad_id=listing.master_ad_id,
+            master_ad_name=listing.master_ad.name if listing.master_ad else None,
+            overrides=dict(listing.overrides or {}),
+            is_demo=account.is_demo,
         )
 
     # ------------------------------------------------------------------
@@ -289,7 +313,13 @@ class ListingService:
         return results
 
     def register_published(
-        self, account_ref: str, item_id: str, product_id: int | None, data: dict[str, Any]
+        self,
+        account_ref: str,
+        item_id: str,
+        product_id: int | None,
+        data: dict[str, Any],
+        master_ad_id: int | None = None,
+        overrides: dict[str, Any] | None = None,
     ) -> int:
         """Guarda en local un anuncio recien publicado."""
         with self._db.session_scope() as session:
@@ -305,6 +335,8 @@ class ListingService:
                 listing = Listing(account_id=account.id, wallapop_item_id=item_id)
                 session.add(listing)
             listing.product_id = product_id
+            listing.master_ad_id = master_ad_id
+            listing.overrides = dict(overrides or {})
             listing.title = data.get("title", "")
             listing.description = data.get("description")
             listing.price = data.get("price")
@@ -320,10 +352,7 @@ class ListingService:
             return listing.id
 
     def apply_local_price(self, listing_id: int, price: float) -> None:
-        with self._db.session_scope() as session:
-            listing = session.get(Listing, listing_id)
-            if listing is not None:
-                listing.price = price
+        self.apply_local_changes(listing_id, {"price": price})
 
     def apply_local_changes(self, listing_id: int, changes: dict[str, Any]) -> None:
         allowed = {"title", "description", "price", "category", "condition", "attributes", "image_urls"}
@@ -331,9 +360,17 @@ class ListingService:
             listing = session.get(Listing, listing_id)
             if listing is None:
                 return
+            applied = {}
             for key, value in changes.items():
                 if key in allowed:
                     setattr(listing, key, value)
+                    applied[key] = value
+            if listing.master_ad_id and applied:
+                # Queda constancia de que esta publicación se aparta de la
+                # plantilla, sin tocar la plantilla.
+                overrides = dict(listing.overrides or {})
+                overrides.update({k: v for k, v in applied.items() if k != "image_urls"})
+                listing.overrides = overrides
 
     def mark_removed(self, listing_id: int) -> None:
         with self._db.session_scope() as session:
@@ -373,6 +410,7 @@ class ListingService:
                 "cuenta": view.account_alias,
                 "cuenta_ref": view.account_ref,
                 "precio": view.price,
+                "plantilla": view.master_ad_name,
             }
             for view in self.search(criteria)
         ]

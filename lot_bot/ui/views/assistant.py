@@ -28,12 +28,12 @@ from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import Card, ConfirmationPanel
 
 EXAMPLES = [
-    "Busca todos los anuncios de canapés",
-    "Cambia el precio de los canapés de 135x190 a 269 €",
-    "Revisa qué anuncios tienen información incompleta",
-    "Comprueba si hay duplicados",
-    "Analiza los precios de los canapés",
-    "Muéstrame el inventario",
+    "Prepara el anuncio de canapé",
+    "Publica el anuncio de canapé",
+    "Muéstrame los anuncios de la cuenta 1",
+    "¿Qué mensajes nuevos hay?",
+    "Busca duplicados",
+    "Cambia el precio de los canapés de 135x190 a 270 €",
 ]
 
 
@@ -110,7 +110,7 @@ class AssistantView(BaseView):
         # --- Ejemplos ---
         self.examples_row = QHBoxLayout()
         self.examples_row.setSpacing(6)
-        for example in EXAMPLES[:3]:
+        for example in EXAMPLES[:4]:
             button = QPushButton(example)
             button.setObjectName("Ghost")
             button.setCursor(Qt.CursorShape.PointingHandCursor)

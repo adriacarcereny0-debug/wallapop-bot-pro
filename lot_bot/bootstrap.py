@@ -26,6 +26,7 @@ from lot_bot.database.models import Setting
 from lot_bot.images.service import ImageService
 from lot_bot.logs.setup import configure_logging
 from lot_bot.market.service import MarketService
+from lot_bot.master_ad.service import MasterAdService
 from lot_bot.messages.service import MessageService
 from lot_bot.publishing.listings import ListingService
 from lot_bot.publishing.service import PublishingService
@@ -71,6 +72,7 @@ class Application:
     publishing: PublishingService
     messages: MessageService
     market: MarketService
+    master_ads: MasterAdService
     automations: AutomationScheduler
     agent: Agent
     business_settings: dict[str, Any] = field(default_factory=dict)
@@ -137,6 +139,8 @@ class Application:
         self.publishing.set_backend(self.wallapop)
         self.messages.set_backend(self.wallapop)
         self.market.set_backend(self.wallapop)
+        self.master_ads.set_backend(self.wallapop, self.backend.demo)
+        self.audit.demo_mode = self.backend.demo
         logger.info("Backend de Wallapop: %s (%s)", self.backend.label, self.backend.reason)
         return self.backend
 
@@ -220,6 +224,12 @@ def create_application(
     publishing = PublishingService(db, backend.service, catalog, listings, audit, business)
     messages = MessageService(db, backend.service, audit)
     market = MarketService(backend.service, listings)
+    audit.demo_mode = backend.demo
+    master_ads = MasterAdService(
+        db, backend.service, listings, audit, paths.images, demo_mode=backend.demo
+    )
+    # El anuncio principal del negocio existe siempre, en DEMO y en real.
+    master_ads.ensure_default()
 
     from lot_bot.ai import build_provider
 
@@ -240,6 +250,7 @@ def create_application(
         publishing=publishing,
         messages=messages,
         market=market,
+        master_ads=master_ads,
         automations=None,  # type: ignore[arg-type]
         agent=None,  # type: ignore[arg-type]
         business_settings=business,

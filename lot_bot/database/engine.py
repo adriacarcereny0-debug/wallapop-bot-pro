@@ -16,7 +16,20 @@ from lot_bot.database.models import Base
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+
+#: Columnas añadidas después de la primera versión. Se crean solas al
+#: arrancar en bases de datos antiguas, sin perder datos.
+LIGHT_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
+    "accounts": [
+        ("auth_method", "VARCHAR(40)"),
+        ("credential_enc", "TEXT"),
+    ],
+    "listings": [
+        ("master_ad_id", "INTEGER REFERENCES master_ads(id) ON DELETE SET NULL"),
+        ("overrides", "JSON"),
+    ],
+}
 
 
 class Database:
@@ -49,19 +62,19 @@ class Database:
         reescribir la tabla ni perder datos.
         """
         inspector = inspect(self.engine)
-        if "accounts" not in inspector.get_table_names():
-            return
-        existing = {column["name"] for column in inspector.get_columns("accounts")}
-        pending = [
-            ("auth_method", "VARCHAR(40)"),
-            ("credential_enc", "TEXT"),
-        ]
+        tables = set(inspector.get_table_names())
         with self.engine.begin() as connection:
-            for name, sql_type in pending:
-                if name in existing:
+            for table, columns in LIGHT_MIGRATIONS.items():
+                if table not in tables:
                     continue
-                logger.info("Migración: añadiendo accounts.%s", name)
-                connection.execute(text(f"ALTER TABLE accounts ADD COLUMN {name} {sql_type}"))
+                existing = {column["name"] for column in inspector.get_columns(table)}
+                for name, sql_type in columns:
+                    if name in existing:
+                        continue
+                    logger.info("Migración: añadiendo %s.%s", table, name)
+                    connection.execute(
+                        text(f"ALTER TABLE {table} ADD COLUMN {name} {sql_type}")
+                    )
 
     def table_names(self) -> list[str]:
         return inspect(self.engine).get_table_names()

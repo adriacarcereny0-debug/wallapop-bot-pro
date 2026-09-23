@@ -53,14 +53,19 @@ def _build_filter(context: ToolContext, args: dict[str, Any]) -> ListingFilter:
 
 def _search_listings(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     criteria = _build_filter(context, args)
+    if (args.get("cuentas") or args.get("cuenta")) and not criteria.account_refs:
+        return fail(f"No se encuentra la cuenta «{args.get('cuentas') or args.get('cuenta')}».")
     listings = context.app.listings.search(criteria)
     by_account = Counter(v.account_alias for v in listings)
-    return ok(
+    result = ok(
         f"{len(listings)} anuncio(s) encontrados ({criteria.describe()}).",
         anuncios=[v.to_dict() for v in listings[:80]],
         total=len(listings),
         por_cuenta=dict(by_account),
     )
+    if len(listings) == 1:
+        result.focus = {"listing_ids": [listings[0].id]}
+    return result
 
 
 def _get_listing(context: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -72,7 +77,9 @@ def _get_listing(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         return fail(f"No se encuentra el anuncio {listing_id}.")
     data = view.to_dict()
     data["descripcion"] = view.description
-    return ok(f"Anuncio {view.id}: {view.title} ({view.account_alias}).", anuncio=data)
+    result = ok(f"Anuncio {view.id}: {view.title} ({view.account_alias}).", anuncio=data)
+    result.focus = {"listing_ids": [view.id]}
+    return result
 
 
 def _get_listings(context: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -104,7 +111,20 @@ def _sync_listings(context: ToolContext, args: dict[str, Any]) -> ToolResult:
 # ---------------------------------------------------------------------------
 # Escritura: siempre con confirmacion
 # ---------------------------------------------------------------------------
+def _price_text(value: float | None) -> str:
+    return f"{value:.2f} €".replace(".", ",") if value is not None else "sin precio"
+
+
 def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Cambia precios. NUNCA actúa sin saber exactamente sobre qué anuncios.
+
+    Orden para decidir a qué afecta:
+      1. Anuncios indicados expresamente.
+      2. Criterios (medida, texto, color, cuentas).
+      3. El anuncio del que se está hablando («este anuncio»).
+    Si no hay nada de lo anterior, se pide que se concrete: cambiar el precio
+    de TODOS los anuncios por una frase ambigua sería peligroso.
+    """
     price = args.get("precio")
     if price is None:
         return fail("Indica el nuevo precio.")
@@ -115,40 +135,122 @@ def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     if price <= 0:
         return fail("El precio debe ser mayor que cero.")
 
+    criteria_keys = ("texto", "medida", "color", "cuentas", "cuenta", "sku")
+    has_criteria = any(args.get(key) for key in criteria_keys)
     listing_ids = args.get("anuncios")
+    source = "criterios"
+    if listing_ids:
+        source = "indicados"
+    elif not has_criteria and context.focus.get("listing_ids"):
+        listing_ids = list(context.focus["listing_ids"])
+        source = "foco"
+        if args.get("solo_uno") and len(listing_ids) > 1:
+            # «Este anuncio» en singular pero hay varios en juego: no se adivina.
+            candidates = [context.app.listings.get(int(i)) for i in listing_ids]
+            listado = "; ".join(
+                f"n.º {v.id} ({v.account_alias}, {_price_text(v.price)})"
+                for v in candidates
+                if v is not None
+            )
+            return fail(
+                f"Hay {len(listing_ids)} anuncios en la conversación: {listado}. "
+                f"¿Cuál? Por ejemplo: «cambia el precio del anuncio {listing_ids[0]} a "
+                f"{_price_text(price)}»."
+            )
+
     if listing_ids:
         listings = [context.app.listings.get(int(i)) for i in listing_ids]
         listings = [v for v in listings if v is not None]
-    else:
+    elif has_criteria:
         listings = context.app.listings.search(_build_filter(context, args))
+    else:
+        return fail(
+            "¿De qué anuncios quieres cambiar el precio? Indica la medida, la cuenta o "
+            "el producto (por ejemplo: «cambia el precio de los canapés de 135x190 a 270 €») "
+            "o pide antes que te muestre el anuncio concreto."
+        )
 
-    if not listings:
+    # ¿La orden habla también de la oferta del anuncio principal?
+    medida = args.get("medida")
+    master = None
+    old_offer = None
+    if medida and source == "criterios":
+        texto = args.get("texto") or ""
+        candidate = context.app.master_ads.get()
+        if candidate is not None and (not texto or context.app.master_ads.find_by_text(texto)):
+            old_offer = candidate.variant_price(medida)
+            if old_offer is not None:
+                master = candidate
+
+    if not listings and master is None:
         return fail("No se ha encontrado ningún anuncio que coincida con esos criterios.")
 
     if not context.confirmed:
-        by_account = Counter(v.account_alias for v in listings)
-        lines = [f"{alias}: {count} anuncio(s)" for alias, count in sorted(by_account.items())]
-        lines.append(f"Nuevo precio: {price:.2f} €")
-        sample = ", ".join(v.title for v in listings[:3])
-        if sample:
-            lines.append(f"Ejemplos: {sample}")
+        lines: list[str] = []
+        if len(listings) == 1:
+            only = listings[0]
+            title = (
+                f"Voy a cambiar el precio del anuncio «{only.title}» ({only.account_alias}) "
+                f"de {_price_text(only.price)} a {_price_text(price)}"
+            )
+        elif listings:
+            title = f"Voy a cambiar el precio de {len(listings)} anuncios a {_price_text(price)}"
+            by_account = Counter(v.account_alias for v in listings)
+            lines += [f"{alias}: {count} anuncio(s)" for alias, count in sorted(by_account.items())]
+            prices = sorted({v.price for v in listings if v.price is not None})
+            if prices:
+                lines.append(
+                    "Precio actual: "
+                    + (
+                        _price_text(prices[0])
+                        if len(prices) == 1
+                        else f"entre {_price_text(prices[0])} y {_price_text(prices[-1])}"
+                    )
+                )
+            lines.append(f"Nuevo precio: {_price_text(price)}")
+            sample = ", ".join(v.title for v in listings[:3])
+            if sample:
+                lines.append(f"Ejemplos: {sample}")
+        else:
+            title = f"Voy a cambiar la oferta de {medida} del anuncio principal"
+        if master is not None:
+            lines.append(
+                f"Oferta «Canapé + colchón {medida}» en la plantilla «{master.name}»: "
+                f"{_price_text(old_offer)} → {_price_text(price)} (cambia el texto de la descripción)"
+            )
         return confirm_first(
             "update_price",
             {**args, "anuncios": [v.id for v in listings], "precio": price},
-            f"Voy a modificar {len(listings)} anuncio(s)",
+            title,
             lines,
             affected=len(listings),
         )
 
-    outcomes = context.app.publishing.update_prices(
-        [v.id for v in listings], price, confirmed=True, actor=context.actor
-    )
-    done = sum(1 for o in outcomes if o.success)
-    failed = [o.to_dict() for o in outcomes if not o.success]
+    messages: list[str] = []
+    failed: list[dict[str, Any]] = []
+    done = 0
+    if listings:
+        outcomes = context.app.publishing.update_prices(
+            [v.id for v in listings], price, confirmed=True, actor=context.actor
+        )
+        done = sum(1 for o in outcomes if o.success)
+        failed = [o.to_dict() for o in outcomes if not o.success]
+        messages.append(
+            f"Precio actualizado a {_price_text(price)} en {done} de {len(outcomes)} anuncio(s)."
+        )
+    if master is not None and medida:
+        context.app.master_ads.set_variant_price(
+            master.key, medida, price, confirmed=True, actor=context.actor
+        )
+        messages.append(
+            f"Oferta de {medida} de la plantilla actualizada a {_price_text(price)}. "
+            f"Los anuncios ya publicados conservan su descripción anterior."
+        )
     return ToolResult(
         ok=not failed,
-        summary=f"Precio actualizado a {price:.2f} € en {done} de {len(outcomes)} anuncio(s).",
+        summary=" ".join(messages),
         data={"correctos": done, "fallidos": failed},
+        focus={"listing_ids": [v.id for v in listings]} if len(listings) == 1 else {},
     )
 
 
@@ -156,6 +258,8 @@ def _update_listing_field(field: str, label: str):
     def handler(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         listing_id = args.get("anuncio")
         value = args.get("valor")
+        if listing_id is None and len(context.focus.get("listing_ids") or []) == 1:
+            listing_id = context.focus["listing_ids"][0]
         if listing_id is None or value in (None, ""):
             return fail(f"Indica el anuncio y el nuevo {label}.")
         view = context.app.listings.get(int(listing_id))
@@ -165,12 +269,12 @@ def _update_listing_field(field: str, label: str):
             current = getattr(view, field, None)
             return confirm_first(
                 f"update_{field}",
-                args,
-                f"Voy a cambiar el {label} de un anuncio",
+                {**args, "anuncio": int(listing_id)},
+                f"Voy a cambiar el {label} del anuncio «{view.title}» ({view.account_alias})",
                 [
-                    f"Cuenta: {view.account_alias}",
-                    f"Anuncio: {view.title}",
-                    f"{label.capitalize()}: {str(current)[:80]} → {str(value)[:80]}",
+                    f"{label.capitalize()} actual: {str(current or '(vacío)')[:300]}",
+                    f"{label.capitalize()} nuevo: {str(value)[:300]}",
+                    "Solo cambia este anuncio; la plantilla y los demás anuncios no se tocan.",
                 ],
                 affected=1,
             )
@@ -415,6 +519,10 @@ LISTING_TOOLS: list[Tool] = [
             "properties": {
                 "precio": {"type": "number", "description": "Nuevo precio en euros."},
                 "anuncios": {"type": "array", "items": {"type": "integer"}},
+                "solo_uno": {
+                    "type": "boolean",
+                    "description": "True si el usuario habla de UN anuncio («este anuncio»).",
+                },
                 "texto": {"type": "string"},
                 "medida": {"type": "string"},
                 "color": {"type": "string"},
@@ -431,8 +539,14 @@ LISTING_TOOLS: list[Tool] = [
         name="update_title",
         description="Cambia el título de un anuncio publicado. Requiere confirmación.",
         parameters={
-            "properties": {"anuncio": {"type": "integer"}, "valor": {"type": "string"}},
-            "required": ["anuncio", "valor"],
+            "properties": {
+                "anuncio": {
+                    "type": "integer",
+                    "description": "Omítelo para usar el anuncio del que se está hablando.",
+                },
+                "valor": {"type": "string"},
+            },
+            "required": ["valor"],
         },
         handler=_update_listing_field("title", "título"),
         category=ToolCategory.LISTINGS,
@@ -443,8 +557,14 @@ LISTING_TOOLS: list[Tool] = [
         name="update_description",
         description="Cambia la descripción de un anuncio publicado. Requiere confirmación.",
         parameters={
-            "properties": {"anuncio": {"type": "integer"}, "valor": {"type": "string"}},
-            "required": ["anuncio", "valor"],
+            "properties": {
+                "anuncio": {
+                    "type": "integer",
+                    "description": "Omítelo para usar el anuncio del que se está hablando.",
+                },
+                "valor": {"type": "string"},
+            },
+            "required": ["valor"],
         },
         handler=_update_listing_field("description", "descripción"),
         category=ToolCategory.LISTINGS,

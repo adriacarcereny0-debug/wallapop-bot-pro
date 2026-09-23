@@ -51,8 +51,11 @@ class AuditEntry:
 class AuditService:
     """Escribe y consulta el historial de acciones."""
 
-    def __init__(self, database: Database) -> None:
+    def __init__(self, database: Database, demo_mode: bool = False) -> None:
         self._db = database
+        #: En DEMO, cada entrada se marca con «[DEMO]» para que nadie la
+        #: confunda con una operación real en Wallapop.
+        self.demo_mode = demo_mode
 
     # ------------------------------------------------------------------
     def record(
@@ -69,6 +72,8 @@ class AuditService:
     ) -> int:
         if isinstance(result, str):
             result = ActionResult(result)
+        if self.demo_mode and not action.startswith("[DEMO]"):
+            action = f"[DEMO] {action}"
         with self._db.session_scope() as session:
             account_id = None
             if account_ref:
