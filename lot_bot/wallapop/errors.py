@@ -54,7 +54,7 @@ class AuthenticationError(WallapopError):
     """Token ausente, caducado o rechazado."""
 
     user_message = (
-        "La cuenta no esta autorizada o la sesion ha caducado. "
+        "La cuenta no está autorizada o la sesión ha caducado. "
         "Vuelve a conectar la cuenta desde la pantalla Cuentas Wallapop."
     )
 
@@ -63,15 +63,15 @@ class AuthorizationError(WallapopError):
     """El token es valido pero no tiene el permiso (scope) necesario."""
 
     user_message = (
-        "La cuenta no tiene permisos suficientes para esta operacion. "
-        "Revisa los permisos concedidos a la integracion."
+        "La cuenta no tiene permisos suficientes para esta operación. "
+        "Revisa los permisos concedidos a la integración."
     )
 
 
 class RateLimitError(WallapopError):
     """Wallapop ha limitado el numero de peticiones."""
 
-    user_message = "Wallapop ha limitado temporalmente las peticiones. Reintenta en unos minutos."
+    user_message = "Wallapop ha limitado temporalmente las peticiones. Vuelve a intentarlo en unos minutos."
     retryable = True
 
     def __init__(self, detail: str = "", retry_after: int | None = None) -> None:
@@ -83,7 +83,7 @@ class ValidationRejectedError(WallapopError):
     """Wallapop ha rechazado los datos enviados."""
 
     user_message = (
-        "Wallapop no ha aceptado la publicacion. Revisa los campos obligatorios del anuncio."
+        "Wallapop no ha aceptado la publicación. Revisa los campos obligatorios del anuncio."
     )
 
     def __init__(self, detail: str = "", fields: dict[str, str] | None = None) -> None:
@@ -96,12 +96,12 @@ class NotFoundError(WallapopError):
 
 
 class NetworkError(WallapopError):
-    user_message = "No hay conexion con Wallapop. Comprueba tu conexion a internet."
+    user_message = "No hay conexión con Wallapop. Comprueba tu conexión a internet."
     retryable = True
 
 
 class ServiceUnavailableError(WallapopError):
-    user_message = "Wallapop no esta disponible en este momento. Reintenta mas tarde."
+    user_message = "Wallapop no está disponible en este momento. Vuelve a intentarlo más tarde."
     retryable = True
 
 

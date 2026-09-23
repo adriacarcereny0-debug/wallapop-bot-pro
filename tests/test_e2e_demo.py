@@ -216,3 +216,20 @@ def test_deteccion_de_duplicados_no_borra_nada(app_with_data):
     grupos = app_with_data.listings.find_duplicates()
     assert isinstance(grupos, list)
     assert app_with_data.listings.stats()["total"] == antes
+
+
+def test_una_instalacion_nueva_trae_mensajes_de_demostracion(app):
+    """Fallo corregido: al estrenar el modo DEMO no había conversaciones, y
+    «¿qué mensajes nuevos hay?» respondía que ninguno."""
+    assert app.messages.list_conversations()
+    assert app.messages.unread_count() > 0
+
+
+def test_los_mensajes_del_modo_demo_dicen_que_son_simulados(app):
+    from lot_bot.wallapop.dto import ItemDraft
+
+    resultado = app.wallapop.create_item(
+        "demo-1", ItemDraft(title="Prueba", description="d" * 60, price=10.0)
+    )
+    assert "DEMO" in resultado.message
+    assert "no está en Wallapop" in resultado.message

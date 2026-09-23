@@ -287,6 +287,10 @@ def _sync_demo_listings(app: Application) -> None:
         results = app.listings.sync_all(refs)
         total = sum(r.get("nuevos", 0) for r in results.values())
         logger.info("Anuncios de demostracion sincronizados: %d.", total)
+        # También las conversaciones: si no, «¿qué mensajes nuevos hay?»
+        # respondería que ninguno en una instalación recién estrenada.
+        if app.messages.messaging_available:
+            app.messages.sync_all(refs)
     except Exception as exc:  # nunca debe impedir el arranque
         logger.warning("No se han podido sincronizar los anuncios DEMO: %s", exc)
 

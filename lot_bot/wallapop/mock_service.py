@@ -253,11 +253,11 @@ class MockWallapopService(WallapopService):
             if trigger in blob:
                 if kind == "validation":
                     raise ValidationRejectedError(
-                        "Error simulado de validacion (modo DEMO).",
+                        "Error simulado de validación (modo DEMO).",
                         fields={"titulo": "Formato no aceptado"},
                     )
                 if kind == "rate_limit":
-                    raise RateLimitError("Limite de peticiones simulado (modo DEMO).", retry_after=60)
+                    raise RateLimitError("Límite de peticiones simulado (modo DEMO).", retry_after=60)
                 if kind == "not_found":
                     raise NotFoundError("Elemento inexistente simulado (modo DEMO).")
 
@@ -385,7 +385,7 @@ class MockWallapopService(WallapopService):
             }
             self._save()
         return OperationResult(
-            success=True, message="Anuncio publicado (DEMO).", item_id=item_id
+            success=True, message="Anuncio publicado en modo DEMO (simulado, no está en Wallapop).", item_id=item_id
         )
 
     def update_item(self, account_ref: str, item_id: str, changes: dict[str, Any]) -> OperationResult:
@@ -414,7 +414,7 @@ class MockWallapopService(WallapopService):
             self._save()
         return OperationResult(
             success=True,
-            message=f"Anuncio actualizado (DEMO): {', '.join(applied) or 'sin cambios'}.",
+            message=f"Anuncio actualizado en modo DEMO (simulado): {', '.join(applied) or 'sin cambios'}.",
             item_id=item_id,
             data=applied,
         )
@@ -426,7 +426,7 @@ class MockWallapopService(WallapopService):
                 raise NotFoundError(f"El anuncio '{item_id}' no existe en la cuenta {account_ref}.")
             items.pop(item_id)
             self._save()
-        return OperationResult(success=True, message="Anuncio eliminado (DEMO).", item_id=item_id)
+        return OperationResult(success=True, message="Anuncio eliminado en modo DEMO (simulado).", item_id=item_id)
 
     def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
         if price is None or price <= 0:
@@ -447,7 +447,7 @@ class MockWallapopService(WallapopService):
             self._save()
         return OperationResult(
             success=True,
-            message=f"{len(image_urls)} fotografias actualizadas (DEMO).",
+            message=f"{len(image_urls)} fotografías actualizadas en modo DEMO (simulado).",
             item_id=item_id,
         )
 
@@ -503,7 +503,7 @@ class MockWallapopService(WallapopService):
     def send_message(self, account_ref: str, conversation_id: str, body: str) -> OperationResult:
         self._check_triggers(body)
         if not body.strip():
-            raise ValidationRejectedError("El mensaje no puede estar vacio.")
+            raise ValidationRejectedError("El mensaje no puede estar vacío.")
         with self._lock:
             conversations = self._messages.setdefault(account_ref, {})
             if conversation_id not in conversations:
@@ -523,7 +523,7 @@ class MockWallapopService(WallapopService):
                 conv["unread"] = 0
                 conv["last_message_at"] = _now().isoformat()
             self._save()
-        return OperationResult(success=True, message="Mensaje enviado (DEMO).", data={"message_id": message_id})
+        return OperationResult(success=True, message="Mensaje enviado (DEMO, no ha salido de LOT Bot).", data={"message_id": message_id})
 
     # ------------------------------------------------------------------
     def get_market_data(self, account_ref: str, query: str, limit: int = 50) -> list[MarketDataPoint]:
