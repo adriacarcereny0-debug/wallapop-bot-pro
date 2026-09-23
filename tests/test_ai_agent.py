@@ -77,7 +77,7 @@ def test_herramienta_sin_permiso_devuelve_codigo_normalizado(app, monkeypatch):
     registro = build_registry()
     resultado = registro.execute("delete_listing", {"anuncio": 1}, ToolContext(app=app))
     assert resultado.unavailable
-    assert "NOT_AVAILABLE_WITH_CURRENT_API" in resultado.summary
+    assert "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS" in resultado.summary
 
 
 def test_el_registro_bloquea_una_escritura_sin_confirmacion(app):

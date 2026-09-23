@@ -10,7 +10,7 @@ declara en un fichero YAML que se rellena copiando la documentación oficial que
 Wallapop entrega junto a las credenciales.
 
 Si una operación no está en ese fichero, no existe para la aplicación: se responde
-`NOT_AVAILABLE_WITH_CURRENT_API` en vez de simularla.
+`NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` en vez de simularla.
 
 ## Pasos
 
@@ -142,7 +142,7 @@ response:
 | Síntoma | Causa habitual |
 |---|---|
 | Sigue en MODO DEMO | Falta una credencial o el fichero de endpoints. El motivo aparece en Configuración → Wallapop |
-| `NOT_AVAILABLE_WITH_CURRENT_API` | Esa operación no está declarada en el YAML |
+| `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` | Esa operación no está declarada en el YAML |
 | 401 al sincronizar | Token caducado: vuelve a conectar la cuenta |
 | 403 | La cuenta no tiene el permiso (*scope*) necesario |
 | Los anuncios llegan sin título o sin precio | El `response.fields` no apunta a los campos correctos |

@@ -110,7 +110,7 @@ class MessagesView(BaseView):
         available = self.app.messages.messaging_available
         if not available:
             self.notice.setText(
-                f"<b style='color:{theme.WARNING}'>NOT_AVAILABLE_WITH_CURRENT_API</b> — "
+                f"<b style='color:{theme.WARNING}'>NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS</b> — "
                 f"la integración autorizada no incluye acceso a los mensajes de Wallapop. "
                 f"Esta pantalla estará disponible cuando se conceda ese permiso."
             )

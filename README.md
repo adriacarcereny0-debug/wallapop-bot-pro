@@ -56,7 +56,7 @@ operations:
 ```
 
 Una operación que no figure ahí **no existe** para la aplicación: se responde
-`NOT_AVAILABLE_WITH_CURRENT_API` en lugar de simularla.
+`NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` en lugar de simularla.
 
 ### La IA no puede salirse del guion
 

@@ -1,10 +1,20 @@
-"""Pantalla de cuentas de Wallapop."""
+"""Pantalla «Cuentas de Wallapop».
+
+Alta, conexion, reautenticacion y baja de cuentas. El mecanismo de conexion es
+el que Wallapop haya autorizado; esta pantalla no asume ninguno y, cuando falta
+algun dato tecnico, lo dice en lugar de pedir una credencial inexistente.
+"""
 
 from __future__ import annotations
 
 from PySide6.QtWidgets import QHBoxLayout, QInputDialog, QLabel, QPushButton
 
 from lot_bot.ui import theme
+from lot_bot.ui.views.account_wizard import (
+    AddAccountDialog,
+    DelegatedCredentialDialog,
+    MissingAccessDialog,
+)
 from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import (
     Card,
@@ -16,25 +26,40 @@ from lot_bot.ui.widgets.common import (
     selected_row_data,
     show_error,
 )
+from lot_bot.wallapop.auth.base import AuthKind
 
 
 class AccountsView(BaseView):
-    title = "Cuentas Wallapop"
+    title = "Cuentas de Wallapop"
     subtitle = "Cada cuenta está aislada: nunca se mezclan anuncios ni mensajes"
 
     def build(self) -> None:
         self.add_header_button("Añadir cuenta", self._add_account, primary=True)
         self.add_header_button("Actualizar", self.refresh)
 
+        # --- Estado del acceso ---
         self.notice = QLabel()
         self.notice.setWordWrap(True)
         self.notice.setStyleSheet(f"color: {theme.TEXT_MUTED};")
         self.body.addWidget(self.notice)
 
+        self.details_button = QPushButton("Ver qué falta para conectar con Wallapop")
+        self.details_button.setObjectName("Ghost")
+        self.details_button.clicked.connect(self._show_missing)
+        self.body.addWidget(self.details_button)
+
+        # --- Tabla ---
         card = Card()
         card.add(SectionTitle("Cuentas configuradas"))
         self.table = build_table(
-            ["Cuenta", "Referencia", "Estado", "Usuario", "Última sincronización", "Permisos"]
+            [
+                "Cuenta",
+                "Referencia",
+                "Estado",
+                "Mecanismo",
+                "Usuario",
+                "Última sincronización",
+            ]
         )
         self.table.itemSelectionChanged.connect(self._update_buttons)
         card.add(self.table)
@@ -45,6 +70,10 @@ class AccountsView(BaseView):
         self.connect_button.setObjectName("Primary")
         self.connect_button.clicked.connect(self._connect)
         actions.addWidget(self.connect_button)
+
+        self.reauth_button = QPushButton("Volver a autenticar")
+        self.reauth_button.clicked.connect(self._reauthenticate)
+        actions.addWidget(self.reauth_button)
 
         self.disconnect_button = QPushButton("Desconectar")
         self.disconnect_button.clicked.connect(self._disconnect)
@@ -71,17 +100,21 @@ class AccountsView(BaseView):
     # ------------------------------------------------------------------
     def refresh(self) -> None:
         backend = self.app.backend
+        method = self.app.auth_method
+
         if backend.demo:
             self.notice.setText(
-                f"<b style='color:{theme.WARNING}'>MODO DEMO.</b> {backend.reason} "
-                f"Las cuentas que ves son simuladas."
+                f"<b style='color:{theme.WARNING}'>MODO DEMO</b> — {backend.reason} "
+                f"Las cuentas que ves son simuladas y nada afecta a Wallapop."
             )
+            self.details_button.setVisible(True)
         else:
             self.notice.setText(
-                f"<b style='color:{theme.SUCCESS}'>Integración real activa.</b> "
-                f"Al conectar una cuenta se abrirá el navegador en Wallapop. "
-                f"LOT Bot no guarda tu contraseña: solo un token cifrado."
+                f"<b style='color:{theme.SUCCESS}'>WALLAPOP REAL</b> — acceso mediante "
+                f"«{method.describe()}». LOT Bot no guarda tu contraseña: solo la "
+                f"credencial de acceso, cifrada."
             )
+            self.details_button.setVisible(bool(backend.missing))
 
         accounts = self.app.accounts.list_accounts()
         self._accounts = accounts
@@ -92,9 +125,9 @@ class AccountsView(BaseView):
                     a.alias,
                     a.internal_ref,
                     a.status_label,
+                    a.auth_method_label,
                     a.wallapop_login or "—",
                     a.last_sync_at.strftime("%d/%m/%Y %H:%M") if a.last_sync_at else "nunca",
-                    ", ".join(a.scopes) if a.scopes else ("DEMO" if a.is_demo else "—"),
                 ]
                 for a in accounts
             ],
@@ -105,110 +138,186 @@ class AccountsView(BaseView):
                 else None
             ),
         )
+        connected = sum(1 for a in accounts if a.is_connected)
+        self.header.set_subtitle(
+            f"{len(accounts)} cuenta(s) · {connected} conectada(s) · "
+            f"cada una con sus propios anuncios, mensajes y automatizaciones"
+        )
         self._update_buttons()
 
     # ------------------------------------------------------------------
-    def _selected_ref(self) -> str | None:
+    def _selected(self):
         refs = selected_row_data(self.table)
-        return refs[0] if refs else None
+        if not refs:
+            return None
+        return next((a for a in self._accounts if a.internal_ref == refs[0]), None)
 
     def _update_buttons(self) -> None:
-        ref = self._selected_ref()
-        has_selection = ref is not None
+        account = self._selected()
+        has = account is not None
         for button in (
-            self.connect_button,
             self.disconnect_button,
             self.sync_button,
             self.rename_button,
             self.remove_button,
         ):
-            button.setEnabled(has_selection)
-        if self.app.demo_mode:
-            self.connect_button.setEnabled(False)
-            self.connect_button.setToolTip(
-                "En modo DEMO las cuentas ya están conectadas de forma simulada."
+            button.setEnabled(has)
+
+        method_ready = self.app.auth_method.is_ready
+        self.connect_button.setEnabled(has and method_ready and not (account and account.is_connected))
+        self.reauth_button.setEnabled(has and method_ready and bool(account and account.is_connected))
+
+        if not method_ready:
+            tip = (
+                "El mecanismo de acceso autorizado todavía no tiene todos los datos "
+                "técnicos. Pulsa «Ver qué falta para conectar con Wallapop»."
             )
+            self.connect_button.setToolTip(tip)
+            self.reauth_button.setToolTip(tip)
+        else:
+            self.connect_button.setToolTip("")
+            self.reauth_button.setToolTip("")
 
     # ------------------------------------------------------------------
     def _add_account(self) -> None:
-        alias, accepted = QInputDialog.getText(
-            self, "Añadir cuenta", "Nombre con el que identificar la cuenta:"
-        )
-        if not accepted or not alias.strip():
+        dialog = AddAccountDialog(self.app, self)
+        if dialog.exec() != dialog.DialogCode.Accepted:
+            return
+        alias = dialog.account_alias()
+        if not alias:
+            show_error(self, "La cuenta necesita un nombre.")
             return
         try:
-            account = self.app.accounts.add_account(alias.strip(), is_demo=self.app.demo_mode)
+            account = self.app.accounts.add_account(alias, is_demo=self.app.demo_mode)
         except ValueError as exc:
             show_error(self, str(exc))
             return
         self.app.audit.record_success("Alta de cuenta", target=account.alias)
         self.refresh()
-        info_box(
-            self,
-            "Cuenta añadida",
-            f"«{account.alias}» creada con la referencia interna {account.internal_ref}.\n\n"
-            + (
-                "Estás en modo DEMO: la cuenta funciona con datos simulados."
-                if self.app.demo_mode
-                else "Selecciónala y pulsa «Conectar» para autorizarla en Wallapop."
-            ),
-        )
 
-    def _connect(self) -> None:
-        ref = self._selected_ref()
-        if ref is None:
-            return
         if self.app.demo_mode:
             info_box(
                 self,
-                "Modo DEMO",
-                "En modo DEMO no hay conexión real con Wallapop.\n\n"
-                "Para conectar de verdad, configura las credenciales oficiales y el "
-                "fichero de endpoints en Ajustes.",
+                "Cuenta añadida",
+                f"«{account.alias}» creada en modo demostración.\n\n"
+                f"Funciona con datos simulados: no afecta a Wallapop.",
             )
+        elif self.app.auth_method.is_ready:
+            self._connect_account(account)
+        else:
+            self._show_missing()
+
+    # ------------------------------------------------------------------
+    def _connect(self) -> None:
+        account = self._selected()
+        if account is not None:
+            self._connect_account(account)
+
+    def _reauthenticate(self) -> None:
+        account = self._selected()
+        if account is None:
+            return
+        if not ask_confirmation(
+            self,
+            "Volver a autenticar",
+            f"Se sustituirá la sesión guardada de «{account.alias}» por una nueva.\n\n"
+            f"Tendrás que iniciar sesión otra vez en Wallapop.",
+        ):
+            return
+        self._connect_account(account, reauth=True)
+
+    def _connect_account(self, account, reauth: bool = False) -> None:
+        """Lanza el mecanismo de acceso que corresponda."""
+        method = self.app.auth_method
+
+        if method.kind is AuthKind.DEMO and not self.app.demo_mode:
+            self._show_missing()
             return
 
-        self.connect_button.setEnabled(False)
-        self.connect_button.setText("Esperando al navegador…")
+        context: dict = {}
+        if method.kind is AuthKind.DELEGATED_CREDENTIAL:
+            dialog = DelegatedCredentialDialog(
+                account.alias,
+                instructions=self.app.access_profile.auth.delegated.instructions,
+                parent=self,
+            )
+            if dialog.exec() != dialog.DialogCode.Accepted:
+                return
+            context["credential"] = dialog.value()
+        elif method.interactive:
+            info_box(
+                self,
+                "Autenticación en Wallapop",
+                "Se abrirá tu navegador en Wallapop.\n\n"
+                "Inicia sesión con esta cuenta, completa los pasos de seguridad que "
+                "Wallapop te pida y autoriza el acceso.\n\n"
+                "LOT Bot no ve ni guarda tu contraseña.",
+            )
 
-        def done(_=None):
+        self.connect_button.setEnabled(False)
+        self.connect_button.setText("Autenticando…")
+
+        def work():
+            if reauth:
+                return self.app.accounts.reauthenticate(account.internal_ref, **context)
+            return self.app.accounts.connect(account.internal_ref, **context)
+
+        def success(outcome) -> None:
+            if outcome.success:
+                self.app.audit.record_success(
+                    "Conexión de cuenta",
+                    account_ref=account.internal_ref,
+                    target=account.alias,
+                    detail=method.describe(),
+                )
+                info_box(self, "Cuenta conectada", outcome.message)
+            else:
+                self.app.audit.record_error(
+                    "Conexión de cuenta",
+                    error=outcome.message,
+                    account_ref=account.internal_ref,
+                    target=account.alias,
+                )
+                if outcome.blocked_by_missing_data:
+                    self._show_missing()
+                else:
+                    show_error(self, outcome.message)
+
+        def done(_=None) -> None:
             self.connect_button.setText("Conectar")
             self.refresh()
 
-        self.run_task(
-            lambda: self.app.accounts.connect_interactive(ref),
-            on_success=lambda account: self.app.audit.record_success(
-                "Conexión de cuenta", account_ref=ref, target=account.alias
-            ),
-            on_done=done,
-        )
+        self.run_task(work, on_success=success, on_done=done)
 
+    # ------------------------------------------------------------------
     def _disconnect(self) -> None:
-        ref = self._selected_ref()
-        if ref is None:
+        account = self._selected()
+        if account is None:
             return
         if not ask_confirmation(
             self,
             "Desconectar cuenta",
-            f"Se borrarán los tokens guardados de «{ref}».\n"
+            f"Se borrará la credencial guardada de «{account.alias}».\n\n"
             f"Los anuncios seguirán en Wallapop; solo se corta el acceso de LOT Bot.",
         ):
             return
-        self.app.accounts.disconnect(ref)
-        self.app.audit.record_success("Desconexión de cuenta", account_ref=ref)
+        self.app.accounts.disconnect(account.internal_ref)
+        self.app.audit.record_success(
+            "Desconexión de cuenta", account_ref=account.internal_ref, target=account.alias
+        )
         self.refresh()
 
     def _sync(self) -> None:
-        ref = self._selected_ref()
-        if ref is None:
+        account = self._selected()
+        if account is None:
             return
         self.sync_button.setEnabled(False)
         self.sync_button.setText("Sincronizando…")
 
         def work():
-            result = self.app.listings.sync_account(ref)
+            result = self.app.listings.sync_account(account.internal_ref)
             if self.app.messages.messaging_available:
-                self.app.messages.sync_account(ref)
+                self.app.messages.sync_account(account.internal_ref)
             return result
 
         def success(result):
@@ -227,27 +336,32 @@ class AccountsView(BaseView):
         self.run_task(work, on_success=success, on_done=done)
 
     def _rename(self) -> None:
-        ref = self._selected_ref()
-        if ref is None:
+        account = self._selected()
+        if account is None:
             return
-        alias, accepted = QInputDialog.getText(self, "Renombrar cuenta", "Nuevo nombre:")
+        alias, accepted = QInputDialog.getText(
+            self, "Renombrar cuenta", "Nuevo nombre:", text=account.alias
+        )
         if accepted and alias.strip():
-            self.app.accounts.rename_account(ref, alias.strip())
+            self.app.accounts.rename_account(account.internal_ref, alias.strip())
             self.refresh()
 
     def _remove(self) -> None:
-        ref = self._selected_ref()
-        if ref is None:
+        account = self._selected()
+        if account is None:
             return
         if not ask_confirmation(
             self,
             "Eliminar cuenta",
-            f"Se eliminará la cuenta «{ref}» de LOT Bot junto con sus anuncios y "
+            f"Se eliminará «{account.alias}» de LOT Bot junto con sus anuncios y "
             f"mensajes guardados en local.\n\n"
             f"Los anuncios publicados en Wallapop NO se tocan.",
             destructive=True,
         ):
             return
-        self.app.accounts.remove_account(ref)
-        self.app.audit.record_success("Baja de cuenta", target=ref)
+        self.app.accounts.remove_account(account.internal_ref)
+        self.app.audit.record_success("Baja de cuenta", target=account.alias)
         self.refresh()
+
+    def _show_missing(self) -> None:
+        MissingAccessDialog(self.app, self).exec()

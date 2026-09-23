@@ -10,7 +10,7 @@ entregada junto a las credenciales de la integracion autorizada.
 Consecuencias:
   * No se inventa ningun endpoint.
   * Una operacion que no figure en el fichero no existe para la aplicacion:
-    se responde `NOT_AVAILABLE_WITH_CURRENT_API`.
+    se responde `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS`.
   * Si Wallapop cambia su API, se actualiza el YAML sin tocar el codigo.
 """
 

@@ -21,7 +21,7 @@ def _get_messages(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(
             ok=False,
             summary=(
-                "NOT_AVAILABLE_WITH_CURRENT_API: la integración autorizada no incluye "
+                "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS: la integración autorizada no incluye "
                 "acceso a los mensajes de Wallapop."
             ),
             unavailable=True,

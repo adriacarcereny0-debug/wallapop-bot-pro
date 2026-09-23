@@ -76,7 +76,7 @@ cuando `context.confirmed` es `False`. El registro lo comprueba de todos modos.
 4. Impleméntalo en `ConnectWallapopService` usando `self._call(...)`.
 5. Documenta la nueva entrada en `config/endpoint_map.example.yaml`.
 6. Pruebas: que el mock funcione y que sin endpoint declarado se responda
-   `NOT_AVAILABLE_WITH_CURRENT_API`.
+   `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS`.
 
 ## Añadir una pantalla
 

@@ -7,7 +7,7 @@ import pytest
 from lot_bot.wallapop.capabilities import Capability
 from lot_bot.wallapop.dto import ItemDraft, ItemSearchQuery
 from lot_bot.wallapop.errors import (
-    NotAvailableWithCurrentAPIError,
+    NotAvailableWithCurrentAccessError,
     NotFoundError,
     RateLimitError,
     ValidationRejectedError,
@@ -86,8 +86,9 @@ def test_el_mock_declara_todas_las_capacidades(mock_service):
 
 
 def test_operacion_no_autorizada_lanza_error_especifico():
-    """Sin endpoint declarado, la operacion NO existe y no se simula."""
-    from lot_bot.wallapop.connect_service import ConnectWallapopService
+    """Sin operacion declarada, NO existe y no se simula."""
+    from lot_bot.wallapop.auth import AuthCredential, AuthKind
+    from lot_bot.wallapop.authorized_service import AuthorizedWallapopService
     from lot_bot.wallapop.endpoint_map import EndpointMap
 
     endpoint_map = EndpointMap.from_dict(
@@ -96,10 +97,11 @@ def test_operacion_no_autorizada_lanza_error_especifico():
             "operations": {"list_items": {"method": "GET", "path": "/items"}},
         }
     )
-    service = ConnectWallapopService(endpoint_map, lambda ref: "token")
+    credential = AuthCredential(kind=AuthKind.SESSION_HANDOFF, headers={"X-Sesion": "valor"})
+    service = AuthorizedWallapopService(endpoint_map, lambda ref: credential)
 
     assert service.supports(Capability.LIST_ITEMS)
     assert not service.supports(Capability.DELETE_ITEM)
-    with pytest.raises(NotAvailableWithCurrentAPIError) as error:
+    with pytest.raises(NotAvailableWithCurrentAccessError) as error:
         service.delete_item("cuenta", "1")
-    assert error.value.code == "NOT_AVAILABLE_WITH_CURRENT_API"
+    assert error.value.code == "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS"

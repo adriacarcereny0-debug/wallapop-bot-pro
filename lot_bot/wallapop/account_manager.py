@@ -1,19 +1,33 @@
-"""Gestion de cuentas de Wallapop y de sus tokens.
+"""Gestion de cuentas de Wallapop y de sus credenciales de acceso.
 
-Garantias de aislamiento multicuenta:
+INDEPENDIENTE DEL MECANISMO
+---------------------------
+Este modulo no sabe si la cuenta se conecto por OAuth, por una sesion
+autorizada o con una credencial delegada. Solo sabe que cada cuenta tiene una
+`AuthCredential` opaca que:
+
+  * se guarda cifrada con la clave maestra local,
+  * se descifra unicamente en el momento de hacer la peticion,
+  * se renueva o se invalida segun diga su mecanismo,
+  * y se puede revocar desde la aplicacion.
+
+GARANTIAS DE AISLAMIENTO MULTICUENTA
+------------------------------------
   * Cada cuenta tiene un `internal_ref` unico que identifica todo lo suyo.
-  * Los tokens se guardan cifrados y solo se descifran en el momento de usarse.
-  * Ninguna consulta de anuncios, mensajes o inventario cruza cuentas: siempre
-    se filtra por `account_id`.
+  * Las credenciales se guardan por cuenta y nunca se comparten.
+  * Cada cuenta recuerda con que mecanismo se conecto.
   * Nunca se guarda la contrasena de Wallapop.
+  * Ninguna credencial aparece en pantalla, en los logs ni en la IA.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select
 
@@ -21,27 +35,23 @@ from lot_bot.config.secrets import SecretBox, SecretsError, get_secret_box
 from lot_bot.database.engine import Database
 from lot_bot.database.models import Account, AccountStatus
 from lot_bot.logs.redaction import register_secret
+from lot_bot.wallapop.auth import AuthCredential, AuthKind, AuthMethod, AuthOutcome
+from lot_bot.wallapop.auth.demo import DemoAuthMethod
 from lot_bot.wallapop.dto import OAuthTokens
-from lot_bot.wallapop.errors import AuthenticationError, ConfigurationError
-from lot_bot.wallapop.oauth import (
-    LocalCallbackServer,
-    OAuthClient,
-    generate_pkce_pair,
-    new_state,
-    open_browser,
-)
+from lot_bot.wallapop.errors import AuthenticationError
 
 logger = logging.getLogger(__name__)
 
-#: Margen antes de la caducidad a partir del cual se refresca el token.
-REFRESH_MARGIN = timedelta(minutes=5)
+#: Margen antes de la caducidad a partir del cual se renueva la credencial.
+RENEWAL_MARGIN = timedelta(minutes=5)
 
 
 @dataclass(slots=True)
 class AccountInfo:
     """Vista de solo lectura de una cuenta, apta para la interfaz.
 
-    No contiene tokens: la interfaz nunca los necesita.
+    NO contiene credenciales: la interfaz nunca las necesita y nunca debe
+    poder mostrarlas por accidente.
     """
 
     id: int
@@ -55,6 +65,7 @@ class AccountInfo:
     token_expires_at: datetime | None
     is_demo: bool
     scopes: list[str]
+    auth_method: str | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -65,34 +76,62 @@ class AccountInfo:
         return {
             AccountStatus.CONNECTED: "Conectada",
             AccountStatus.DISCONNECTED: "Desconectada",
-            AccountStatus.EXPIRED: "Sesion caducada",
+            AccountStatus.EXPIRED: "Sesión caducada",
             AccountStatus.ERROR: "Error",
         }[self.status]
 
+    @property
+    def needs_reauthentication(self) -> bool:
+        return self.status in (AccountStatus.EXPIRED, AccountStatus.ERROR)
+
+    @property
+    def auth_method_label(self) -> str:
+        from lot_bot.wallapop.auth.base import AUTH_KIND_LABELS
+
+        if not self.auth_method:
+            return "—"
+        try:
+            return AUTH_KIND_LABELS[AuthKind(self.auth_method)]
+        except ValueError:
+            return self.auth_method
+
 
 class AccountManager:
-    """Alta, conexion y renovacion de credenciales de cuentas."""
+    """Alta, conexion, renovacion y revocacion de credenciales por cuenta."""
 
     def __init__(
         self,
         database: Database,
         secret_box: SecretBox | None = None,
-        oauth_client: OAuthClient | None = None,
+        auth_method: AuthMethod | None = None,
     ) -> None:
         self._db = database
         self._box = secret_box or get_secret_box()
-        self._oauth = oauth_client
+        self._auth = auth_method or DemoAuthMethod()
+
+    # ------------------------------------------------------------------
+    # Mecanismo activo
+    # ------------------------------------------------------------------
+    @property
+    def auth_method(self) -> AuthMethod:
+        return self._auth
+
+    def set_auth_method(self, method: AuthMethod) -> None:
+        self._auth = method
+        logger.info("Mecanismo de acceso activo: %s", method.describe())
+
+    def set_oauth_client(self, client: Any) -> None:
+        """Compatibilidad con la versión anterior. Ya no se usa: el mecanismo
+        de autenticación se configura con `set_auth_method`."""
+        logger.debug("set_oauth_client está obsoleto; usa set_auth_method.")
 
     # ------------------------------------------------------------------
     # Consulta
     # ------------------------------------------------------------------
     def list_accounts(self, include_demo: bool = True) -> list[AccountInfo]:
         with self._db.session_scope() as session:
-            stmt = select(Account).order_by(Account.id)
-            accounts = session.scalars(stmt).all()
-            return [
-                self._to_info(a) for a in accounts if include_demo or not a.is_demo
-            ]
+            accounts = session.scalars(select(Account).order_by(Account.id)).all()
+            return [self._to_info(a) for a in accounts if include_demo or not a.is_demo]
 
     def get_account(self, internal_ref: str) -> AccountInfo | None:
         with self._db.session_scope() as session:
@@ -141,6 +180,7 @@ class AccountManager:
             token_expires_at=account.token_expires_at,
             is_demo=account.is_demo,
             scopes=(account.scopes or "").split(),
+            auth_method=account.auth_method,
         )
 
     # ------------------------------------------------------------------
@@ -157,13 +197,21 @@ class AccountManager:
                 internal_ref=ref,
                 alias=alias.strip() or ref,
                 is_demo=is_demo,
-                status=AccountStatus.CONNECTED if is_demo else AccountStatus.DISCONNECTED,
-                status_detail="Cuenta de demostracion" if is_demo else None,
+                status=AccountStatus.DISCONNECTED,
+                status_detail=None,
+                auth_method=AuthKind.DEMO.value if is_demo else None,
             )
             session.add(account)
             session.flush()
-            logger.info("Cuenta anadida: %s (%s)", account.alias, ref)
-            return self._to_info(account)
+            logger.info("Cuenta añadida: %s (%s)", account.alias, ref)
+            info = self._to_info(account)
+
+        if is_demo:
+            # Las cuentas DEMO quedan conectadas al instante, con una
+            # credencial marcada como simulada.
+            self.connect(ref, method=DemoAuthMethod())
+            return self.get_account(ref) or info
+        return info
 
     def rename_account(self, internal_ref: str, alias: str) -> AccountInfo | None:
         with self._db.session_scope() as session:
@@ -187,77 +235,84 @@ class AccountManager:
     # ------------------------------------------------------------------
     # Conexion
     # ------------------------------------------------------------------
-    def set_oauth_client(self, client: OAuthClient | None) -> None:
-        self._oauth = client
+    def connect(
+        self, internal_ref: str, method: AuthMethod | None = None, **context: Any
+    ) -> AuthOutcome:
+        """Conecta una cuenta con el mecanismo autorizado.
 
-    def connect_interactive(self, internal_ref: str, timeout: float = 300.0) -> AccountInfo:
-        """Lanza el flujo OAuth en el navegador y guarda los tokens cifrados.
-
-        El usuario introduce sus credenciales en el dominio de Wallapop.
-        LOT Bot nunca ve ni guarda la contrasena.
+        El mecanismo decide cómo: abrir el navegador, pedir una credencial
+        delegada... LOT Bot nunca maneja la contraseña del usuario.
         """
-        if self._oauth is None:
-            raise ConfigurationError(
-                "Cliente OAuth no configurado.",
-                user_message=(
-                    "No se puede conectar la cuenta: faltan las credenciales de Wallapop "
-                    "o el fichero de endpoints oficial."
-                ),
-            )
-        state = new_state()
-        verifier, challenge = generate_pkce_pair()
-        url = self._oauth.build_authorization_url(state, challenge)
+        auth = method or self._auth
+        if self.get_account(internal_ref) is None:
+            raise ValueError(f"Cuenta '{internal_ref}' no encontrada.")
 
-        with LocalCallbackServer(self._oauth.redirect_uri) as server:
-            open_browser(url)
-            result = server.wait(timeout=timeout)
+        logger.info(
+            "Conectando '%s' mediante '%s'.", internal_ref, auth.describe()
+        )
+        outcome = auth.authenticate(internal_ref, **context)
 
-        if result.error or not result.code:
-            self._mark_error(internal_ref, result.error or "Autorizacion cancelada.")
-            raise AuthenticationError(
-                f"Autorizacion no completada: {result.error or 'sin codigo'}",
-                user_message="No se ha completado la autorizacion en el navegador.",
-            )
-        if result.state != state:
-            self._mark_error(internal_ref, "Parametro 'state' no coincide.")
-            raise AuthenticationError(
-                "El parametro 'state' no coincide.",
-                user_message="La respuesta de autorizacion no es valida. Intentalo de nuevo.",
-            )
+        if not outcome.success or outcome.credential is None:
+            detail = outcome.message
+            if outcome.missing:
+                detail += " Faltan: " + ", ".join(r.label for r in outcome.missing)
+            self._mark_error(internal_ref, detail)
+            return outcome
 
-        tokens = self._oauth.exchange_code(result.code, verifier)
-        return self.store_tokens(internal_ref, tokens)
+        self.store_credential(internal_ref, outcome.credential, auth.kind)
+        return outcome
 
-    def store_tokens(self, internal_ref: str, tokens: OAuthTokens) -> AccountInfo:
-        register_secret(tokens.access_token)
-        if tokens.refresh_token:
-            register_secret(tokens.refresh_token)
+    def reauthenticate(self, internal_ref: str, **context: Any) -> AuthOutcome:
+        """Vuelve a autenticar una cuenta cuya sesión ha dejado de ser válida."""
+        info = self.get_account(internal_ref)
+        method = self._auth
+        if info is not None and info.is_demo:
+            method = DemoAuthMethod()
+        return self.connect(internal_ref, method=method, **context)
+
+    def store_credential(
+        self, internal_ref: str, credential: AuthCredential, kind: AuthKind | None = None
+    ) -> AccountInfo:
+        """Guarda la credencial cifrada y marca la cuenta como conectada."""
+        for secret in credential.secret_values():
+            register_secret(secret)
+
+        payload = json.dumps(credential.to_storage(), ensure_ascii=False)
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
             if account is None:
                 raise ValueError(f"Cuenta '{internal_ref}' no encontrada.")
-            account.access_token_enc = self._box.encrypt(tokens.access_token)
-            account.refresh_token_enc = self._box.encrypt(tokens.refresh_token)
-            account.token_expires_at = _naive_utc(tokens.expires_at)
-            account.scopes = " ".join(tokens.scopes)
+            account.credential_enc = self._box.encrypt(payload)
+            account.auth_method = (kind or credential.kind).value
+            account.token_expires_at = _naive_utc(credential.expires_at)
+            account.scopes = " ".join(credential.metadata.get("scopes", []) or [])
             account.status = AccountStatus.CONNECTED
             account.status_detail = None
+            account.is_demo = credential.kind is AuthKind.DEMO
+            if credential.metadata.get("user_id"):
+                account.wallapop_user_id = str(credential.metadata["user_id"])
+            if credential.metadata.get("login"):
+                account.wallapop_login = str(credential.metadata["login"])
+            # Los campos antiguos dejan de usarse.
+            account.access_token_enc = None
+            account.refresh_token_enc = None
             session.flush()
             logger.info("Cuenta '%s' conectada correctamente.", internal_ref)
             return self._to_info(account)
 
     def disconnect(self, internal_ref: str, revoke: bool = True) -> bool:
-        """Borra los tokens locales y, si se puede, los revoca en Wallapop."""
+        """Borra la credencial local y, si se puede, la revoca en Wallapop."""
+        credential: AuthCredential | None = None
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
             if account is None:
                 return False
-            token = None
-            if revoke and self._oauth is not None and account.access_token_enc:
+            if revoke and account.credential_enc:
                 try:
-                    token = self._box.decrypt(account.access_token_enc)
+                    credential = self._decrypt(account.credential_enc)
                 except SecretsError:
-                    token = None
+                    credential = None
+            account.credential_enc = None
             account.access_token_enc = None
             account.refresh_token_enc = None
             account.token_expires_at = None
@@ -266,61 +321,84 @@ class AccountManager:
             account.status_detail = "Desconectada por el usuario"
             session.flush()
 
-        if token and self._oauth is not None:
-            self._oauth.revoke(token)
+        if credential is not None and credential.kind is not AuthKind.DEMO:
+            try:
+                self._auth.revoke(credential)
+            except Exception as exc:  # revocar es «mejor esfuerzo»
+                logger.warning("No se ha podido revocar la credencial: %s", type(exc).__name__)
         logger.info("Cuenta '%s' desconectada.", internal_ref)
         return True
 
     # ------------------------------------------------------------------
-    # Tokens
+    # Credenciales
     # ------------------------------------------------------------------
-    def get_access_token(self, internal_ref: str) -> str:
-        """Devuelve un access token valido, refrescandolo si esta a punto de caducar.
+    def _decrypt(self, ciphertext: str) -> AuthCredential:
+        raw = self._box.decrypt(ciphertext)
+        return AuthCredential.from_storage(json.loads(raw or "{}"))
 
-        Es el `TokenProvider` que consume `ConnectWallapopService`.
+    def get_credential(self, internal_ref: str) -> AuthCredential:
+        """Devuelve la credencial vigente, renovándola si está a punto de caducar.
+
+        Es el `CredentialProvider` que consume `AuthorizedWallapopService`.
         """
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
             if account is None:
                 raise AuthenticationError(f"Cuenta '{internal_ref}' no encontrada.")
-            if not account.access_token_enc:
+            if not account.credential_enc:
                 account.status = AccountStatus.DISCONNECTED
-                raise AuthenticationError(f"La cuenta '{internal_ref}' no esta conectada.")
+                raise AuthenticationError(
+                    f"La cuenta '{internal_ref}' no está conectada.",
+                    user_message=(
+                        "Esta cuenta no está conectada. Conéctala desde Cuentas Wallapop."
+                    ),
+                )
+            ciphertext = account.credential_enc
 
-            expires_at = account.token_expires_at
-            needs_refresh = (
-                expires_at is not None
-                and expires_at <= datetime.now(UTC).replace(tzinfo=None) + REFRESH_MARGIN
-            )
-            refresh_enc = account.refresh_token_enc
-            access = self._box.decrypt(account.access_token_enc)
+        credential = self._decrypt(ciphertext)
+        for secret in credential.secret_values():
+            register_secret(secret)
 
-        if not needs_refresh:
-            return access or ""
+        if not credential.is_expired(margin_seconds=int(RENEWAL_MARGIN.total_seconds())):
+            return credential
 
-        if not refresh_enc:
+        # --- Caducada: intentar renovarla sin molestar al usuario ---
+        logger.info("La credencial de '%s' ha caducado; intentando renovar.", internal_ref)
+        renewed = None
+        try:
+            renewed = self._auth.renew(credential)
+        except Exception as exc:
+            logger.warning("Fallo al renovar '%s': %s", internal_ref, type(exc).__name__)
+
+        if renewed is None:
             self._mark_expired(internal_ref)
             raise AuthenticationError(
-                f"El token de '{internal_ref}' ha caducado y no hay refresh token.",
-                user_message="La sesion de la cuenta ha caducado. Vuelve a conectarla.",
+                f"La credencial de '{internal_ref}' ha caducado y no se puede renovar.",
+                user_message=(
+                    "La sesión de esta cuenta ha caducado. Pulsa «Volver a autenticar» "
+                    "en Cuentas Wallapop."
+                ),
             )
-        if self._oauth is None:
-            self._mark_expired(internal_ref)
-            raise ConfigurationError("No hay cliente OAuth para refrescar el token.")
+        self.store_credential(internal_ref, renewed)
+        return renewed
 
-        refresh_token = self._box.decrypt(refresh_enc)
-        logger.info("Refrescando token de la cuenta '%s'.", internal_ref)
-        try:
-            tokens = self._oauth.refresh(refresh_token or "")
-        except AuthenticationError:
-            self._mark_expired(internal_ref)
-            raise
-        self.store_tokens(internal_ref, tokens)
-        return tokens.access_token
+    def credential_provider(self):
+        """Callable listo para inyectar en `AuthorizedWallapopService`."""
+        return self.get_credential
+
+    def get_access_token(self, internal_ref: str) -> str:
+        """Compatibilidad: devuelve el valor de la cabecera de autorización.
+
+        Se mantiene porque algunas integraciones antiguas lo usaban. El código
+        nuevo debe usar `get_credential`.
+        """
+        credential = self.get_credential(internal_ref)
+        header = credential.headers.get("Authorization", "")
+        return header.split(" ", 1)[-1] if " " in header else header
 
     def token_provider(self):
-        """Callable listo para inyectar en `ConnectWallapopService`."""
-        return self.get_access_token
+        """Compatibilidad con la versión anterior."""
+        return self.get_credential
 
     # ------------------------------------------------------------------
     # Estado
@@ -333,6 +411,10 @@ class AccountManager:
                 account.status = AccountStatus.CONNECTED
                 account.status_detail = None
 
+    def mark_session_invalid(self, internal_ref: str, detail: str = "") -> None:
+        """Marca que Wallapop ha rechazado la sesión de esta cuenta."""
+        self._mark_expired(internal_ref, detail)
+
     def _mark_error(self, internal_ref: str, detail: str) -> None:
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
@@ -340,12 +422,14 @@ class AccountManager:
                 account.status = AccountStatus.ERROR
                 account.status_detail = detail[:500]
 
-    def _mark_expired(self, internal_ref: str) -> None:
+    def _mark_expired(self, internal_ref: str, detail: str = "") -> None:
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
             if account is not None:
                 account.status = AccountStatus.EXPIRED
-                account.status_detail = "La sesion ha caducado. Vuelve a conectar la cuenta."
+                account.status_detail = (
+                    detail or "La sesión ha caducado. Vuelve a autenticar la cuenta."
+                )[:500]
 
     def ensure_demo_accounts(self, demo_refs: list[tuple[str, str]]) -> list[AccountInfo]:
         """Crea las cuentas de demostracion si no existen."""
@@ -357,6 +441,31 @@ class AccountManager:
             else:
                 created.append(existing)
         return created
+
+    # ------------------------------------------------------------------
+    # Compatibilidad con la version anterior (OAuth)
+    # ------------------------------------------------------------------
+    def store_tokens(self, internal_ref: str, tokens: OAuthTokens) -> AccountInfo:
+        """Guarda tokens OAuth como credencial genérica."""
+        return self.store_credential(
+            internal_ref,
+            AuthCredential(
+                kind=AuthKind.OAUTH,
+                headers={"Authorization": f"{tokens.token_type} {tokens.access_token}".strip()},
+                expires_at=tokens.expires_at,
+                renewal_material=tokens.refresh_token,
+                metadata={"scopes": tokens.scopes},
+            ),
+        )
+
+    def connect_interactive(self, internal_ref: str, timeout: float = 300.0) -> AccountInfo:
+        """Nombre anterior de `connect`."""
+        outcome = self.connect(internal_ref, timeout=timeout)
+        if not outcome.success:
+            raise AuthenticationError(outcome.message, user_message=outcome.message)
+        info = self.get_account(internal_ref)
+        assert info is not None
+        return info
 
 
 def _naive_utc(value: datetime | None) -> datetime | None:

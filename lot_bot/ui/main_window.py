@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 NAVIGATION = [
     ("Panel", "▦", DashboardView),
     ("Asistente IA", "✦", AssistantView),
-    ("Cuentas Wallapop", "◉", AccountsView),
+    ("Cuentas de Wallapop", "◉", AccountsView),
     ("Productos", "▤", ProductsView),
     ("Anuncios", "◨", ListingsView),
     ("Inventario", "▩", InventoryView),

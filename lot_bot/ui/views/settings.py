@@ -179,25 +179,34 @@ class SettingsView(BaseView):
         layout = QVBoxLayout(widget)
 
         card = Card()
-        card.add(SectionTitle("Conexión con Wallapop"))
+        card.add(SectionTitle("Acceso a Wallapop"))
         self.wallapop_status = QLabel()
         self.wallapop_status.setWordWrap(True)
         card.add(self.wallapop_status)
 
         form = QFormLayout()
-        self.client_id_label = QLabel()
-        self.client_secret_label = QLabel()
+        self.auth_method_label = QLabel()
+        self.auth_method_label.setWordWrap(True)
+        self.profile_label = QLabel()
+        self.profile_label.setWordWrap(True)
         self.redirect_label = QLabel()
-        self.endpoint_label = QLabel()
-        form.addRow("Client ID", self.client_id_label)
-        form.addRow("Client Secret", self.client_secret_label)
-        form.addRow("Redirect URI", self.redirect_label)
-        form.addRow("Fichero de endpoints", self.endpoint_label)
+        form.addRow("Mecanismo de acceso", self.auth_method_label)
+        form.addRow("Perfil de acceso", self.profile_label)
+        form.addRow("Dirección de retorno", self.redirect_label)
         card.body.addLayout(form)
 
+        note = QLabel(
+            "LOT Bot no exige una API key. El mecanismo de acceso es el que Wallapop "
+            "haya autorizado y se declara en el perfil de acceso. Los valores "
+            "sensibles se leen de variables de entorno y nunca se muestran aquí."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {theme.TEXT_MUTED};")
+        card.add(note)
+
         buttons = QHBoxLayout()
-        select = QPushButton("Seleccionar fichero de endpoints…")
-        select.clicked.connect(self._select_endpoint_map)
+        select = QPushButton("Seleccionar perfil de acceso…")
+        select.clicked.connect(self._select_access_profile)
         buttons.addWidget(select)
         reload_button = QPushButton("Recargar configuración")
         reload_button.clicked.connect(self._reload_settings)
@@ -206,8 +215,16 @@ class SettingsView(BaseView):
         card.body.addLayout(buttons)
         layout.addWidget(card)
 
+        missing_card = Card()
+        missing_card.add(SectionTitle("Qué falta para conectar con Wallapop real"))
+        self.missing_label = QPlainTextEdit()
+        self.missing_label.setReadOnly(True)
+        self.missing_label.setFixedHeight(120)
+        missing_card.add(self.missing_label)
+        layout.addWidget(missing_card)
+
         capabilities_card = Card()
-        capabilities_card.add(SectionTitle("Operaciones autorizadas"))
+        capabilities_card.add(SectionTitle("Operaciones disponibles"))
         self.capabilities_label = QPlainTextEdit()
         self.capabilities_label.setReadOnly(True)
         capabilities_card.add(self.capabilities_label)
@@ -245,14 +262,35 @@ class SettingsView(BaseView):
         self.ai_model_label.setText(settings.ai_model)
 
         backend = self.app.backend
+        method = self.app.auth_method
         color = theme.WARNING if backend.demo else theme.SUCCESS
         self.wallapop_status.setText(
             f"<b style='color:{color}'>{backend.label}</b><br>{backend.reason}"
         )
-        self.client_id_label.setText(mask(settings.wallapop_client_id, visible=6))
-        self.client_secret_label.setText(mask(settings.wallapop_client_secret))
+        ready = "listo" if method.is_ready else "faltan datos"
+        self.auth_method_label.setText(f"{method.describe()} ({ready})")
+        profile = self.app.access_profile
+        self.profile_label.setText(
+            str(profile.source_path) if profile.source_path else "(no configurado)"
+        )
         self.redirect_label.setText(settings.wallapop_redirect_uri or "(no configurada)")
-        self.endpoint_label.setText(settings.wallapop_endpoint_map or "(no configurado)")
+
+        if backend.demo and self.app.missing_access_data:
+            self.missing_label.setPlainText(
+                "\n".join(f"• {item}" for item in self.app.missing_access_data)
+            )
+        elif backend.demo:
+            self.missing_label.setPlainText(
+                "Estás en modo DEMO por configuración. Pon LOT_BOT_DEMO_MODE=false y "
+                "configura un perfil de acceso para conectar con Wallapop real."
+            )
+        else:
+            pendientes = [m for m in self.app.missing_access_data]
+            self.missing_label.setPlainText(
+                "\n".join(f"• {item}" for item in pendientes)
+                if pendientes
+                else "Nada: el acceso autorizado está completo."
+            )
 
         from lot_bot.wallapop.capabilities import CAPABILITY_LABELS, Capability
 
@@ -263,8 +301,9 @@ class SettingsView(BaseView):
         ]
         lines.append("")
         lines.append(
-            "Las operaciones marcadas con ✗ responden NOT_AVAILABLE_WITH_CURRENT_API. "
-            "Para activarlas, declara su endpoint oficial en el fichero de endpoints."
+            "Las operaciones marcadas con ✗ responden "
+            "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS. Para activarlas, decláralas "
+            "en el bloque «operations:» del perfil de acceso autorizado."
         )
         self.capabilities_label.setPlainText("\n".join(lines))
 
@@ -359,17 +398,17 @@ class SettingsView(BaseView):
         info_box(self, "Asistente actualizado", f"Modo activo: {provider.describe()}")
         self.refresh()
 
-    def _select_endpoint_map(self) -> None:
+    def _select_access_profile(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "Fichero de endpoints oficiales de Wallapop", "", "YAML (*.yaml *.yml)"
+            self, "Perfil de acceso autorizado de Wallapop", "", "YAML (*.yaml *.yml)"
         )
         if not path:
             return
         info_box(
             self,
-            "Fichero seleccionado",
+            "Perfil seleccionado",
             f"Añade esta línea a tu fichero .env y reinicia LOT Bot:\n\n"
-            f"WALLAPOP_ENDPOINT_MAP={Path(path)}\n\n"
+            f"WALLAPOP_ACCESS_PROFILE={Path(path)}\n\n"
             f"LOT Bot no modifica el .env por seguridad.",
         )
 

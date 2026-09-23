@@ -89,6 +89,21 @@ class Application:
         return self.backend.label
 
     @property
+    def auth_method(self):
+        """Mecanismo de acceso activo (DEMO, OAuth, sesión autorizada...)."""
+        return self.backend.auth_method
+
+    @property
+    def access_profile(self):
+        """Perfil de acceso autorizado en uso."""
+        return self.backend.profile
+
+    @property
+    def missing_access_data(self) -> list[str]:
+        """Qué falta exactamente para poder conectar con Wallapop real."""
+        return list(self.backend.missing)
+
+    @property
     def version(self) -> str:
         return __version__
 
@@ -117,6 +132,7 @@ class Application:
         if settings is not None:
             self.settings = settings
         self.backend = build_backend(self.settings, self.accounts)
+        self.accounts.set_auth_method(self.backend.auth_method)
         self.listings.set_backend(self.wallapop)
         self.publishing.set_backend(self.wallapop)
         self.messages.set_backend(self.wallapop)
@@ -189,7 +205,10 @@ def create_application(
     accounts = AccountManager(db)
 
     backend = build_backend(settings, accounts)
+    accounts.set_auth_method(backend.auth_method)
     logger.info("Backend de Wallapop: %s (%s)", backend.label, backend.reason)
+    for item in backend.missing:
+        logger.info("  Pendiente para el acceso real: %s", item)
 
     if backend.demo:
         accounts.ensure_demo_accounts([(a["ref"], a["alias"]) for a in DEMO_ACCOUNTS])

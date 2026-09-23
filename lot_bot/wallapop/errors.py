@@ -20,26 +20,34 @@ class WallapopError(Exception):
         super().__init__(detail or self.user_message)
 
 
-class NotAvailableWithCurrentAPIError(WallapopError):
-    """La operacion no esta disponible con la API/permisos autorizados.
+class NotAvailableWithCurrentAccessError(WallapopError):
+    """La operacion no esta disponible con el acceso autorizado actual.
 
-    Se lanza en lugar de simular la accion. El codigo de error
-    `NOT_AVAILABLE_WITH_CURRENT_API` se muestra tal cual en la interfaz.
+    Se lanza en lugar de simular la accion. El codigo
+    `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` se muestra tal cual en la
+    interfaz y se devuelve tal cual a la IA.
+
+    El nombre habla de «acceso» y no de «API» a proposito: el mecanismo
+    autorizado puede no ser una API.
     """
 
-    code = "NOT_AVAILABLE_WITH_CURRENT_API"
+    code = "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS"
     user_message = (
-        "Esta funcion requiere un endpoint o permiso que la integracion "
-        "autorizada no proporciona actualmente."
+        "Esta función requiere una operación o un permiso que el acceso "
+        "autorizado a Wallapop no proporciona actualmente."
     )
 
     def __init__(self, operation: str, reason: str = "") -> None:
         self.operation = operation
         self.reason = reason
-        detail = f"{self.code}: operacion '{operation}' no disponible."
+        detail = f"{self.code}: operación '{operation}' no disponible."
         if reason:
             detail += f" {reason}"
         super().__init__(detail)
+
+
+#: Nombre anterior, mantenido para no romper importaciones existentes.
+NotAvailableWithCurrentAPIError = NotAvailableWithCurrentAccessError
 
 
 class AuthenticationError(WallapopError):
@@ -98,9 +106,28 @@ class ServiceUnavailableError(WallapopError):
 
 
 class ConfigurationError(WallapopError):
-    """Falta configuracion obligatoria para usar la integracion real."""
+    """Falta configuracion obligatoria para usar el acceso real."""
 
     user_message = (
-        "La integracion con Wallapop no esta configurada. "
-        "Revisa las credenciales y el mapa de endpoints oficial."
+        "El acceso a Wallapop no está configurado. Revisa el perfil de acceso "
+        "autorizado en Configuración → Wallapop."
     )
+
+
+class AccessNotConfiguredError(WallapopError):
+    """No hay ningun mecanismo de acceso autorizado declarado.
+
+    Lleva la lista exacta de lo que falta, para poder mostrarla al usuario en
+    vez de un mensaje generico.
+    """
+
+    user_message = (
+        "Todavía no está configurado el mecanismo de acceso autorizado a Wallapop."
+    )
+
+    def __init__(self, missing: list[str] | None = None) -> None:
+        self.missing = missing or []
+        detail = "Acceso no configurado."
+        if self.missing:
+            detail += " Falta: " + " | ".join(self.missing)
+        super().__init__(detail)

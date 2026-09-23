@@ -83,7 +83,7 @@ operations:
 Consecuencias prácticas:
 
 * Una operación que no figure en el fichero **no existe** para la aplicación: se
-  responde `NOT_AVAILABLE_WITH_CURRENT_API`, nunca se simula.
+  responde `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS`, nunca se simula.
 * Si Wallapop cambia su API, se edita el YAML. No hay que recompilar.
 * El repositorio se puede publicar sin exponer detalles de la integración.
 

@@ -9,7 +9,7 @@ PRINCIPIOS DE SEGURIDAD
    un plan que el usuario debe confirmar en la interfaz.
 3. La IA nunca ve credenciales ni tokens.
 4. Si la operacion necesita un permiso de Wallapop que no tenemos, la
-   herramienta responde NOT_AVAILABLE_WITH_CURRENT_API en lugar de fingir.
+   herramienta responde NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS en lugar de fingir.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ class ToolResult:
         """Lo que se devuelve al modelo de IA (sin datos sensibles)."""
         payload: dict[str, Any] = {"ok": self.ok, "resumen": self.summary}
         if self.unavailable:
-            payload["codigo"] = "NOT_AVAILABLE_WITH_CURRENT_API"
+            payload["codigo"] = "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS"
         if self.confirmation is not None:
             payload["estado"] = "PENDIENTE_DE_CONFIRMACION"
             payload["plan"] = self.confirmation.lines
@@ -133,7 +133,7 @@ def new_confirmation_token() -> str:
 def unavailable(operation: str, reason: str = "") -> ToolResult:
     """Resultado estandar cuando la operacion no esta autorizada."""
     text = (
-        f"NOT_AVAILABLE_WITH_CURRENT_API: la operación '{operation}' no está "
+        f"NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS: la operación '{operation}' no está "
         f"disponible con la integración autorizada actual."
     )
     if reason:

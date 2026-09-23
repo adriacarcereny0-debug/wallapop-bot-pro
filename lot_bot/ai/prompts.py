@@ -38,7 +38,7 @@ ESTILO DE RESPUESTA
 - Responde en español, con frases cortas.
 - Usa listas cuando enumeres resultados.
 - Indica cifras concretas (cuántos anuncios, en qué cuentas, qué precio).
-- Si una herramienta devuelve NOT_AVAILABLE_WITH_CURRENT_API, explica al usuario que esa función \
+- Si una herramienta devuelve NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS, explica al usuario que esa función \
 requiere un permiso de Wallapop que la integración no tiene, y sugiere la alternativa disponible.
 """
 

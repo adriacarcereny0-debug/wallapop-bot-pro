@@ -1,13 +1,18 @@
-"""ConnectWallapopService: integracion REAL con Wallapop.
+"""AuthorizedWallapopService: acceso REAL a Wallapop.
 
-Este servicio NO contiene ninguna URL ni endpoint de Wallapop. Todas las rutas,
-metodos, parametros y el mapeo de respuestas se leen del mapa de endpoints
-oficial (`endpoint_map.py`), que se rellena con la documentacion entregada por
-Wallapop al autorizar la integracion.
+Este servicio NO contiene ninguna URL ni endpoint de Wallapop y NO presupone
+ningun mecanismo de autenticacion. Todo se lee del perfil de acceso autorizado:
 
-Si una operacion no figura en ese mapa, se lanza
-`NotAvailableWithCurrentAPIError` y la aplicacion lo muestra tal cual. Nunca se
-inventa un endpoint ni se simula un resultado.
+  * QUE se puede llamar  -> `access_profile.transport` (operaciones declaradas)
+  * COMO se autentica    -> `AuthCredential` que entrega `AccountManager`
+
+El servicio pide la credencial de la cuenta y aplica sus cabeceras y cookies.
+Le da igual si vienen de OAuth, de una sesion autorizada o de una credencial
+delegada: es el mecanismo quien lo decide.
+
+Si una operacion no figura en el perfil, se lanza
+`NotAvailableWithCurrentAccessError` y la aplicacion lo muestra tal cual.
+Nunca se inventa un endpoint ni se simula un resultado.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from lot_bot.wallapop.auth.base import AuthCredential, AuthKind
 from lot_bot.wallapop.capabilities import Capability
 from lot_bot.wallapop.dto import (
     AccountProfile,
@@ -47,35 +53,42 @@ from lot_bot.wallapop.service import WallapopService
 
 logger = logging.getLogger(__name__)
 
-#: Funcion que devuelve el access token vigente de una cuenta (refrescandolo
-#: si hace falta). La proporciona `AccountManager`; este servicio nunca accede
-#: directamente a la base de datos ni a las credenciales.
-TokenProvider = Callable[[str], str]
+#: Funcion que devuelve la credencial vigente de una cuenta (renovandola si
+#: hace falta). La proporciona `AccountManager`; este servicio nunca accede
+#: directamente a la base de datos ni descifra nada por su cuenta.
+CredentialProvider = Callable[[str], AuthCredential]
+
+#: Nombre anterior, mantenido por compatibilidad.
+TokenProvider = CredentialProvider
 
 
-class ConnectWallapopService(WallapopService):
-    """Cliente HTTP generico gobernado por el mapa de endpoints autorizado."""
+class AuthorizedWallapopService(WallapopService):
+    """Cliente HTTP generico gobernado por el perfil de acceso autorizado."""
 
-    backend_name = "Wallapop Connect"
+    backend_name = "Wallapop (acceso autorizado)"
     is_mock = False
 
     def __init__(
         self,
         endpoint_map: EndpointMap,
-        token_provider: TokenProvider,
+        credential_provider: CredentialProvider,
         client: httpx.Client | None = None,
+        auth_method_name: str = "",
     ) -> None:
         if not endpoint_map.base_url:
             raise ConfigurationError(
-                "El mapa de endpoints no define 'api.base_url'.",
+                "El perfil de acceso no define 'api.base_url'.",
                 user_message=(
-                    "La integracion con Wallapop no esta configurada: falta la URL base "
-                    "en el fichero de endpoints oficial."
+                    "El acceso a Wallapop no está configurado: falta la dirección base "
+                    "en el perfil de acceso autorizado."
                 ),
             )
         self.map = endpoint_map
-        self._token_provider = token_provider
+        self._credential_provider = credential_provider
         self._client = client or httpx.Client(timeout=endpoint_map.timeout_seconds)
+        self.auth_method_name = auth_method_name
+        if auth_method_name:
+            self.backend_name = f"Wallapop · {auth_method_name}"
 
     def close(self) -> None:
         self._client.close()
@@ -87,15 +100,35 @@ class ConnectWallapopService(WallapopService):
     # ------------------------------------------------------------------
     # Motor de peticiones
     # ------------------------------------------------------------------
-    def _headers(self, account_ref: str, operation: Operation) -> dict[str, str]:
-        token = self._token_provider(account_ref)
-        if not token:
-            raise AuthenticationError(f"La cuenta '{account_ref}' no tiene token valido.")
+    def _credential(self, account_ref: str) -> AuthCredential:
+        credential = self._credential_provider(account_ref)
+        if credential is None or credential.is_empty:
+            raise AuthenticationError(
+                f"La cuenta '{account_ref}' no tiene una sesión válida.",
+                user_message=(
+                    "Esta cuenta no está conectada o su sesión ha caducado. "
+                    "Vuelve a autenticarla desde Cuentas Wallapop."
+                ),
+            )
+        if credential.kind is AuthKind.DEMO:
+            # Blindaje: una credencial DEMO jamas debe salir a la red.
+            raise AuthenticationError(
+                f"La cuenta '{account_ref}' es de demostración y no puede usarse "
+                f"contra Wallapop real.",
+                user_message=(
+                    "Esta es una cuenta de demostración. Conéctala con el mecanismo "
+                    "autorizado para operar con Wallapop real."
+                ),
+            )
+        return credential
+
+    def _headers(self, credential: AuthCredential, operation: Operation) -> dict[str, str]:
+        """Cabeceras de la peticion, con la credencial ya aplicada."""
         headers = {"Accept": "application/json"}
         headers.update(self.map.default_headers)
         headers.update(operation.headers)
-        scheme = self.map.auth_scheme
-        headers[self.map.auth_header] = f"{scheme} {token}".strip() if scheme else token
+        # El mecanismo de autenticacion decide en que cabeceras viaja.
+        headers.update(credential.headers)
         return headers
 
     @staticmethod
@@ -136,6 +169,8 @@ class ConnectWallapopService(WallapopService):
             if not body:
                 body = extra_body or None
 
+        credential = self._credential(account_ref)
+        # Se registra la operacion y la cuenta, NUNCA la credencial.
         logger.info(
             "Wallapop %s %s (cuenta=%s, operacion=%s)",
             operation.method,
@@ -149,7 +184,8 @@ class ConnectWallapopService(WallapopService):
                 url,
                 params=query or None,
                 json=body,
-                headers=self._headers(account_ref, operation),
+                headers=self._headers(credential, operation),
+                cookies=credential.cookies or None,
             )
         except httpx.TimeoutException as exc:
             raise NetworkError(f"Tiempo de espera agotado en {capability.value}.") from exc
@@ -399,12 +435,14 @@ class ConnectWallapopService(WallapopService):
         assert operation is not None
         url = f"{self.map.base_url}{operation.render_path({'image_path': image_path})}"
         try:
+            credential = self._credential(account_ref)
             with open(image_path, "rb") as handle:
                 response = self._client.request(
                     operation.method,
                     url,
                     files={"file": (image_path.split("/")[-1], handle)},
-                    headers=self._headers(account_ref, operation),
+                    headers=self._headers(credential, operation),
+                    cookies=credential.cookies or None,
                 )
         except OSError as exc:
             raise WallapopError(f"No se puede leer la imagen '{image_path}': {exc}") from exc
@@ -578,3 +616,7 @@ def _filter_items_locally(items: list[Item], query: ItemSearchQuery) -> list[Ite
                 continue
         results.append(item)
     return results[query.offset : query.offset + query.limit]
+
+
+#: Nombre anterior del servicio, mantenido para no romper importaciones.
+ConnectWallapopService = AuthorizedWallapopService

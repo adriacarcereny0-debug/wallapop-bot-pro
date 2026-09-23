@@ -27,7 +27,7 @@ ahí se explica exactamente qué falta. Suele ser:
 * `WALLAPOP_ENDPOINT_MAP` apunta a un fichero que no existe.
 * El fichero existe pero no declara `api.base_url` ni ninguna operación.
 
-## NOT_AVAILABLE_WITH_CURRENT_API
+## NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS
 
 Esa operación **no está declarada** en el fichero de endpoints, o no está concedida.
 No es un fallo del programa: es la respuesta honesta.

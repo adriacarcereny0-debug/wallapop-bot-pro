@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     wallapop_redirect_uri: str = Field(
         default="http://127.0.0.1:8723/callback", alias="WALLAPOP_REDIRECT_URI"
     )
+    #: Perfil de acceso autorizado (autenticacion + operaciones).
+    wallapop_access_profile: str = Field(default="", alias="WALLAPOP_ACCESS_PROFILE")
+    #: Nombre anterior del fichero, aceptado para no romper instalaciones.
     wallapop_endpoint_map: str = Field(default="", alias="WALLAPOP_ENDPOINT_MAP")
     wallapop_scopes: str = Field(default="", alias="WALLAPOP_SCOPES")
 
@@ -94,32 +97,48 @@ class Settings(BaseSettings):
         return [s for s in self.wallapop_scopes.replace(",", " ").split() if s]
 
     @property
-    def endpoint_map_path(self) -> Path | None:
-        if not self.wallapop_endpoint_map:
+    def access_profile_path(self) -> Path | None:
+        """Ruta del perfil de acceso autorizado.
+
+        Acepta el nombre nuevo (WALLAPOP_ACCESS_PROFILE) y, por compatibilidad
+        con instalaciones anteriores, el antiguo (WALLAPOP_ENDPOINT_MAP).
+        """
+        raw = self.wallapop_access_profile or self.wallapop_endpoint_map
+        if not raw:
             return None
-        return Path(self.wallapop_endpoint_map).expanduser()
+        return Path(raw).expanduser()
 
     @property
-    def has_wallapop_credentials(self) -> bool:
-        """True solo si estan las tres piezas necesarias para OAuth."""
-        return bool(
-            self.wallapop_client_id
-            and self.wallapop_client_secret
-            and self.wallapop_redirect_uri
-        )
+    def endpoint_map_path(self) -> Path | None:
+        """Nombre anterior de `access_profile_path`."""
+        return self.access_profile_path
+
+    @property
+    def has_oauth_client_credentials(self) -> bool:
+        """True si hay credenciales de cliente OAuth.
+
+        OJO: esto NO es requisito para usar LOT Bot. Solo lo necesita el
+        mecanismo OAuth. Otros mecanismos autorizados no usan client_id ni
+        client_secret.
+        """
+        return bool(self.wallapop_client_id and self.wallapop_redirect_uri)
 
     @property
     def can_use_real_wallapop(self) -> bool:
-        """La integracion real requiere credenciales Y mapa de endpoints oficial."""
-        path = self.endpoint_map_path
-        return self.has_wallapop_credentials and path is not None and path.is_file()
+        """True si hay un perfil de acceso con el que intentar conectar.
+
+        Que el perfil este completo lo decide `build_backend`, que es quien
+        sabe distinguir entre falta de autenticacion y falta de operaciones.
+        """
+        path = self.access_profile_path
+        return path is not None and path.is_file()
 
     @property
     def effective_demo_mode(self) -> bool:
         """Modo DEMO efectivo.
 
-        Si el usuario desactiva DEMO pero faltan credenciales o el mapa de
-        endpoints oficial, seguimos en DEMO: nunca simulamos una conexion real.
+        Si el usuario desactiva DEMO pero no hay perfil de acceso autorizado,
+        seguimos en DEMO: nunca simulamos una conexion real.
         """
         if self.demo_mode:
             return True

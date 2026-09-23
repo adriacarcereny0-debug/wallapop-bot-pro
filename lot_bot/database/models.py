@@ -105,7 +105,14 @@ class Account(Base, TimestampMixin):
     )
     status_detail: Mapped[str | None] = mapped_column(Text)
 
-    # Tokens cifrados con la clave maestra local (ver config/secrets.py)
+    #: Mecanismo con el que se conectó esta cuenta (ver wallapop/auth).
+    #: Cada cuenta puede usar uno distinto.
+    auth_method: Mapped[str | None] = mapped_column(String(40))
+    #: Credencial completa (cabeceras, cookies, caducidad), cifrada con la
+    #: clave maestra local. Es el campo que usan todos los mecanismos.
+    credential_enc: Mapped[str | None] = mapped_column(Text)
+
+    # --- Campos anteriores, solo para migrar instalaciones ya existentes ---
     access_token_enc: Mapped[str | None] = mapped_column(Text)
     refresh_token_enc: Mapped[str | None] = mapped_column(Text)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime)

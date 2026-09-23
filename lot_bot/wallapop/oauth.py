@@ -18,7 +18,7 @@ import secrets
 import threading
 import urllib.parse
 import webbrowser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -215,15 +215,40 @@ class _CallbackHandler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body.encode("utf-8"))
 
+    def do_POST(self) -> None:  # noqa: N802 - firma impuesta por la libreria
+        """Algunos flujos devuelven los datos por POST en vez de por URL."""
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode("utf-8", errors="replace") if length else ""
+        params = {k: v[0] for k, v in urllib.parse.parse_qs(raw).items()}
+        params.update(
+            {k: v[0] for k, v in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).items()}
+        )
+        type(self).result.update(params)
+        body = _SUCCESS_HTML if params else _ERROR_HTML
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(body.encode("utf-8"))
+
     def log_message(self, *_args) -> None:  # silencia el log por defecto
         return
 
 
 @dataclass(slots=True)
 class AuthorizationResult:
+    """Lo que devuelve el flujo de autorizacion al volver al programa.
+
+    `params` contiene todos los campos recibidos, para que los mecanismos
+    distintos de OAuth (p. ej. una sesion autorizada) puedan leer los suyos.
+    """
+
     code: str | None
     state: str | None
     error: str | None = None
+    params: dict[str, str] = field(default_factory=dict)
+
+    def get(self, name: str) -> str | None:
+        return self.params.get(name)
 
 
 class LocalCallbackServer:
@@ -255,10 +280,11 @@ class LocalCallbackServer:
                     code=result.get("code"),
                     state=result.get("state"),
                     error=result.get("error") or result.get("error_description"),
+                    params=dict(result),
                 )
             deadline.wait(step)
             waited += step
-        return AuthorizationResult(code=None, state=None, error="timeout")
+        return AuthorizationResult(code=None, state=None, error="timeout", params={})
 
     def __exit__(self, *_exc) -> None:
         if self._server is not None:

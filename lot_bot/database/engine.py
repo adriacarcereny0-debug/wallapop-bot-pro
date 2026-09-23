@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -38,7 +38,30 @@ class Database:
 
     def create_all(self) -> None:
         Base.metadata.create_all(self.engine)
+        self._apply_light_migrations()
         logger.info("Esquema de base de datos listo (%d tablas)", len(Base.metadata.tables))
+
+    def _apply_light_migrations(self) -> None:
+        """Anade columnas nuevas a tablas que ya existian.
+
+        `create_all` crea tablas nuevas pero no modifica las existentes. Para
+        columnas opcionales basta con un ALTER TABLE, que SQLite acepta sin
+        reescribir la tabla ni perder datos.
+        """
+        inspector = inspect(self.engine)
+        if "accounts" not in inspector.get_table_names():
+            return
+        existing = {column["name"] for column in inspector.get_columns("accounts")}
+        pending = [
+            ("auth_method", "VARCHAR(40)"),
+            ("credential_enc", "TEXT"),
+        ]
+        with self.engine.begin() as connection:
+            for name, sql_type in pending:
+                if name in existing:
+                    continue
+                logger.info("Migración: añadiendo accounts.%s", name)
+                connection.execute(text(f"ALTER TABLE accounts ADD COLUMN {name} {sql_type}"))
 
     def table_names(self) -> list[str]:
         return inspect(self.engine).get_table_names()
