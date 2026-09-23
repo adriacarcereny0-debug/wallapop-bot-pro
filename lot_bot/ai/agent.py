@@ -102,9 +102,21 @@ class Agent:
         self._pending = None
         self._focus = {}
 
+    def _resolved_focus(self) -> dict[str, Any]:
+        """Tras «publica 3 canapés», «este anuncio» son los que ha publicado
+        la cola hasta ahora."""
+        focus = dict(self._focus)
+        job_id = focus.get("publish_job")
+        queue = getattr(self._app, "publish_queue", None)
+        if job_id and queue is not None:
+            ids = queue.published_listing_ids(job_id)
+            if ids:
+                focus["listing_ids"] = ids
+        return focus
+
     @property
     def focus(self) -> dict[str, Any]:
-        return dict(self._focus)
+        return self._resolved_focus()
 
     def history(self) -> list[dict[str, Any]]:
         return list(self._messages)
@@ -236,10 +248,12 @@ class Agent:
             " [CONFIRMADA]" if confirmed else "",
         )
         context = ToolContext(
-            app=self._app, confirmed=confirmed, actor="asistente", focus=dict(self._focus)
+            app=self._app, confirmed=confirmed, actor="asistente", focus=self._resolved_focus()
         )
         result = self._registry.execute(call.name, call.arguments, context)
         if result.focus:
+            if "listing_ids" in result.focus:
+                self._focus.pop("publish_job", None)
             self._focus.update(result.focus)
         if result.confirmation is not None and self._app.demo_mode:
             # Que nadie confunda una confirmación DEMO con una operación real.

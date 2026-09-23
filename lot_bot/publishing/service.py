@@ -108,9 +108,12 @@ class PublishOutcome:
     message: str
     item_id: str | None = None
     error_code: str | None = None
+    #: Dirección pública del anuncio, si Wallapop la muestra.
+    url: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "url": self.url,
             "producto": self.product_sku,
             "cuenta": self.account_ref,
             "correcto": self.success,

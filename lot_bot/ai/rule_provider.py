@@ -148,6 +148,20 @@ class RuleBasedProvider(AIProvider):
         )
         explicit_template = bool(re.search(r"\bplantilla\b", normalized))
 
+        # --- 0. Cola de publicación automática ---
+        if re.search(r"\b(cola|publicacion automatica|publicaciones automaticas)\b", normalized) or re.search(
+            r"\b(reintenta|reintentar|vuelve a intentar)\b.*\b(fallid|error)", normalized
+        ):
+            if re.search(r"\b(reintenta|reintentar|vuelve a intentar)\b", normalized):
+                return call("retry_failed_publications")
+            if re.search(r"\b(pausa|pausar|para|parar|deten|detener)\b", normalized):
+                return call("pause_publish_queue")
+            if re.search(r"\b(reanuda|reanudar|continua|continuar|sigue|seguir)\b", normalized):
+                return call("resume_publish_queue")
+            if re.search(r"\b(cancela|cancelar|anula|anular)\b", normalized):
+                return call("cancel_publish_queue")
+            return call("get_publish_queue")
+
         # --- 1. Cambiar la PLANTILLA (solo si lo dice expresamente) ---
         if explicit_template and re.search(
             r"\b(actualiza|actualizar|cambia|cambiar|modifica|modificar|pon|poner|edita)\b",
@@ -323,6 +337,7 @@ class RuleBasedProvider(AIProvider):
         return prefix + (
             "Puedo hacer, por ejemplo:\n"
             "• «Publica el anuncio de canapé» / «Publica 10 canapés»\n"
+            "• «¿Cómo va la cola?» / «Pausa la cola» / «Reanuda la cola» / «Reintenta los fallidos»\n"
             "• «Prepara el anuncio de canapé» (vista previa, sin publicar)\n"
             "• «Muéstrame los anuncios de la cuenta 1»\n"
             "• «Cambia el precio de los canapés de 135x190 a 270 €»\n"

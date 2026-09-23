@@ -17,18 +17,26 @@ from lot_bot.ai.provider import AIProvider
 from lot_bot.ai.tools import build_registry
 from lot_bot.automation.scheduler import AutomationScheduler
 from lot_bot.catalog.service import CatalogService
+from lot_bot.config.api_keys import FLUX, ApiKeyStore
 from lot_bot.config.paths import AppPaths, get_paths
 from lot_bot.config.settings import Settings, get_settings
 from lot_bot.core.audit import AuditService
 from lot_bot.core.events import EventBus, get_event_bus
 from lot_bot.database.engine import Database, get_database
 from lot_bot.database.models import Setting
+from lot_bot.images.generation import (
+    DemoImageGenerator,
+    FluxImageService,
+    ImageGenerationService,
+    ImageGenerator,
+)
 from lot_bot.images.service import ImageService
 from lot_bot.logs.setup import configure_logging
 from lot_bot.market.service import MarketService
 from lot_bot.master_ad.service import MasterAdService
 from lot_bot.messages.service import MessageService
 from lot_bot.publishing.listings import ListingService
+from lot_bot.publishing.queue import PublishQueue
 from lot_bot.publishing.service import PublishingService
 from lot_bot.templates_engine.defaults import ensure_default_templates
 from lot_bot.wallapop.account_manager import AccountManager
@@ -39,6 +47,7 @@ from lot_bot.wallapop.service import WallapopService
 logger = logging.getLogger(__name__)
 
 BUSINESS_SETTINGS_KEY = "negocio"
+INTEGRATION_SETTINGS_KEY = "integracion_wallapop"
 
 #: Valores por defecto de la configuracion de negocio. Vacios a proposito:
 #: los datos comerciales reales los introduce el cliente en Ajustes.
@@ -75,6 +84,9 @@ class Application:
     master_ads: MasterAdService
     automations: AutomationScheduler
     agent: Agent
+    api_keys: ApiKeyStore = None  # type: ignore[assignment]
+    image_generation: ImageGenerationService = None  # type: ignore[assignment]
+    publish_queue: PublishQueue = None  # type: ignore[assignment]
     business_settings: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
@@ -129,11 +141,45 @@ class Application:
         self.audit.record("Cambio de configuración de negocio", actor="usuario")
         return merged
 
+    # ------------------------------------------------------------------
+    # Integración con Wallapop elegida en Configuración
+    # ------------------------------------------------------------------
+    @property
+    def integration_mode(self) -> str:
+        return load_integration_mode(self.db)
+
+    def set_integration_mode(self, mode: str) -> WallapopBackend:
+        """«navegador» (sesión del usuario) o «demo». Se guarda en local."""
+        if mode not in ("navegador", "demo"):
+            raise ValueError(f"Modo de integración desconocido: {mode}")
+        with self.db.session_scope() as session:
+            row = session.get(Setting, INTEGRATION_SETTINGS_KEY)
+            if row is None:
+                session.add(Setting(key=INTEGRATION_SETTINGS_KEY, value={"modo": mode}))
+            else:
+                row.value = {"modo": mode}
+        self.audit.record_success("Cambio de integración con Wallapop", detail=mode, actor="usuario")
+        return self.rebuild_backend()
+
+    @property
+    def browser_auth(self):
+        """Mecanismo de conexión por navegador, si está activo."""
+        from lot_bot.wallapop.browser import BrowserSessionAuthMethod
+
+        method = self.backend.auth_method
+        return method if isinstance(method, BrowserSessionAuthMethod) else None
+
+    def image_generator(self) -> ImageGenerator:
+        return build_image_generator(self.backend.demo, self.api_keys)
+
+    def refresh_image_generator(self) -> None:
+        self.image_generation.set_generator(self.image_generator())
+
     def rebuild_backend(self, settings: Settings | None = None) -> WallapopBackend:
         """Vuelve a elegir el backend (tras cambiar credenciales o modo DEMO)."""
         if settings is not None:
             self.settings = settings
-        self.backend = build_backend(self.settings, self.accounts)
+        self.backend = build_backend(self.settings, self.accounts, self.integration_mode)
         self.accounts.set_auth_method(self.backend.auth_method)
         self.listings.set_backend(self.wallapop)
         self.publishing.set_backend(self.wallapop)
@@ -141,6 +187,10 @@ class Application:
         self.market.set_backend(self.wallapop)
         self.master_ads.set_backend(self.wallapop, self.backend.demo)
         self.audit.demo_mode = self.backend.demo
+        if self.backend.demo:
+            self.accounts.ensure_demo_accounts([(a["ref"], a["alias"]) for a in DEMO_ACCOUNTS])
+        if self.image_generation is not None:
+            self.refresh_image_generator()
         logger.info("Backend de Wallapop: %s (%s)", self.backend.label, self.backend.reason)
         return self.backend
 
@@ -149,6 +199,8 @@ class Application:
 
     def shutdown(self) -> None:
         try:
+            if self.publish_queue is not None:
+                self.publish_queue.shutdown()
             self.automations.shutdown()
         finally:
             self.db.dispose()
@@ -156,6 +208,20 @@ class Application:
 
 
 # ---------------------------------------------------------------------------
+def load_integration_mode(database: Database) -> str:
+    with database.session_scope() as session:
+        row = session.get(Setting, INTEGRATION_SETTINGS_KEY)
+        return str((row.value or {}).get("modo", "")) if row else ""
+
+
+def build_image_generator(demo: bool, api_keys: ApiKeyStore) -> ImageGenerator:
+    """En DEMO, imágenes de prueba locales (sin créditos ni red). En real,
+    FLUX.2 Pro con la clave guardada cifrada."""
+    if demo:
+        return DemoImageGenerator()
+    return FluxImageService(lambda: api_keys.get(FLUX))
+
+
 def load_business_settings(database: Database) -> dict[str, Any]:
     with database.session_scope() as session:
         row = session.get(Setting, BUSINESS_SETTINGS_KEY)
@@ -208,7 +274,7 @@ def create_application(
     audit = AuditService(db)
     accounts = AccountManager(db)
 
-    backend = build_backend(settings, accounts)
+    backend = build_backend(settings, accounts, load_integration_mode(db))
     accounts.set_auth_method(backend.auth_method)
     logger.info("Backend de Wallapop: %s (%s)", backend.label, backend.reason)
     for item in backend.missing:
@@ -258,9 +324,16 @@ def create_application(
     app.automations = AutomationScheduler(app, db, events)
     app.agent = Agent(app, registry, ai_provider)
 
+    app.api_keys = ApiKeyStore(db)
+    app.image_generation = ImageGenerationService(
+        db, build_image_generator(backend.demo, app.api_keys), paths.images / "generadas"
+    )
+    app.publish_queue = PublishQueue(db, audit, app)
+
     app.automations.ensure_definitions()
     if start_scheduler:
         app.automations.start()
+        app.publish_queue.start_worker()
 
     seed_business_from_env(app)
 

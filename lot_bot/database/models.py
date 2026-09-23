@@ -452,3 +452,95 @@ class Setting(Base, TimestampMixin):
 
     key: Mapped[str] = mapped_column(String(120), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+# ---------------------------------------------------------------------------
+# Cola de publicación automática
+# ---------------------------------------------------------------------------
+class PublishJobStatus(str, enum.Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class PublishTaskStatus(str, enum.Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    WAITING = "waiting"
+    PUBLISHING = "publishing"
+    PUBLISHED = "published"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class PublishJob(Base, TimestampMixin):
+    """Una orden de publicación (p. ej. «publica 10 canapés»)."""
+
+    __tablename__ = "publish_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[PublishJobStatus] = mapped_column(
+        Enum(PublishJobStatus), default=PublishJobStatus.PENDING, nullable=False
+    )
+    #: Intervalo mínimo aplicado a esta cola (nunca inferior a 60 s).
+    interval_seconds: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
+    generate_images: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    actor: Mapped[str] = mapped_column(String(60), default="usuario", nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    pause_reason: Mapped[str | None] = mapped_column(Text)
+
+    tasks: Mapped[list[PublishTask]] = relationship(
+        back_populates="job", cascade="all, delete-orphan", order_by="PublishTask.position"
+    )
+
+
+class PublishTask(Base, TimestampMixin):
+    """Un anuncio concreto dentro de una cola, con la cuenta que lo publica."""
+
+    __tablename__ = "publish_tasks"
+    __table_args__ = (Index("ix_publish_tasks_job", "job_id", "position"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("publish_jobs.id"), nullable=False)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    account_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    #: Qué publicar: {"master_key": ..., "overrides": {...}}.
+    payload: Mapped[dict] = mapped_column(JSON, default=dict)
+    status: Mapped[PublishTaskStatus] = mapped_column(
+        Enum(PublishTaskStatus), default=PublishTaskStatus.PENDING, nullable=False
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    image_path: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime)
+    remote_id: Mapped[str | None] = mapped_column(String(120))
+    remote_url: Mapped[str | None] = mapped_column(Text)
+    error: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(80))
+
+    job: Mapped[PublishJob] = relationship(back_populates="tasks")
+
+
+# ---------------------------------------------------------------------------
+# Imágenes generadas (registro para evitar repeticiones)
+# ---------------------------------------------------------------------------
+class GeneratedImage(Base, TimestampMixin):
+    __tablename__ = "generated_images"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    file_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    #: Hash perceptual (dHash de 64 bits en hexadecimal).
+    perceptual_hash: Mapped[str] = mapped_column(String(16), nullable=False)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    seed: Mapped[int | None] = mapped_column(Integer)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    subject: Mapped[str | None] = mapped_column(String(200))
+    account_ref: Mapped[str | None] = mapped_column(String(64))
+    task_id: Mapped[int | None] = mapped_column(Integer)

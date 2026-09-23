@@ -189,6 +189,13 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
         warnings = sorted({i.message for i in (first.quality.warnings if first.quality else [])})
         for warning in warnings:
             lines.append(f"Aviso (no bloquea): {warning}")
+        queue = context.app.publish_queue
+        images = _will_generate_images(context)
+        lines.append(
+            f"Se publicarán de uno en uno, con al menos {queue.interval} segundos entre "
+            f"publicaciones (también entre cuentas distintas)."
+        )
+        lines.append(images[1])
         return confirm_first(
             "publish_master_ad",
             {**args, "cuentas": refs, "copias": copies},
@@ -197,23 +204,123 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
             affected=len(previews),
         )
 
-    outcomes = context.app.master_ads.publish(
-        master.key, refs, copies, overrides, confirmed=True, actor=context.actor
+    queue = context.app.publish_queue
+    try:
+        job_id = queue.enqueue_master(
+            master.key,
+            refs,
+            copies,
+            overrides,
+            generate_images=_will_generate_images(context)[0],
+            actor=context.actor,
+        )
+    except ValueError as exc:
+        return fail(str(exc))
+    progress = queue.progress(job_id)
+    return ToolResult(
+        focus={"publish_job": job_id, "master_key": master.key},
+        ok=True,
+        summary=(
+            f"Cola de publicación creada: {progress.total} anuncio(s) de «{master.name}», "
+            f"con un mínimo de {progress.interval_seconds} s entre cada uno. Puedes ver el "
+            f"progreso en «Publicación automática» o preguntando «¿cómo va la cola?». "
+            f"La plantilla no se ha modificado."
+        ),
+        data={"cola": progress.to_dict()},
     )
-    done = [o for o in outcomes if o.success]
-    created_ids = [
-        v.id for v in context.app.master_ads.publications(master.key)
-        if v.wallapop_item_id in {o.item_id for o in done}
+
+
+def _will_generate_images(context: ToolContext) -> tuple[bool, str]:
+    """(generar, explicación) según la configuración y la clave de FLUX."""
+    from lot_bot.config.api_keys import FLUX
+
+    app = context.app
+    if not app.publish_queue.settings()["generate_images"]:
+        return False, "Fotografías: las del anuncio principal (generación automática desactivada)."
+    if app.demo_mode:
+        return True, (
+            "Se generará una imagen de DEMOSTRACIÓN distinta para cada anuncio "
+            "(sin FLUX ni créditos)."
+        )
+    if not app.api_keys.has(FLUX):
+        return False, (
+            "Sin clave de FLUX.2 Pro: se usarán las fotos del anuncio principal. "
+            "Añade la clave en Configuración → IA / Imágenes para generar una por anuncio."
+        )
+    return True, (
+        "Se generará con FLUX.2 Pro una imagen fotorrealista distinta para cada anuncio "
+        "justo antes de publicarlo (consume créditos de Black Forest Labs)."
+    )
+
+
+def _queue_status(context: ToolContext, args: dict[str, Any]) -> ToolResult:
+    progress = context.app.publish_queue.progress(args.get("cola"))
+    if progress is None:
+        return ok("No hay ninguna cola de publicación.")
+    lines = [
+        f"{progress.name} — {progress.status}",
+        f"{progress.bar()} {progress.published}/{progress.total}",
+        f"✓ {progress.published} publicados · ⏳ {progress.in_progress} en curso · "
+        f"○ {progress.pending} pendientes · ✗ {progress.failed} fallidos",
     ]
-    result = ToolResult(
-        ok=bool(done),
-        summary=f"Publicados {len(done)} de {len(outcomes)} anuncio(s) de «{master.name}». "
-        f"La plantilla no se ha modificado.",
-        data={"resultados": [o.to_dict() for o in outcomes]},
-    )
-    if created_ids:
-        result.focus = {"listing_ids": created_ids, "master_key": master.key}
-    return result
+    if progress.current_account:
+        lines.append(f"Cuenta: {progress.current_account}")
+    if progress.last_publish_at:
+        lines.append(f"Última publicación: {progress.last_publish_at:%H:%M:%S}")
+    if progress.next_allowed_at:
+        lines.append(f"Próxima publicación permitida: {progress.next_allowed_at:%H:%M:%S}")
+    if progress.pause_reason and progress.status == "paused":
+        lines.append(f"En pausa: {progress.pause_reason}")
+    for task in progress.tasks:
+        if task["estado"] == "failed":
+            lines.append(f"Error en el anuncio {task['posicion']} ({task['cuenta']}): {task['error']}")
+    return ToolResult(ok=True, summary="\n".join(lines), data={"cola": progress.to_dict()})
+
+
+def _queue_control(action: str):
+    def handler(context: ToolContext, args: dict[str, Any]) -> ToolResult:
+        queue = context.app.publish_queue
+        job_id = args.get("cola") or queue.latest_job_id()
+        if job_id is None:
+            return fail("No hay ninguna cola de publicación.")
+        progress = queue.progress(job_id)
+        if action == "cancel" and not context.confirmed:
+            return confirm_first(
+                "cancel_publish_queue",
+                {"cola": job_id},
+                f"Voy a cancelar la cola «{progress.name}»",
+                [
+                    f"Quedan {progress.pending + progress.in_progress} anuncio(s) sin publicar, "
+                    "que no se publicarán.",
+                    "Lo ya publicado no se toca.",
+                ],
+            )
+        try:
+            if action == "pause":
+                queue.pause(job_id)
+                return ok(f"Cola «{progress.name}» en pausa.")
+            if action == "resume":
+                queue.resume(job_id)
+                return ok(f"Cola «{progress.name}» reanudada. Se respeta el intervalo mínimo.")
+            count = queue.cancel(job_id)
+            return ok(f"Cola «{progress.name}» cancelada: {count} anuncio(s) sin publicar.")
+        except ValueError as exc:
+            return fail(str(exc))
+
+    return handler
+
+
+def _retry_failed(context: ToolContext, args: dict[str, Any]) -> ToolResult:
+    queue = context.app.publish_queue
+    progress = queue.progress(args.get("cola"))
+    if progress is None:
+        return fail("No hay ninguna cola de publicación.")
+    failed = [t for t in progress.tasks if t["estado"] == "failed"]
+    if not failed:
+        return ok("No hay anuncios fallidos que reintentar.")
+    for task in failed:
+        queue.retry_task(task["id"])
+    return ok(f"{len(failed)} anuncio(s) vuelven a la cola, respetando el intervalo mínimo.")
 
 
 def _update_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult:
@@ -321,6 +428,8 @@ MASTER_AD_TOOLS: list[Tool] = [
         description=(
             "Publica el anuncio principal (canapés). Sin número de copias, publica una en "
             "cada cuenta conectada; con «copias», las reparte por turnos entre las cuentas. "
+            "Se publica mediante la cola, de uno en uno y con un intervalo mínimo de 60 s; "
+            "puede generar una imagen distinta por anuncio. "
             "La plantilla maestra NO se modifica. Requiere confirmación."
         ),
         parameters={
@@ -338,6 +447,45 @@ MASTER_AD_TOOLS: list[Tool] = [
         category=ToolCategory.LISTINGS,
         requires_confirmation=True,
         capability="create_item",
+    ),
+    Tool(
+        name="get_publish_queue",
+        description=(
+            "Muestra el progreso de la cola de publicación automática: publicados, "
+            "pendientes, errores, cuenta actual y próxima publicación permitida."
+        ),
+        parameters={"properties": {"cola": {"type": "integer"}}, "required": []},
+        handler=_queue_status,
+        category=ToolCategory.LISTINGS,
+    ),
+    Tool(
+        name="pause_publish_queue",
+        description="Pausa la cola de publicación automática.",
+        parameters={"properties": {"cola": {"type": "integer"}}, "required": []},
+        handler=_queue_control("pause"),
+        category=ToolCategory.LISTINGS,
+    ),
+    Tool(
+        name="resume_publish_queue",
+        description="Reanuda la cola de publicación automática.",
+        parameters={"properties": {"cola": {"type": "integer"}}, "required": []},
+        handler=_queue_control("resume"),
+        category=ToolCategory.LISTINGS,
+    ),
+    Tool(
+        name="cancel_publish_queue",
+        description="Cancela lo que queda de la cola de publicación. Requiere confirmación.",
+        parameters={"properties": {"cola": {"type": "integer"}}, "required": []},
+        handler=_queue_control("cancel"),
+        category=ToolCategory.LISTINGS,
+        requires_confirmation=True,
+    ),
+    Tool(
+        name="retry_failed_publications",
+        description="Vuelve a poner en la cola los anuncios cuya publicación falló.",
+        parameters={"properties": {"cola": {"type": "integer"}}, "required": []},
+        handler=_retry_failed,
+        category=ToolCategory.LISTINGS,
     ),
     Tool(
         name="update_master_ad",

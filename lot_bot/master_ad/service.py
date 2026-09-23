@@ -478,11 +478,19 @@ class MasterAdService:
         account_refs: list[str],
         copies: int | None = None,
         overrides: dict[str, Any] | None = None,
+        *,
+        extra_images: list[str] | None = None,
     ) -> list[ListingPreview]:
         view = self.get(key)
         if view is None:
             raise ValueError("No existe el anuncio principal.")
         data = self.render(view, overrides)
+        if extra_images:
+            # La imagen generada para este anuncio va la primera (portada).
+            data["images"] = [
+                {"path": p, "is_primary": i == 0, "source": "generada"}
+                for i, p in enumerate(extra_images)
+            ] + [{**img, "is_primary": False} for img in data["images"]]
         previews: list[ListingPreview] = []
         for ref in self.distribute(account_refs, copies):
             quality = validate_listing_data(
@@ -541,108 +549,145 @@ class MasterAdService:
             k: v for k, v in (overrides or {}).items() if k in OVERRIDABLE_FIELDS and v not in (None, "")
         }
 
-        outcomes: list[PublishOutcome] = []
-        for preview in previews:
-            if not preview.can_publish:
-                reasons = [i.message for i in (preview.quality.errors if preview.quality else [])]
-                if preview.missing_variables:
-                    reasons.append("Variables sin rellenar: " + ", ".join(preview.missing_variables))
-                message = "No se publica: " + " ".join(reasons)
-                outcomes.append(
-                    PublishOutcome(
-                        product_sku=preview.product_sku,
-                        account_ref=preview.account_ref,
-                        success=False,
-                        message=message,
-                        error_code="CALIDAD_INSUFICIENTE",
-                    )
-                )
-                self._audit.record_error(
-                    "Publicación del anuncio principal bloqueada",
-                    error=message,
-                    account_ref=preview.account_ref,
-                    target=view.name,
-                    actor=actor,
-                )
-                continue
-
-            image_urls: list[str] = []
-            if self._wallapop.supports(Capability.UPLOAD_IMAGE):
-                for path in preview.image_paths:
-                    try:
-                        image_urls.append(self._wallapop.upload_image(preview.account_ref, path))
-                    except WallapopError as exc:
-                        logger.warning("No se ha podido subir '%s': %s", path, exc.detail)
-
-            draft = ItemDraft(
-                title=preview.title,
-                description=preview.description,
-                price=float(preview.price or 0),
-                category=preview.category,
-                condition=preview.condition,
-                attributes={"caracteristicas": list(view.features)},
-                image_paths=preview.image_paths,
-                image_urls=image_urls,
+        if len(previews) > 1 and not getattr(self._wallapop, "is_mock", False):
+            # Con Wallapop real se publica siempre a través de la cola, que
+            # respeta el intervalo mínimo entre publicaciones.
+            raise ValueError(
+                "Para publicar varios anuncios en Wallapop se usa la cola de publicación "
+                "(intervalo mínimo entre anuncios)."
             )
-            try:
-                result = self._wallapop.create_item(preview.account_ref, draft)
-            except WallapopError as exc:
-                self._audit.record_error(
-                    "Publicación del anuncio principal",
-                    error=f"{type(exc).__name__}: {exc.detail}",
-                    account_ref=preview.account_ref,
-                    target=view.name,
-                    actor=actor,
-                )
-                outcomes.append(
-                    PublishOutcome(
-                        product_sku=preview.product_sku,
-                        account_ref=preview.account_ref,
-                        success=False,
-                        message=exc.user_message,
-                        error_code=type(exc).__name__,
-                    )
-                )
-                continue
+        return [
+            self._publish_preview(view, data, preview, clean_overrides, actor)
+            for preview in previews
+        ]
 
-            if result.item_id:
-                self._listings.register_published(
-                    preview.account_ref,
-                    result.item_id,
-                    None,
-                    {
-                        "title": preview.title,
-                        "description": preview.description,
-                        "price": preview.price,
-                        "category": preview.category,
-                        "condition": preview.condition,
-                        "attributes": {
-                            "caracteristicas": " · ".join(view.features),
-                            "estado": view.condition,
-                        },
-                        "image_urls": image_urls or preview.image_paths,
-                    },
-                    master_ad_id=view.id,
-                    overrides=clean_overrides,
-                )
-            self._audit.record_success(
-                "Publicación del anuncio principal",
+    def publish_single(
+        self,
+        key: str | None,
+        account_ref: str,
+        overrides: dict[str, Any] | None = None,
+        *,
+        extra_images: list[str] | None = None,
+        confirmed: bool,
+        actor: str = "usuario",
+    ) -> PublishOutcome:
+        """Publica UNA copia (la usa la cola de publicación)."""
+        if not confirmed:
+            raise ConfirmationRequiredError("publicar el anuncio principal")
+        self._wallapop.require(Capability.CREATE_ITEM)
+        view = self.get(key)
+        if view is None:
+            raise ValueError("No existe el anuncio principal.")
+        previews = self.build_previews(
+            view.key, [account_ref], None, overrides, extra_images=extra_images
+        )
+        data = self.render(view, overrides)
+        clean_overrides = {
+            k: v for k, v in (overrides or {}).items() if k in OVERRIDABLE_FIELDS and v not in (None, "")
+        }
+        return self._publish_preview(view, data, previews[0], clean_overrides, actor)
+
+    def _publish_preview(
+        self,
+        view: MasterAdView,
+        data: dict[str, Any],
+        preview: ListingPreview,
+        clean_overrides: dict[str, Any],
+        actor: str,
+    ) -> PublishOutcome:
+        if not preview.can_publish:
+            reasons = [i.message for i in (preview.quality.errors if preview.quality else [])]
+            if preview.missing_variables:
+                reasons.append("Variables sin rellenar: " + ", ".join(preview.missing_variables))
+            message = "No se publica: " + " ".join(reasons)
+            self._audit.record_error(
+                "Publicación del anuncio principal bloqueada",
+                error=message,
                 account_ref=preview.account_ref,
                 target=view.name,
-                detail=f"{preview.price} €. {result.message}"
-                + (" Categoría de demostración." if data.get("demo_category") else ""),
                 actor=actor,
             )
-            outcomes.append(
-                PublishOutcome(
-                    product_sku=preview.product_sku,
-                    account_ref=preview.account_ref,
-                    success=True,
-                    message=result.message,
-                    item_id=result.item_id,
-                )
+            return PublishOutcome(
+                product_sku=preview.product_sku,
+                account_ref=preview.account_ref,
+                success=False,
+                message=message,
+                error_code="CALIDAD_INSUFICIENTE",
             )
-        return outcomes
+
+        image_urls: list[str] = []
+        if self._wallapop.supports(Capability.UPLOAD_IMAGE):
+            for path in preview.image_paths:
+                try:
+                    image_urls.append(self._wallapop.upload_image(preview.account_ref, path))
+                except WallapopError as exc:
+                    logger.warning("No se ha podido subir '%s': %s", path, exc.detail)
+
+        draft = ItemDraft(
+            title=preview.title,
+            description=preview.description,
+            price=float(preview.price or 0),
+            category=preview.category,
+            condition=preview.condition,
+            attributes={"caracteristicas": list(view.features)},
+            image_paths=preview.image_paths,
+            image_urls=image_urls,
+        )
+        try:
+            result = self._wallapop.create_item(preview.account_ref, draft)
+        except WallapopError as exc:
+            self._audit.record_error(
+                "Publicación del anuncio principal",
+                error=f"{type(exc).__name__}: {exc.detail}",
+                account_ref=preview.account_ref,
+                target=view.name,
+                actor=actor,
+            )
+            return PublishOutcome(
+                product_sku=preview.product_sku,
+                account_ref=preview.account_ref,
+                success=False,
+                message=exc.user_message,
+                error_code=type(exc).__name__,
+            )
+
+        if result.item_id:
+            self._listings.register_published(
+                preview.account_ref,
+                result.item_id,
+                None,
+                {
+                    "title": preview.title,
+                    "description": preview.description,
+                    "price": preview.price,
+                    "category": preview.category,
+                    "condition": preview.condition,
+                    "attributes": {
+                        "caracteristicas": " · ".join(view.features),
+                        "estado": view.condition,
+                    },
+                    "image_urls": image_urls or preview.image_paths,
+                },
+                master_ad_id=view.id,
+                overrides=clean_overrides,
+            )
+        self._audit.record_success(
+            "Publicación del anuncio principal",
+            account_ref=preview.account_ref,
+            target=view.name,
+            detail=f"{preview.price} €. {result.message}"
+            + (" Categoría de demostración." if data.get("demo_category") else ""),
+            actor=actor,
+        )
+        url = (result.data or {}).get("url")
+        return PublishOutcome(
+            product_sku=preview.product_sku,
+            account_ref=preview.account_ref,
+            success=True,
+            message=result.message,
+            item_id=result.item_id,
+            url=url,
+        )
 
     # ------------------------------------------------------------------
     # Publicaciones y estadísticas
