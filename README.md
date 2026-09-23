@@ -41,6 +41,35 @@ desde un único programa, con un asistente de IA que interpreta órdenes en espa
 * **Historial completo** de acciones y registro técnico sin secretos.
 * **Modo DEMO** para probarlo todo sin tocar Wallapop.
 
+## Empezar en 2 minutos (Windows)
+
+1. Instala **Python 3.12** desde python.org (marca «Add python.exe to PATH»).
+2. Descarga o clona este repositorio.
+3. Doble clic en **`iniciar_lot_bot.bat`**. La primera vez prepara el entorno
+   (unos minutos) y abre el programa.
+4. Arranca en **MODO DEMO**: cuentas, anuncios, mensajes y el anuncio principal de
+   canapés vienen precargados. No hace falta API key, `client_id`, internet ni
+   Wallapop. Nada de lo que hagas sale del ordenador.
+5. Para generar el `.exe` del cliente: doble clic en **`compilar_exe.bat`**
+   → `dist\LOT-Bot\LOT-Bot.exe`.
+
+Prueba en el asistente: «sube el canapé», «publica 10 canapés en las cuentas 1 y 2»,
+«cambia el precio del 135x190 a 270 €», «qué mensajes tengo sin leer»,
+«prepara una respuesta para este cliente».
+
+## Anuncio principal (plantilla de canapés)
+
+La pantalla **Anuncio principal** guarda el anuncio maestro del cliente con sus datos
+exactos (título, características, precio 11,44 €, descripción con los precios
+90x190 → 230 €, 135x190 → 270 €, 150x190 → 290 € y el WhatsApp). Los precios y el
+teléfono son variables editables, no texto fijo.
+
+* «sube el canapé» / «prepara el anuncio de canapé» → vista previa.
+* «publica 10 canapés» → reparte copias entre cuentas y pide confirmación.
+* Un cambio en una publicación concreta **no toca** la plantilla; solo
+  «actualiza la plantilla» (con confirmación) la modifica.
+* «Restaurar original» devuelve los datos del cliente.
+
 ## Principios de diseño
 
 ### No se exige una API key, pero tampoco se inventa nada
@@ -144,7 +173,7 @@ Detalle completo: [`docs/dev/variables-entorno.md`](docs/dev/variables-entorno.m
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
-170 pruebas que cubren: mock de Wallapop, perfil de acceso, mecanismos de
+241 pruebas que cubren: anuncio principal, comprensión de frases del chat,: mock de Wallapop, perfil de acceso, mecanismos de
 autenticación, aislamiento de credenciales entre cuentas, sesiones caducadas y
 reautenticación, no filtrado de credenciales en logs, catálogo, control de calidad,
 duplicados, plantillas, imágenes, agente IA y confirmaciones, asistente de ventas,
@@ -162,13 +191,14 @@ lot_bot/
 ├── catalog/          productos, calidad, duplicados
 ├── templates_engine/ plantillas de anuncio
 ├── images/           importación y deduplicación de fotos
+├── master_ad/        anuncio principal (plantilla fija de canapés)
 ├── publishing/       vista previa, publicación, espejo de anuncios
 ├── messages/         bandeja de entrada y asistente de ventas
 ├── market/           análisis de precios
 ├── automation/       tareas programadas
 ├── ai/               proveedores, herramientas y orquestador
 ├── core/             auditoría y eventos
-├── ui/               ventana principal, tema y 12 pantallas
+├── ui/               ventana principal, tema y 13 pantallas
 └── bootstrap.py      ensamblado de servicios
 ```
 
@@ -189,8 +219,8 @@ lot_bot/
 
 **Para el cliente**
 
-[`docs/cliente/`](docs/cliente/README.md) — ocho guías paso a paso, escritas sin
-tecnicismos.
+[`docs/cliente/`](docs/cliente/README.md) — guías paso a paso, escritas sin
+tecnicismos. Empieza por [uso-lot-bot.md](docs/cliente/uso-lot-bot.md).
 
 ## Estado de las funciones
 
@@ -201,6 +231,7 @@ tecnicismos.
 | Asistente IA con herramientas y confirmación | ✅ |
 | Catálogo, inventario y calidad | ✅ |
 | Plantillas con variables | ✅ |
+| Anuncio principal de canapés (plantilla fija) | ✅ |
 | Gestión y deduplicación de imágenes | ✅ |
 | Publicación con vista previa | ✅ |
 | Mensajería y asistente de ventas | ✅ |

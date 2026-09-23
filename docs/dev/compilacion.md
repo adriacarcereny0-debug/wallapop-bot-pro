@@ -25,12 +25,20 @@ Qt y alarga mucho la compilación) y **cx_Freeze** (menos maduro con PySide6).
 En Windows:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File build\build_windows.ps1
+powershell -ExecutionPolicy Bypass -File build\build_windows.ps1            # o doble clic en compilar_exe.bat
+powershell -ExecutionPolicy Bypass -File build\build_windows.ps1 -RunTests  # pasa las pruebas antes
 ```
 
-El script: crea `.venv-build`, instala dependencias, comprueba que la aplicación
-importa, limpia compilaciones anteriores, ejecuta PyInstaller y copia junto al `.exe`
-el `.env.example`, la plantilla de endpoints y la documentación del cliente.
+El script: busca Python 3.11-3.13 (`py -3.12`, `py -3.13`, `py -3.11`, `python`;
+ignora el acceso directo de Microsoft Store), crea `.venv-build`, instala
+dependencias, comprueba que la aplicación importa, limpia compilaciones anteriores,
+ejecuta PyInstaller, se detiene ante cualquier comando fallido y copia junto al
+`.exe` el `.env.example`, `access_profile.example.yaml` y la documentación del
+cliente. **Se niega a entregar** si en `dist` aparece un `.env`, un `*.local.yaml`,
+una base de datos `*.db` o un `master.key`.
+
+El `.exe` lee un `.env` y `config\access_profile.local.yaml` situados junto a él.
+Los scripts están en ASCII puro para funcionar con Windows PowerShell 5.1.
 
 Resultado: `dist\LOT-Bot\LOT-Bot.exe`
 
