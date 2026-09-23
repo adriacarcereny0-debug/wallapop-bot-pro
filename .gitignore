@@ -50,7 +50,8 @@ demo_state.json
 master.key
 
 # ---- Logs ----
-logs/
+# Solo la carpeta logs/ de la raiz; NO el paquete lot_bot/logs/ (codigo fuente).
+/logs/
 *.log
 
 # ---- Sistema operativo / IDE ----
