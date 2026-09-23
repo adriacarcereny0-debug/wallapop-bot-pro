@@ -31,7 +31,7 @@ from lot_bot.wallapop.errors import NotAvailableWithCurrentAPIError
 class WallapopService(ABC):
     """Interfaz que toda integracion con Wallapop debe cumplir."""
 
-    #: Etiqueta mostrada en la interfaz ("DEMO" / "Wallapop Connect").
+    #: Etiqueta mostrada en la interfaz ("MODO DEMO" / "WALLAPOP REAL").
     backend_name: str = "abstracto"
     #: True si los datos son simulados.
     is_mock: bool = False

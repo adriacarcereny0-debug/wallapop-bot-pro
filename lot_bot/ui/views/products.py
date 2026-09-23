@@ -34,6 +34,7 @@ from lot_bot.ui.widgets.common import (
     info_box,
     selected_row_data,
     show_error,
+    spanish_buttons,
 )
 
 STATUS_LABELS = {
@@ -93,9 +94,9 @@ class ProductDialog(QDialog):
         form.addRow("Descripción", self.description)
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
@@ -385,9 +386,9 @@ class ProductsView(BaseView):
             if account.internal_ref in product.accounts:
                 listing.item(index).setSelected(True)
         layout.addWidget(listing)
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
@@ -423,7 +424,7 @@ class ProductsView(BaseView):
         viewer.setReadOnly(True)
         viewer.setPlainText(text)
         layout.addWidget(viewer)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons = spanish_buttons(QDialogButtonBox(QDialogButtonBox.StandardButton.Close))
         buttons.rejected.connect(dialog.reject)
         buttons.accepted.connect(dialog.accept)
         layout.addWidget(buttons)

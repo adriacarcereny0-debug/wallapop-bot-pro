@@ -109,7 +109,7 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(230)
+        sidebar.setFixedWidth(252)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 12)
         layout.setSpacing(0)
@@ -166,19 +166,28 @@ class MainWindow(QMainWindow):
         self._update_status()
 
     def _update_status(self) -> None:
+        """Refleja el modo real y el mecanismo de acceso activo.
+
+        Nunca presenta una cuenta de demostración como conectada a Wallapop.
+        """
         backend = self.app.backend
-        mode = "MODO DEMO — datos simulados" if backend.demo else "Wallapop Connect"
         accounts = self.app.accounts.list_accounts()
-        connected = sum(1 for a in accounts if a.is_connected)
+
+        if backend.demo:
+            mode = "MODO DEMO — datos simulados"
+            connected = sum(1 for a in accounts if a.is_connected)
+            detail = "MODO DEMO\nNada de lo que hagas afecta a Wallapop."
+        else:
+            mode = f"WALLAPOP REAL — {self.app.auth_method.describe()}"
+            connected = sum(1 for a in accounts if a.is_connected and not a.is_demo)
+            detail = f"WALLAPOP REAL\nDatos en:\n{self.app.paths.root}"
+
         self.status_label.setText(
             f"  {mode}   ·   {connected}/{len(accounts)} cuentas conectadas   ·   "
             f"Asistente: {self.app.agent.provider.describe()}"
         )
-        self.brand_sub.setText(mode)
-        self.mode_label.setText(
-            f"Datos en:\n{self.app.paths.root}" if not backend.demo else
-            "MODO DEMO\nNada de lo que hagas afecta a Wallapop."
-        )
+        self.brand_sub.setText("MODO DEMO" if backend.demo else "WALLAPOP REAL")
+        self.mode_label.setText(detail)
 
     def refresh_current(self) -> None:
         self._on_page_changed(self.stack.currentIndex())

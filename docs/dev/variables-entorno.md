@@ -17,17 +17,29 @@ Copia `.env.example` a `.env` y rellena lo que necesites.
 
 ## Wallapop
 
+LOT Bot **no exige una API key**. Lo único imprescindible para el modo real es el
+perfil de acceso.
+
 | Variable | Obligatoria | Para qué |
 |---|---|---|
-| `WALLAPOP_CLIENT_ID` | sí (modo real) | Identificador de cliente de la integración autorizada |
-| `WALLAPOP_CLIENT_SECRET` | sí (modo real) | Secreto de cliente. **Nunca se muestra ni se registra** |
-| `WALLAPOP_REDIRECT_URI` | sí (modo real) | URI de retorno del flujo OAuth (p. ej. `http://127.0.0.1:8723/callback`) |
-| `WALLAPOP_ENDPOINT_MAP` | sí (modo real) | Ruta al YAML con los endpoints oficiales |
-| `WALLAPOP_SCOPES` | no | Permisos solicitados, separados por espacios |
+| `WALLAPOP_ACCESS_PROFILE` | sí (modo real) | Ruta al perfil de acceso autorizado (auth + operaciones) |
+| `WALLAPOP_REDIRECT_URI` | según el mecanismo | Dirección local de retorno del flujo de autenticación |
+| `WALLAPOP_ENDPOINT_MAP` | no | Nombre anterior de `WALLAPOP_ACCESS_PROFILE`. Se sigue aceptando |
 
-> **Importante:** aunque pongas `LOT_BOT_DEMO_MODE=false`, si falta cualquiera de las
-> tres credenciales o el fichero de endpoints, LOT Bot **se queda en modo DEMO** y
-> explica por qué. Nunca finge una conexión real.
+**Solo si el mecanismo autorizado es OAuth:**
+
+| Variable | Para qué |
+|---|---|
+| `WALLAPOP_CLIENT_ID` | Identificador de cliente de la integración |
+| `WALLAPOP_CLIENT_SECRET` | Secreto de cliente. **Nunca se muestra ni se registra** |
+| `WALLAPOP_SCOPES` | Permisos solicitados, separados por espacios |
+
+Los demás mecanismos (inicio de sesión autorizado, credencial delegada) **no usan
+estas tres variables**: déjalas vacías.
+
+> **Importante:** aunque pongas `LOT_BOT_DEMO_MODE=false`, si falta el perfil de
+> acceso o el mecanismo declarado está incompleto, LOT Bot **se queda en modo DEMO**
+> y explica exactamente qué falta. Nunca finge una conexión real.
 
 ## IA
 

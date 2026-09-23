@@ -13,9 +13,11 @@ Herramientas (tools) registradas             lot_bot/ai/tools
    ↓
 Servicios de dominio                         lot_bot/catalog, publishing, messages, market…
    ↓
-Capa de integración con Wallapop             lot_bot/wallapop
-   ↓
-MockWallapopService  |  ConnectWallapopService
+Capa de acceso a Wallapop                    lot_bot/wallapop
+   ├── MockWallapopService        (DEMO)
+   └── AuthorizedWallapopService  (acceso real)
+          ↑ credencial
+       lot_bot/wallapop/auth      (mecanismo autorizado)
 ```
 
 Reglas que sostienen el diseño:
@@ -26,8 +28,10 @@ Reglas que sostienen el diseño:
    ejecuta SQL. Solo puede invocar herramientas registradas.
 3. **Nada se publica sin confirmación.** Las herramientas de escritura devuelven un
    plan; la ejecución real requiere un segundo paso confirmado por el usuario.
-4. **No se inventan endpoints.** Las rutas de Wallapop se declaran en un fichero YAML
-   que se rellena con la documentación oficial.
+4. **No se inventan endpoints ni mecanismos.** Las rutas y la forma de autenticarse se
+   declaran en el perfil de acceso, que se rellena con lo que Wallapop indique.
+5. **Autenticación y transporte son independientes.** Cambiar el mecanismo de acceso no
+   elimina la necesidad de saber qué operaciones existen.
 
 ## Mapa de módulos
 
@@ -36,7 +40,8 @@ Reglas que sostienen el diseño:
 | `lot_bot/config` | Ajustes (.env), rutas por sistema operativo, almacén cifrado de secretos |
 | `lot_bot/logs` | Logging con filtro que elimina secretos antes de escribir |
 | `lot_bot/database` | Modelo SQLite (SQLAlchemy 2.0) y gestión de sesiones |
-| `lot_bot/wallapop` | Contrato `WallapopService`, mock, integración real, OAuth, cuentas |
+| `lot_bot/wallapop` | Contrato `WallapopService`, mock, acceso real, perfil de acceso, cuentas |
+| `lot_bot/wallapop/auth` | Mecanismos de autenticación autorizados (OAuth, sesión, credencial delegada, DEMO) |
 | `lot_bot/catalog` | Productos, inventario, control de calidad, duplicados |
 | `lot_bot/templates_engine` | Plantillas de anuncio con variables |
 | `lot_bot/images` | Importación, validación y deduplicación de fotografías |
@@ -61,31 +66,53 @@ declara en `capabilities()` qué sabe hacer de verdad.
 service.require(Capability.DELETE_ITEM)   # lanza NotAvailableWithCurrentAPIError
 ```
 
-### Por qué no hay URLs en el código
+### Dos piezas independientes
 
-LOT Bot **no incluye ninguna URL de Wallapop**. `ConnectWallapopService` es un motor
-HTTP genérico gobernado por `config/endpoint_map.local.yaml`:
+LOT Bot **no incluye ninguna URL de Wallapop ni presupone cómo se autentica**.
+Ambas cosas se declaran en `config/access_profile.local.yaml`:
 
 ```yaml
-api:
-  base_url: "…"                 # de la documentación oficial
+auth:                      # 1. CÓMO se identifica cada cuenta
+  method: "session_handoff"
+  session_handoff:
+    login_url: "…"
+    header_template:
+      Authorization: "Bearer {session_token}"
+
+api:                       # 2. QUÉ se puede llamar
+  base_url: "…"
 operations:
   update_item_price:
     method: PATCH
     path: "/…/{item_id}"
-    body:
-      price: "{price}"
-    response:
-      fields:
-        item_id: "id"
 ```
 
 Consecuencias prácticas:
 
 * Una operación que no figure en el fichero **no existe** para la aplicación: se
   responde `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS`, nunca se simula.
-* Si Wallapop cambia su API, se edita el YAML. No hay que recompilar.
-* El repositorio se puede publicar sin exponer detalles de la integración.
+* El mecanismo de acceso es intercambiable: no hace falta que sea una API con
+  `client_id`. Si Wallapop autoriza otra forma, se declara y funciona.
+* Si Wallapop cambia algo, se edita el YAML. No hay que recompilar.
+
+### La capa de autenticación
+
+`lot_bot/wallapop/auth/` define `AuthMethod`, con cuatro implementaciones:
+
+| Mecanismo | Qué hace |
+|---|---|
+| `DemoAuthMethod` | Credenciales simuladas. El servicio real las rechaza expresamente |
+| `OAuthAuthMethod` | Código de autorización + PKCE, si Wallapop lo ofrece |
+| `SessionHandoffAuthMethod` | El usuario inicia sesión en Wallapop; el flujo autorizado devuelve la sesión |
+| `DelegatedCredentialAuthMethod` | El usuario introduce la credencial que Wallapop emitió para su cuenta |
+
+Cada uno declara sus **requisitos** (`AuthRequirement`), con qué dato falta, quién
+debe proporcionarlo y dónde se configura. La interfaz muestra esa lista tal cual:
+es la respuesta honesta a «¿por qué no puedo conectar todavía?».
+
+El resultado es una `AuthCredential`: cabeceras, cookies, caducidad y material de
+renovación. Es **opaca** para el resto del programa y no se puede imprimir
+(`__repr__` y `__str__` están sobrescritos).
 
 ### Selección del backend
 
@@ -94,12 +121,13 @@ Consecuencias prácticas:
 | Situación | Backend |
 |---|---|
 | `LOT_BOT_DEMO_MODE=true` | `MockWallapopService` |
-| Faltan credenciales | `MockWallapopService` (avisando del motivo) |
-| Falta el fichero de endpoints | `MockWallapopService` (avisando del motivo) |
-| Todo configurado | `ConnectWallapopService` |
+| Sin perfil de acceso | `MockWallapopService` (avisando) |
+| Perfil sin `auth:` o sin `operations:` | `MockWallapopService` (listando qué falta) |
+| Mecanismo declarado pero incompleto | `MockWallapopService` (listando qué falta) |
+| Todo completo | `AuthorizedWallapopService` |
 
-Nunca se "simula" una conexión real: si falta algo, la aplicación lo dice en el panel
-y en la barra de estado.
+Nunca se "simula" una conexión real: si falta algo, la aplicación lo dice en el
+panel, en la barra de estado y en la pantalla de cuentas.
 
 ## Aislamiento multicuenta
 
@@ -109,8 +137,10 @@ y en la barra de estado.
 * Las consultas filtran siempre por cuenta. `ListingFilter` y `ProductFilter` aceptan
   `account_ref`; sin él, se devuelven datos de todas las cuentas **etiquetados** con su
   cuenta de origen, nunca mezclados.
-* Los tokens se guardan cifrados por cuenta y se descifran solo en el momento de la
-  petición, dentro de `AccountManager.get_access_token()`.
+* Cada cuenta guarda su propia `AuthCredential` cifrada, junto con el mecanismo con el
+  que se conectó (`accounts.auth_method`). Se descifra solo en el momento de la
+  petición, dentro de `AccountManager.get_credential()`.
+* Desconectar o eliminar una cuenta no afecta a las demás.
 * `UniqueConstraint("account_id", "wallapop_item_id")`: el mismo identificador de
   anuncio en dos cuentas distintas son dos filas distintas.
 

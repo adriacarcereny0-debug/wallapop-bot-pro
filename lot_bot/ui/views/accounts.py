@@ -118,13 +118,15 @@ class AccountsView(BaseView):
 
         accounts = self.app.accounts.list_accounts()
         self._accounts = accounts
+        demo_mode = self.app.demo_mode
+
         fill_table(
             self.table,
             [
                 [
                     a.alias,
                     a.internal_ref,
-                    a.status_label,
+                    self._status_text(a, demo_mode),
                     a.auth_method_label,
                     a.wallapop_login or "—",
                     a.last_sync_at.strftime("%d/%m/%Y %H:%M") if a.last_sync_at else "nunca",
@@ -133,17 +135,40 @@ class AccountsView(BaseView):
             ],
             row_data=[a.internal_ref for a in accounts],
             colorizer=lambda row, col, value: (
-                theme.STATUS_COLORS.get(accounts[row].status.value)
+                self._status_color(accounts[row], demo_mode)
                 if col == 2 and row < len(accounts)
                 else None
             ),
         )
-        connected = sum(1 for a in accounts if a.is_connected)
+        connected = sum(1 for a in accounts if self._really_connected(a, demo_mode))
         self.header.set_subtitle(
             f"{len(accounts)} cuenta(s) · {connected} conectada(s) · "
             f"cada una con sus propios anuncios, mensajes y automatizaciones"
         )
         self._update_buttons()
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _really_connected(account, demo_mode: bool) -> bool:
+        """En modo real, una cuenta de demostración NO está conectada.
+
+        Es la regla de no mostrar jamás algo DEMO como si fuera Wallapop real.
+        """
+        if account.is_demo and not demo_mode:
+            return False
+        return account.is_connected
+
+    @staticmethod
+    def _status_text(account, demo_mode: bool) -> str:
+        if account.is_demo and not demo_mode:
+            return "Solo demostración"
+        return account.status_label
+
+    @staticmethod
+    def _status_color(account, demo_mode: bool) -> str:
+        if account.is_demo and not demo_mode:
+            return theme.WARNING
+        return theme.STATUS_COLORS.get(account.status.value, theme.TEXT_MUTED)
 
     # ------------------------------------------------------------------
     def _selected(self):
@@ -164,8 +189,9 @@ class AccountsView(BaseView):
             button.setEnabled(has)
 
         method_ready = self.app.auth_method.is_ready
-        self.connect_button.setEnabled(has and method_ready and not (account and account.is_connected))
-        self.reauth_button.setEnabled(has and method_ready and bool(account and account.is_connected))
+        conectada = bool(account) and self._really_connected(account, self.app.demo_mode)
+        self.connect_button.setEnabled(has and method_ready and not conectada)
+        self.reauth_button.setEnabled(has and method_ready and conectada)
 
         if not method_ready:
             tip = (

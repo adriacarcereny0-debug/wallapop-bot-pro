@@ -19,11 +19,10 @@ def test_el_fichero_de_ejemplo_no_declara_endpoints():
     """El ejemplo del repositorio NO debe contener URLs de Wallapop."""
     from pathlib import Path
 
-    ruta = Path(__file__).resolve().parents[1] / "config" / "endpoint_map.example.yaml"
+    ruta = Path(__file__).resolve().parents[1] / "config" / "access_profile.example.yaml"
     mapa = EndpointMap.load(ruta)
     assert mapa.capabilities() == set(), "El ejemplo no debe conceder operaciones"
     assert mapa.base_url == ""
-    assert not mapa.oauth.is_configured
 
 
 def test_operacion_vacia_se_ignora():

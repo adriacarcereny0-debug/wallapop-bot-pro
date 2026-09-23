@@ -25,7 +25,12 @@ Si no sabe algo, lo dice. Nunca se inventa precios, stock, medidas ni condicione
 responder a un comprador.
 
 **3. Tus cuentas están separadas.**
-Los anuncios, mensajes e inventario de cada cuenta nunca se mezclan con los de otra.
+Los anuncios, mensajes, inventario y accesos de cada cuenta nunca se mezclan con
+los de otra.
+
+**4. No te pide ninguna clave de API.**
+El acceso a Wallapop se hace con el mecanismo autorizado. Si falta algún dato
+técnico, LOT Bot te dice cuál en vez de pedirte algo que no tienes.
 
 ## Las pantallas
 
@@ -33,7 +38,7 @@ Los anuncios, mensajes e inventario de cada cuenta nunca se mezclan con los de o
 |---|---|
 | **Panel** | Resumen de todo: cuentas, anuncios, avisos |
 | **Asistente IA** | Dile lo que quieres hacer, en tus palabras |
-| **Cuentas Wallapop** | Añadir, conectar y sincronizar tus cuentas |
+| **Cuentas de Wallapop** | Añadir, conectar, reautenticar y sincronizar tus cuentas |
 | **Productos** | Tu catálogo: fichas, fotos y publicación |
 | **Anuncios** | Lo que tienes publicado en Wallapop |
 | **Inventario** | Unidades disponibles y avisos de stock |

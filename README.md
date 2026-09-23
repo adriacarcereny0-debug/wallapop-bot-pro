@@ -16,8 +16,10 @@ desde un único programa, con un asistente de IA que interpreta órdenes en espa
 │  Agente IA  →  Herramientas registradas  →  Servicios           │
 │     ↓                                                           │
 │  WallapopService                                                │
-│     ├── MockWallapopService     (MODO DEMO)                     │
-│     └── ConnectWallapopService  (endpoints oficiales)           │
+│     ├── MockWallapopService        (MODO DEMO)                  │
+│     └── AuthorizedWallapopService  (acceso autorizado)          │
+│            ↑ credencial                                         │
+│         AuthMethod  (OAuth · sesión · credencial delegada)      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,33 +43,54 @@ desde un único programa, con un asistente de IA que interpreta órdenes en espa
 
 ## Principios de diseño
 
-### No se inventan endpoints
+### No se exige una API key, pero tampoco se inventa nada
 
-LOT Bot **no contiene ninguna URL de Wallapop**. Las rutas, métodos y el mapeo de las
-respuestas se declaran en un fichero YAML que se rellena con la documentación oficial:
+LOT Bot **no presupone que el acceso a Wallapop sea una API con `client_id`**.
+El mecanismo es el que Wallapop autorice, y se declara en un perfil de acceso.
+
+Son **dos piezas independientes**, y hacen falta las dos:
 
 ```yaml
+auth:                      # 1. CÓMO se identifica cada cuenta
+  method: "session_handoff"
+  session_handoff:
+    login_url: "<lo indica Wallapop>"
+    header_template:
+      Authorization: "Bearer {session_token}"
+
+api:                       # 2. QUÉ operaciones existen
+  base_url: "<lo indica Wallapop>"
 operations:
   update_item_price:
     method: PATCH
-    path: "<ruta de la documentación oficial>"
-    body:
-      price: "{price}"
+    path: "<ruta oficial>"
 ```
 
-Una operación que no figure ahí **no existe** para la aplicación: se responde
-`NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` en lugar de simularla.
+Resolver la autenticación **no** resuelve el transporte: aunque la sesión sea
+válida, el programa sigue necesitando saber qué llamar. Lo que no esté declarado
+responde `NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS` en vez de simularse.
+
+Mecanismos soportados: `oauth`, `session_handoff`, `delegated_credential` y `demo`.
+
+### Lo que LOT Bot no hace con tu sesión
+
+* No pide, no maneja y no guarda contraseñas de Wallapop.
+* No lee el perfil del navegador del usuario ni extrae cookies de él.
+* No automatiza el formulario de inicio de sesión.
+* No evita ni intenta resolver MFA, CAPTCHA ni ningún otro control.
+* No deduce URLs: si no están declaradas, no hace nada y dice qué falta.
 
 ### La IA no puede salirse del guion
 
-El agente solo puede invocar herramientas registradas. No accede a credenciales, no
-hace peticiones HTTP, no ejecuta SQL. Si pide una función que no existe, se le
-responde que no existe.
+El agente solo puede invocar herramientas registradas. No accede a credenciales,
+sesiones, cookies, HTTP ni a la base de datos. Si pide una función que no existe,
+se le responde que no existe.
 
-### Sin conexión real, no se finge
+### Sin acceso configurado, no se finge
 
-Si faltan credenciales o el fichero de endpoints, la aplicación **se queda en modo
-DEMO y explica por qué**, en vez de aparentar estar conectada.
+Si falta el perfil o el mecanismo está incompleto, la aplicación **se queda en
+modo DEMO y enumera exactamente qué falta y quién debe proporcionarlo**, en vez
+de aparentar estar conectada.
 
 ## Instalación (desarrollo)
 
@@ -100,13 +123,15 @@ clic. No necesita instalar nada más.
 Copia `.env.example` a `.env`:
 
 ```dotenv
-LOT_BOT_DEMO_MODE=true          # false para la integración real
+LOT_BOT_DEMO_MODE=true            # false para el acceso real
+WALLAPOP_ACCESS_PROFILE=          # ruta al perfil de acceso autorizado
+WALLAPOP_REDIRECT_URI=http://127.0.0.1:8723/callback
+LOT_BOT_AI_PROVIDER=rules         # 'anthropic' para lenguaje natural libre
+ANTHROPIC_API_KEY=
+
+# Solo si el mecanismo autorizado es OAuth:
 WALLAPOP_CLIENT_ID=
 WALLAPOP_CLIENT_SECRET=
-WALLAPOP_REDIRECT_URI=http://127.0.0.1:8723/callback
-WALLAPOP_ENDPOINT_MAP=          # ruta al YAML con los endpoints oficiales
-LOT_BOT_AI_PROVIDER=rules       # 'anthropic' para lenguaje natural libre
-ANTHROPIC_API_KEY=
 ```
 
 `.env` está en `.gitignore`. **Nunca se suben secretos al repositorio.**
@@ -119,9 +144,11 @@ Detalle completo: [`docs/dev/variables-entorno.md`](docs/dev/variables-entorno.m
 QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q
 ```
 
-Cubren: mock de Wallapop, mapa de endpoints, catálogo, control de calidad, duplicados,
-plantillas, imágenes, seguridad y cifrado, agente IA y confirmaciones, asistente de
-ventas, flujo de extremo a extremo en DEMO y humo de la interfaz.
+170 pruebas que cubren: mock de Wallapop, perfil de acceso, mecanismos de
+autenticación, aislamiento de credenciales entre cuentas, sesiones caducadas y
+reautenticación, no filtrado de credenciales en logs, catálogo, control de calidad,
+duplicados, plantillas, imágenes, agente IA y confirmaciones, asistente de ventas,
+flujo de extremo a extremo en DEMO y humo de la interfaz.
 
 ## Estructura
 
@@ -130,7 +157,8 @@ lot_bot/
 ├── config/           ajustes, rutas, secretos cifrados
 ├── logs/             logging con redacción de secretos
 ├── database/         modelo SQLite (SQLAlchemy 2.0)
-├── wallapop/         contrato, mock, integración real, OAuth, cuentas
+├── wallapop/         contrato, mock, acceso real, perfil de acceso, cuentas
+│   └── auth/         mecanismos autorizados (OAuth, sesión, credencial)
 ├── catalog/          productos, calidad, duplicados
 ├── templates_engine/ plantillas de anuncio
 ├── images/           importación y deduplicación de fotos
@@ -153,7 +181,8 @@ lot_bot/
 | [Arquitectura](docs/dev/arquitectura.md) | Diseño, capas, agente IA, multicuenta |
 | [Instalación](docs/dev/instalacion.md) | Entorno de desarrollo y pruebas |
 | [Variables de entorno](docs/dev/variables-entorno.md) | Todas las opciones |
-| [Conexión con Wallapop](docs/dev/conexion-wallapop.md) | Rellenar el mapa de endpoints |
+| [Conexión con Wallapop](docs/dev/conexion-wallapop.md) | Configurar el acceso autorizado |
+| [Qué pedir a Wallapop](docs/dev/que-pedir-a-wallapop.md) | Lista exacta de datos técnicos a solicitar |
 | [Compilación](docs/dev/compilacion.md) | Generar el `.exe` |
 | [Solución de errores](docs/dev/solucion-errores.md) | Problemas y causas |
 | [Actualización](docs/dev/actualizacion.md) | Versiones, migraciones, ampliaciones |
@@ -167,7 +196,8 @@ tecnicismos.
 
 | Función | Estado |
 |---|---|
-| Multicuenta con aislamiento | ✅ |
+| Multicuenta con aislamiento (datos y credenciales) | ✅ |
+| Acceso sin API key, con mecanismo intercambiable | ✅ |
 | Asistente IA con herramientas y confirmación | ✅ |
 | Catálogo, inventario y calidad | ✅ |
 | Plantillas con variables | ✅ |
@@ -178,7 +208,7 @@ tecnicismos.
 | Historial y registro seguro | ✅ |
 | Modo DEMO completo | ✅ |
 | Empaquetado para Windows | ✅ |
-| Integración real con Wallapop | ⚙️ Lista, a la espera de credenciales y endpoints oficiales |
+| Acceso real a Wallapop | ⚙️ Arquitectura lista. Falta que Wallapop indique el mecanismo y las operaciones (ver [qué pedir](docs/dev/que-pedir-a-wallapop.md)) |
 | Generación de imágenes por IA | ⛔ Requiere un proveedor autorizado, no incluido |
 | Datos de mercado externos | ⚙️ Solo con fuente autorizada; sin ella se avisa |
 

@@ -79,7 +79,7 @@ $distDir = Join-Path $ProjectRoot "dist\LOT-Bot"
 Copy-Item (Join-Path $ProjectRoot ".env.example") (Join-Path $distDir ".env.example") -Force
 $configDir = Join-Path $distDir "config"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
-Copy-Item (Join-Path $ProjectRoot "config\endpoint_map.example.yaml") $configDir -Force
+Copy-Item (Join-Path $ProjectRoot "config\access_profile.example.yaml") $configDir -Force
 if (Test-Path (Join-Path $ProjectRoot "docs\cliente")) {
     Copy-Item (Join-Path $ProjectRoot "docs\cliente") (Join-Path $distDir "documentacion") -Recurse -Force
 }

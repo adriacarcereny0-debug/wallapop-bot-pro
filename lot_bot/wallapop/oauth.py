@@ -1,4 +1,4 @@
-"""Flujo OAuth 2.0 (codigo de autorizacion + PKCE) para Wallapop Connect.
+"""Flujo OAuth 2.0 (codigo de autorizacion + PKCE), si Wallapop lo autoriza.
 
 Las URLs concretas NO estan en el codigo: se leen del mapa de endpoints
 oficial. Este modulo solo implementa el flujo estandar RFC 6749 / RFC 7636.

@@ -1,64 +1,83 @@
 # Cómo conectar Wallapop
 
-Para que LOT Bot trabaje con tus cuentas reales hace falta configurar una sola vez la
-conexión con Wallapop. Normalmente esto lo dejamos hecho nosotros en la instalación.
+Para trabajar con tus cuentas reales hay que configurar una sola vez el acceso a
+Wallapop. Normalmente esto lo dejamos hecho nosotros en la instalación.
 
-## Antes de empezar
+## Lo primero que debes saber
 
-Necesitas los datos de acceso que Wallapop te ha facilitado al autorizar la
-automatización de tus cuentas.
+**LOT Bot no te pide ninguna clave de API.**
 
-> **Importante:** LOT Bot **nunca te pide la contraseña de Wallapop** y no la guarda.
-> Tú introduces tus datos en la página de Wallapop, como siempre, y Wallapop le da
-> permiso al programa.
+El acceso se hace con el mecanismo que Wallapop haya autorizado. Según el caso,
+puede ser:
 
-## Paso 1: abrir la configuración
+* **Inicio de sesión**: se abre tu navegador en Wallapop, entras como siempre y
+  autorizas el acceso.
+* **Autorización de Wallapop**: igual, pero con la pantalla de permisos de
+  Wallapop.
+* **Credencial de cuenta**: Wallapop te entrega un código para esa cuenta y lo
+  introduces una vez.
 
-Abre LOT Bot y entra en **Configuración → Wallapop**.
+En los tres casos:
 
-Ahí verás en qué estado está la conexión:
+> **LOT Bot nunca te pide la contraseña de Wallapop y nunca la guarda.**
+> Tú la escribes en la web de Wallapop, como siempre.
 
-* **MODO DEMO** — estás con datos de prueba
-* **Wallapop Connect** — estás conectado de verdad
+## Cómo saber en qué estado estás
 
-Si estás en modo demostración, la propia pantalla te dice qué falta.
+Abre LOT Bot y mira abajo del todo, en la barra de estado:
 
-## Paso 2: el fichero de configuración
+* **MODO DEMO — datos simulados**: estás con cuentas de prueba. Nada afecta a
+  Wallapop.
+* **WALLAPOP REAL**: estás conectado de verdad.
 
-En la carpeta del programa hay un fichero llamado `.env.example`.
+## Si todavía no se puede conectar
 
-1. Haz una copia y llámala `.env` (sin nada delante del punto)
-2. Ábrela con el Bloc de notas
-3. Rellena los datos que te dio Wallapop
-4. Cambia `LOT_BOT_DEMO_MODE=true` por `LOT_BOT_DEMO_MODE=false`
-5. Guarda y cierra
+Ve a **Cuentas de Wallapop** y pulsa **«Ver qué falta para conectar con
+Wallapop»**.
 
-> Si esto te resulta incómodo, dínoslo: lo dejamos configurado por ti.
+Esa pantalla te dice, con nombre y apellidos, qué dato falta y quién tiene que
+darlo. Por ejemplo:
 
-## Paso 3: comprobar
+> **Punto de entrada del inicio de sesión autorizado** *(lo tiene que facilitar
+> Wallapop)*
+> Dirección exacta que Wallapop autoriza para iniciar el flujo.
 
-Cierra LOT Bot y vuelve a abrirlo. En **Configuración → Wallapop** debe aparecer
-**«Integración real activa»** y una lista de lo que se puede hacer:
+LOT Bot **no se inventa esos datos**. Prefiere decirte que falta algo antes que
+hacer como que funciona.
 
-* ✓ Lo que está disponible
-* ✗ Lo que Wallapop no ha autorizado
+Pásanos esa lista y nosotros la gestionamos con tu contacto de Wallapop.
 
-Si algo aparece con ✗, el programa te lo dirá cuando lo intentes, en lugar de fingir
-que lo ha hecho.
+## Mientras tanto, puedes trabajar
 
-## Paso 4: conectar tus cuentas
+El modo demostración no es una pantalla vacía: funciona todo.
+
+Puedes ir adelantando trabajo que **no se pierde** cuando llegue el acceso real:
+
+* Dar de alta tu catálogo de productos
+* Subir tus fotografías
+* Ajustar tus plantillas de anuncio
+* Configurar tus datos de negocio (WhatsApp, envío, precios de oferta)
+* Aprender a usar el asistente de IA
+
+Todo eso se queda guardado en tu ordenador.
+
+## Cuando ya está configurado
 
 Sigue la guía **«Cómo añadir una cuenta»**.
 
 ## Preguntas frecuentes
 
-**¿Puedo seguir usando el modo demostración?**
-Sí. Cambia `LOT_BOT_DEMO_MODE` a `true` y reinicia. Es útil para hacer pruebas.
+**¿Necesito una clave de API?**
+No. Si alguien te la pide, no es LOT Bot.
+
+**¿Puedo volver al modo demostración?**
+Sí, en cualquier momento. Es útil para hacer pruebas sin riesgo.
 
 **¿Es seguro?**
-Tus permisos se guardan cifrados en tu ordenador. Tu contraseña de Wallapop nunca pasa
-por el programa. En los registros técnicos no se guarda ninguna clave.
+Tu acceso se guarda cifrado en tu ordenador, usando el almacén de credenciales
+de Windows. Tu contraseña de Wallapop nunca pasa por el programa. En los
+registros técnicos no queda ninguna clave.
 
-**¿Qué pasa si caduca el permiso?**
-La cuenta aparecerá como «Sesión caducada» en la pantalla de Cuentas. Solo tienes que
-seleccionarla y pulsar **Conectar** otra vez.
+**¿Qué pasa si caduca el acceso?**
+La cuenta aparecerá como «Sesión caducada». Selecciónala y pulsa **Volver a
+autenticar**.

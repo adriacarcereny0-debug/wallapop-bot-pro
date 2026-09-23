@@ -12,6 +12,8 @@ user_data/
 *.sqlite3
 lot_bot_data/
 endpoint_map.local.yaml
+access_profile.local.yaml
+*.local.yaml
 
 # ---- Python ----
 __pycache__/

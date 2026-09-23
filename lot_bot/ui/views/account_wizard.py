@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from lot_bot.ui import theme
+from lot_bot.ui.widgets.common import spanish_buttons
 from lot_bot.wallapop.auth.base import AuthMethod, RequirementSource
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -130,9 +131,9 @@ class AddAccountDialog(QDialog):
             note.setWordWrap(True)
             layout.addWidget(note)
 
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Añadir")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -183,9 +184,9 @@ class DelegatedCredentialDialog(QDialog):
         warning.setStyleSheet(f"color: {theme.WARNING}; font-size: 12px;")
         layout.addWidget(warning)
 
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Conectar")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
@@ -215,8 +216,11 @@ class MissingAccessDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.viewport().setStyleSheet(f"background: {theme.BG};")
         container = QWidget()
+        container.setObjectName("Content")
         inner = QVBoxLayout(container)
+        inner.setContentsMargins(0, 0, 8, 0)
         inner.setSpacing(10)
 
         if app.missing_access_data:
@@ -246,7 +250,7 @@ class MissingAccessDialog(QDialog):
         footer.setStyleSheet(f"color: {theme.TEXT_MUTED};")
         layout.addWidget(footer)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons = spanish_buttons(QDialogButtonBox(QDialogButtonBox.StandardButton.Close))
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)
@@ -279,7 +283,7 @@ class AuthenticatingDialog(QDialog):
 
         row = QHBoxLayout()
         row.addStretch(1)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        buttons = spanish_buttons(QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel))
         buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Cancelar")
         buttons.rejected.connect(self.reject)
         row.addWidget(buttons)

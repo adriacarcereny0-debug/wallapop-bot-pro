@@ -190,6 +190,12 @@ QTabBar::tab {{
 }}
 QTabBar::tab:selected {{ color: {TEXT}; border-bottom: 2px solid {ACCENT}; font-weight: 600; }}
 
+/* ---------- Areas con desplazamiento ---------- */
+QScrollArea {{ background: transparent; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QAbstractScrollArea {{ background: transparent; }}
+QDialog QScrollArea {{ background: {BG}; }}
+
 /* ---------- Barras de desplazamiento ---------- */
 QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
 QScrollBar::handle:vertical {{ background: {BORDER_STRONG}; border-radius: 5px; min-height: 30px; }}

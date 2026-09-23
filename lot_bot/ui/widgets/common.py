@@ -345,3 +345,32 @@ def ask_confirmation(parent: QWidget, title: str, text: str, destructive: bool =
     box.addButton("Cancelar", QMessageBox.ButtonRole.RejectRole)
     box.exec()
     return box.clickedButton() is confirm
+
+
+#: Textos en español para los botones estándar de Qt, que de lo contrario
+#: aparecen en el idioma del sistema operativo.
+_BUTTON_TEXTS = {
+    "Ok": "Aceptar",
+    "Cancel": "Cancelar",
+    "Close": "Cerrar",
+    "Save": "Guardar",
+    "Yes": "Sí",
+    "No": "No",
+    "Apply": "Aplicar",
+    "Reset": "Restablecer",
+    "Discard": "Descartar",
+}
+
+
+def spanish_buttons(box):
+    """Traduce al español los botones estándar de un QDialogButtonBox."""
+    from PySide6.QtWidgets import QDialogButtonBox
+
+    for standard in QDialogButtonBox.StandardButton:
+        button = box.button(standard)
+        if button is None:
+            continue
+        translated = _BUTTON_TEXTS.get(standard.name)
+        if translated:
+            button.setText(translated)
+    return box

@@ -27,6 +27,7 @@ from lot_bot.ui.widgets.common import (
     info_box,
     selected_row_data,
     show_error,
+    spanish_buttons,
 )
 
 
@@ -202,9 +203,9 @@ class ListingsView(BaseView):
             QLabel("\n".join(f"• {alias}: {count} anuncio(s)" for alias, count in by_account.items()))
         )
 
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
@@ -246,9 +247,9 @@ class ListingsView(BaseView):
         layout.addWidget(QLabel(f"Cuenta: {view.account_alias}"))
         field = QLineEdit(view.title)
         layout.addWidget(field)
-        buttons = QDialogButtonBox(
+        buttons = spanish_buttons(QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
+        ))
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
@@ -292,7 +293,7 @@ class ListingsView(BaseView):
             f"DESCRIPCIÓN:\n{view.description or '(vacía)'}"
         )
         layout.addWidget(viewer)
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons = spanish_buttons(QDialogButtonBox(QDialogButtonBox.StandardButton.Close))
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
         dialog.exec()

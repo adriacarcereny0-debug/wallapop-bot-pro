@@ -306,3 +306,44 @@ def test_la_credencial_sobrevive_al_cifrado(manager, database):
         fila = session.scalar(select(Account).where(Account.internal_ref == "c1"))
         with pytest.raises(ValueError):
             json.loads(fila.credential_enc)  # está cifrado, no es JSON legible
+
+
+# ---------------------------------------------------------------------------
+# 4. DEMO nunca se presenta como Wallapop real
+# ---------------------------------------------------------------------------
+def test_una_cuenta_demo_no_figura_como_conectada_en_modo_real():
+    """Regla: jamás mostrar algo DEMO como si fuera Wallapop real."""
+    from lot_bot.ui.views.accounts import AccountsView
+
+    class CuentaFalsa:
+        is_demo = True
+        is_connected = True
+        status_label = "Conectada"
+
+        class status:  # noqa: N801
+            value = "connected"
+
+    cuenta = CuentaFalsa()
+    # En DEMO sí cuenta como conectada...
+    assert AccountsView._really_connected(cuenta, demo_mode=True)
+    assert AccountsView._status_text(cuenta, demo_mode=True) == "Conectada"
+    # ...pero en modo real, no.
+    assert not AccountsView._really_connected(cuenta, demo_mode=False)
+    assert AccountsView._status_text(cuenta, demo_mode=False) == "Solo demostración"
+
+
+def test_la_barra_de_estado_distingue_demo_de_real(app):
+    """La interfaz debe decir en qué modo está, sin ambigüedad."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    from lot_bot.ui.main_window import MainWindow
+
+    QApplication.instance() or QApplication([])
+    ventana = MainWindow(app)
+    assert "MODO DEMO" in ventana.status_label.text()
+    assert ventana.brand_sub.text() == "MODO DEMO"
+    ventana.close()
