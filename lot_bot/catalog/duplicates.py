@@ -78,11 +78,24 @@ def normalize_text(value: str | None) -> str:
 
 
 def title_similarity(a: str | None, b: str | None) -> int:
-    """Similitud 0-100 entre dos titulos, tolerante al orden de las palabras."""
+    """Similitud 0-100 entre dos titulos, tolerante al orden de las palabras.
+
+    `token_set_ratio` da 100 cuando las palabras de un título están todas
+    contenidas en el otro. Eso es útil («Canapé gris 135x190» frente a
+    «Canapé 135x190 gris»), pero da falsos positivos enormes cuando un título
+    tiene muy pocas palabras distintas: «Canapé canapé canapé» saldría igual a
+    CUALQUIER anuncio que diga «canapé». Por eso solo se usa cuando los dos
+    títulos comparten una proporción razonable de su vocabulario.
+    """
     na, nb = normalize_text(a), normalize_text(b)
     if not na or not nb:
         return 0
-    return int(max(fuzz.token_sort_ratio(na, nb), fuzz.token_set_ratio(na, nb)))
+    sort_score = fuzz.token_sort_ratio(na, nb)
+    words_a, words_b = set(na.split()), set(nb.split())
+    coverage = min(len(words_a), len(words_b)) / max(len(words_a), len(words_b))
+    if coverage < 0.6:
+        return int(sort_score)
+    return int(max(sort_score, fuzz.token_set_ratio(na, nb)))
 
 
 def _group_by_key(

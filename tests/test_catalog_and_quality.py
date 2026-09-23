@@ -168,3 +168,19 @@ def test_caracteristicas_distintas_no_son_duplicados():
 def test_similitud_de_titulos():
     assert title_similarity("Canapé 135x190 Gris", "canape 135x190 gris") >= 95
     assert title_similarity("Canapé", "Mesa de comedor") < 50
+
+
+def test_un_titulo_con_pocas_palabras_no_es_duplicado_de_todo():
+    """Fallo real: «Canapé canapé canapé» salía igual a cualquier anuncio con
+    «canapé» porque todas sus palabras están contenidas en el otro título."""
+    assert title_similarity(
+        "Canapé canapé canapé canapé canapé canapé",
+        "Canape abatible 105x190 Blanco Tapizado 3D",
+    ) < 80
+    grupos = find_duplicates(
+        [
+            {"id": 1, "titulo": "Canapé canapé canapé canapé canapé canapé"},
+            {"id": 2, "titulo": "Canape abatible 105x190 Blanco Tapizado 3D"},
+        ]
+    )
+    assert grupos == []

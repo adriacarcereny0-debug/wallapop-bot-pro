@@ -174,7 +174,10 @@ def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     medida = args.get("medida")
     master = None
     old_offer = None
-    if medida and source == "criterios":
+    # Se decide por la medida pedida, no por cómo se localizaron los anuncios:
+    # al confirmar, los argumentos ya traen la lista de anuncios del plan, y lo
+    # que se ejecuta tiene que ser EXACTAMENTE lo que se anunció en el plan.
+    if medida and source != "foco":
         texto = args.get("texto") or ""
         candidate = context.app.master_ads.get()
         if candidate is not None and (not texto or context.app.master_ads.find_by_text(texto)):

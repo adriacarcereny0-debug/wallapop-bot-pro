@@ -183,6 +183,46 @@ def job_prepare_publications(app: Application, options: dict[str, Any]) -> JobRe
     )
 
 
+def job_master_ad_review(app: Application, options: dict[str, Any]) -> JobResult:
+    """Revisa el anuncio principal: si se puede publicar y en qué cuentas falta.
+
+    Solo lee. Publicar sigue requiriendo que el usuario lo confirme.
+    """
+    master = app.master_ads.get()
+    if master is None:
+        return JobResult(False, "No hay ningún anuncio principal configurado.")
+    demo = app.demo_mode
+    refs = [
+        a.internal_ref
+        for a in app.accounts.list_accounts()
+        if a.is_connected and (demo or not a.is_demo)
+    ]
+    previews = app.master_ads.build_previews(master.key, refs) if refs else []
+    blocked = sorted(
+        {
+            i.message
+            for p in previews
+            if not p.can_publish
+            for i in (p.quality.errors if p.quality else [])
+        }
+    )
+    published_in = {
+        p.account_ref for p in app.master_ads.publications(master.key) if p.status == "active"
+    }
+    missing = [ref for ref in refs if ref not in published_in]
+    parts = [f"{len(published_in)} cuenta(s) con el anuncio activo"]
+    if missing:
+        parts.append(f"{len(missing)} sin él")
+    if blocked:
+        parts.append("no se puede publicar: " + "; ".join(blocked))
+    return JobResult(
+        ok=not blocked,
+        summary=f"Anuncio principal: {', '.join(parts)}.",
+        details={"cuentas_sin_anuncio": missing, "bloqueos": blocked},
+        pending_review=len(missing) + len(blocked),
+    )
+
+
 def job_error_review(app: Application, options: dict[str, Any]) -> JobResult:
     """Revisa los errores recientes del historial."""
     entries = app.audit.recent(limit=200, only_errors=True)
@@ -250,6 +290,17 @@ JOB_DEFINITIONS: list[JobDefinition] = [
         default_interval_minutes=1440,
         writes=False,
         run=job_prepare_publications,
+    ),
+    JobDefinition(
+        key="master_ad_review",
+        name="Revisar anuncio principal",
+        description=(
+            "Comprueba si el anuncio de canapés se puede publicar y en qué cuentas no "
+            "está activo. No publica nada."
+        ),
+        default_interval_minutes=720,
+        writes=False,
+        run=job_master_ad_review,
     ),
     JobDefinition(
         key="error_review",

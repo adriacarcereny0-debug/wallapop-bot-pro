@@ -129,7 +129,9 @@ def test_el_repositorio_no_contiene_secretos():
         re.compile(r"LOT_BOT_MASTER_KEY[ \t]*=[ \t]*[^\s\"'#]{8,}"),
     ]
     revisados = 0
-    for fichero in list(raiz.rglob("*.py")) + list(raiz.rglob("*.yaml")) + list(raiz.rglob("*.md")):
+    extensiones = ("*.py", "*.yaml", "*.yml", "*.md", "*.ps1", "*.sh", "*.bat", "*.spec", "*.txt", "*.toml", "*.example")
+    ficheros = [f for patron in extensiones for f in raiz.rglob(patron)]
+    for fichero in ficheros:
         if any(parte in {".venv", ".git", "node_modules"} for parte in fichero.parts):
             continue
         if fichero == Path(__file__).resolve():
@@ -146,3 +148,25 @@ def test_no_hay_ficheros_env_versionados():
 
     raiz = Path(__file__).resolve().parents[1]
     assert not (raiz / ".env").exists() or ".env" in (raiz / ".gitignore").read_text()
+
+
+def test_gitignore_cubre_los_ficheros_sensibles():
+    from pathlib import Path
+
+    reglas = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
+    for obligatorio in (".env", "*.local.yaml", "*.db", "*.key", "logs/", ".venv-build/", "dist/"):
+        assert obligatorio in reglas, f"Falta «{obligatorio}» en .gitignore"
+
+
+def test_la_ia_no_recibe_credenciales(app):
+    """El prompt del sistema no debe contener ningún secreto."""
+    from lot_bot.wallapop.auth import AuthCredential, AuthKind
+
+    app.accounts.store_credential(
+        "demo-1",
+        AuthCredential(kind=AuthKind.SESSION_HANDOFF, headers={"Authorization": "Bearer SECRETO-IA-123"}),
+    )
+    prompt = app.agent._system_prompt()
+    assert "SECRETO-IA-123" not in prompt
+    esquemas = str(app.agent._tool_schemas())
+    assert "SECRETO-IA-123" not in esquemas
