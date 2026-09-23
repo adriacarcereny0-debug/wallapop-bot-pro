@@ -95,3 +95,31 @@ def test_la_pantalla_de_cuentas_no_muestra_tokens(qt_app, app_with_data):
     contenido = " ".join(textos).lower()
     for palabra in ("token", "secret", "bearer", "password"):
         assert palabra not in contenido
+
+
+def test_todas_las_pantallas_funcionan_en_modo_navegador(qt_app, app_with_data, monkeypatch):
+    """Con la integración por navegador activa (sin abrir ningún navegador),
+    ninguna pantalla debe fallar aunque muchas operaciones no estén disponibles."""
+    from lot_bot.ui.main_window import NAVIGATION, MainWindow
+    from lot_bot.wallapop.browser.driver import PlaywrightLauncher
+
+    monkeypatch.setattr(PlaywrightLauncher, "available", lambda self: (True, ""))
+    monkeypatch.setattr(
+        PlaywrightLauncher,
+        "open",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe abrir el navegador")),
+    )
+    from lot_bot.config.settings import Settings
+
+    # Las pruebas fuerzan LOT_BOT_DEMO_MODE=true, que siempre gana: se quita.
+    app_with_data.settings = Settings(LOT_BOT_AI_PROVIDER="rules")
+    app_with_data.set_integration_mode("navegador")
+    assert app_with_data.backend_label == "WALLAPOP (NAVEGADOR)"
+    ventana = MainWindow(app_with_data)
+    for indice, (etiqueta, _icono, clase) in enumerate(NAVIGATION):
+        ventana._go_to(indice)
+        qt_app.processEvents()
+        assert isinstance(ventana.stack.currentWidget(), clase), etiqueta
+    app_with_data.set_integration_mode("demo")
+    assert app_with_data.demo_mode
+    ventana.close()

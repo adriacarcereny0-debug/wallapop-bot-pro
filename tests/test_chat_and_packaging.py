@@ -94,6 +94,9 @@ def test_sube_el_canape_pide_confirmacion_y_publica(app_with_data):
     assert app_with_data.master_ads.publications() == []  # nada antes de confirmar
 
     agente.confirm(plan.token)
+    # Se publica mediante la cola (reloj de pruebas: no espera 60 s de verdad).
+    assert app_with_data.master_ads.publications() == []
+    app_with_data.publish_queue.run_until_idle()
     assert len(app_with_data.master_ads.publications()) == len(
         app_with_data.accounts.list_accounts()
     )
@@ -102,6 +105,7 @@ def test_sube_el_canape_pide_confirmacion_y_publica(app_with_data):
 def test_este_anuncio_ambiguo_pregunta_cual(app_with_data):
     agente = app_with_data.agent
     agente.confirm(agente.ask("Publica 3 canapés").pending.token)
+    app_with_data.publish_queue.run_until_idle()
     respuesta = agente.ask("Para este anuncio pon el precio a 12 €")
     assert not respuesta.needs_confirmation
     assert "¿Cuál?" in " ".join(m.text for m in respuesta.messages)
@@ -110,6 +114,7 @@ def test_este_anuncio_ambiguo_pregunta_cual(app_with_data):
 def test_cambiar_un_anuncio_concreto_con_confirmacion_clara(app_with_data):
     agente = app_with_data.agent
     agente.confirm(agente.ask("Publica 3 canapés").pending.token)
+    app_with_data.publish_queue.run_until_idle()
     elegido = agente.focus["listing_ids"][1]
 
     respuesta = agente.ask(f"Cambia el precio del anuncio {elegido} a 12 €")

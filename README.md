@@ -213,6 +213,7 @@ lot_bot/
 | [Variables de entorno](docs/dev/variables-entorno.md) | Todas las opciones |
 | [Conexión con Wallapop](docs/dev/conexion-wallapop.md) | Configurar el acceso autorizado |
 | [Qué pedir a Wallapop](docs/dev/que-pedir-a-wallapop.md) | Lista exacta de datos técnicos a solicitar |
+| [Navegador, cola e imágenes](docs/dev/integracion-navegador.md) | Publicación por navegador, cola de 60 s, FLUX.2 Pro |
 | [Compilación](docs/dev/compilacion.md) | Generar el `.exe` |
 | [Solución de errores](docs/dev/solucion-errores.md) | Problemas y causas |
 | [Actualización](docs/dev/actualizacion.md) | Versiones, migraciones, ampliaciones |
@@ -239,8 +240,10 @@ tecnicismos. Empieza por [uso-lot-bot.md](docs/cliente/uso-lot-bot.md).
 | Historial y registro seguro | ✅ |
 | Modo DEMO completo | ✅ |
 | Empaquetado para Windows | ✅ |
-| Acceso real a Wallapop | ⚙️ Arquitectura lista. Falta que Wallapop indique el mecanismo y las operaciones (ver [qué pedir](docs/dev/que-pedir-a-wallapop.md)) |
-| Generación de imágenes por IA | ⛔ Requiere un proveedor autorizado, no incluido |
+| Publicar en Wallapop mediante navegador (sesión del usuario, uso personal autorizado) | ✅ Selectores pendientes de verificar en la web real ([detalles](docs/dev/integracion-navegador.md)) |
+| Cola de publicación con intervalo mínimo de 60 s | ✅ |
+| Una imagen generada por anuncio (FLUX.2 Pro) y detección de repetidas | ✅ |
+| Acceso por API/perfil de acceso | ⚙️ Arquitectura lista, sin datos de Wallapop (ver [qué pedir](docs/dev/que-pedir-a-wallapop.md)) |
 | Datos de mercado externos | ⚙️ Solo con fuente autorizada; sin ella se avisa |
 
 ## Licencia

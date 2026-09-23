@@ -64,10 +64,14 @@ def mock_service(temp_paths):
 def app(database, demo_settings, temp_paths):
     """Aplicacion completa en modo DEMO, sin planificador."""
     from lot_bot.bootstrap import create_application
+    from lot_bot.publishing.queue import FakeClock
 
     application = create_application(
         settings=demo_settings, database=database, start_scheduler=False
     )
+    # Reloj simulado: la cola respeta el intervalo de 60 s, pero sin esperar
+    # de verdad. Solo se admite con el servicio DEMO.
+    application.publish_queue.clock = FakeClock()
     yield application
     application.automations.shutdown()
 
