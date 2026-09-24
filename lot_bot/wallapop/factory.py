@@ -116,7 +116,7 @@ def _browser_backend(
         is_account_connected=connected,
     )
     auth_method = BrowserSessionAuthMethod(service)
-    account_manager.set_browser_profiles(profiles)
+    account_manager.set_browser_profiles(profiles, release=service.release)
     pending = auth_method.missing_requirements()
     if pending:
         return _demo_backend(

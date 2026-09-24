@@ -38,6 +38,9 @@ class Capability(str, enum.Enum):
     # --- Datos de mercado ---
     MARKET_DATA = "market_data"
 
+    # --- Estadísticas de los anuncios propios ---
+    ITEM_STATS = "item_stats"
+
 
 #: Operaciones que modifican o publican informacion y por tanto exigen
 #: confirmacion explicita del usuario antes de ejecutarse.
@@ -72,4 +75,5 @@ CAPABILITY_LABELS: dict[Capability, str] = {
     Capability.GET_CONVERSATION: "Leer una conversacion",
     Capability.SEND_MESSAGE: "Enviar mensaje",
     Capability.MARKET_DATA: "Consultar datos de mercado",
+    Capability.ITEM_STATS: "Estadísticas de los anuncios",
 }

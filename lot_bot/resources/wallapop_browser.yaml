@@ -37,15 +37,18 @@ urls:
   anuncio_regex: "https://es\\.wallapop\\.com/item/[A-Za-z0-9\\-_%]+"
 
 sesion:
-  # Visible solo con sesión iniciada.
+  # Elementos que SOLO aparecen con la sesión iniciada. Son una señal más,
+  # nunca la única: la comprobación real está en «comprobacion».
   iniciada:
-    - "a[href*='/app/chat']"
     - "a[href*='/app/profile']"
-    - "role=link[name=/Buzón/i]"
-  # Visible solo SIN sesión.
+    - "role=link[name=/Tu perfil|Perfil/i]"
+    - "role=button[name=/Tu perfil|Perfil/i]"
+  # Visible solo SIN sesión (botón de acceso o ventana de inicio de sesión).
   sin_sesion:
     - "role=button[name=/Regístrate o inicia sesión/i]"
     - "text=/Regístrate o inicia sesión/i"
+    - "role=button[name=/^Iniciar sesión$/i]"
+    - "role=dialog[name=/inicia sesión|regístrate/i]"
   # Cualquier verificación que debe completar el usuario.
   verificacion:
     - "iframe[src*='captcha']"
@@ -55,6 +58,33 @@ sesion:
     - "text=/no soy un robot/i"
   # Opcional: nombre visible del usuario (se muestra al confirmar la cuenta).
   nombre_usuario: []
+  # COMPROBACIÓN REAL DE LA SESIÓN. Una cuenta solo se marca como conectada
+  # si se cumplen TODAS estas condiciones:
+  #   1. se abre una página privada (solo accesible con sesión) y Wallapop
+  #      NO redirige fuera de ella;
+  #   2. no aparece ningún elemento de «sin_sesion» (botón de acceso);
+  #   3. no aparece ninguna verificación;
+  #   4. aparece al menos un elemento de «iniciada» o del formulario privado.
+  comprobacion:
+    url: subir
+    url_debe_contener: "/app/"
+    espera_ms: 4000
+    # Elementos que prueban que se ve la página privada.
+    privada:
+      - "input[name='summary']"
+      - "role=textbox[name=/Resumen del producto|Título/i]"
+      - "text=/Algo que ya no necesito/i"
+      - "a[href*='/app/profile']"
+  # Mantener abierto el navegador de cada cuenta entre publicaciones y
+  # cerrarlo tras este tiempo sin uso (segundos).
+  mantener_abierto_s: 900
+
+# Estadísticas. SOLO se guardan datos que aparezcan de verdad en la página
+# del anuncio; si un patrón no encuentra nada, el dato queda «No disponible».
+# Sin verificar contra la web real.
+estadisticas:
+  visualizaciones: "(\\d[\\d.]*)\\s*(?:visualizaciones|visitas|vistas)"
+  favoritos: "(\\d[\\d.]*)\\s*(?:favoritos|me gusta)"
 
 publicar:
   formato_precio: "coma"   # «coma» → 11,44   ·   «punto» → 11.44
@@ -118,6 +148,22 @@ publicar:
       objetivos:
         - "role=combobox[name=/Estado/i]"
         - "role=button[name=/Estado/i]"
+    - nombre: "Color"
+      accion: elegir
+      opcion: "{color}"
+      opcional: true
+      opcional_si_vacio: true
+      objetivos:
+        - "role=combobox[name=/Color/i]"
+        - "role=button[name=/Color/i]"
+    - nombre: "Material"
+      accion: elegir
+      opcion: "{material}"
+      opcional: true
+      opcional_si_vacio: true
+      objetivos:
+        - "role=combobox[name=/Material/i]"
+        - "role=button[name=/Material/i]"
     - nombre: "Publicar"
       accion: pulsar
       objetivos:

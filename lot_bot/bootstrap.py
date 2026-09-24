@@ -179,6 +179,9 @@ class Application:
         """Vuelve a elegir el backend (tras cambiar credenciales o modo DEMO)."""
         if settings is not None:
             self.settings = settings
+        old_close = getattr(self.backend.service, "shutdown", None)
+        if callable(old_close):
+            old_close()  # cierra los navegadores abiertos del backend anterior
         self.backend = build_backend(self.settings, self.accounts, self.integration_mode)
         self.accounts.set_auth_method(self.backend.auth_method)
         self.listings.set_backend(self.wallapop)
@@ -201,6 +204,9 @@ class Application:
         try:
             if self.publish_queue is not None:
                 self.publish_queue.shutdown()
+            close_browsers = getattr(self.backend.service, "shutdown", None)
+            if callable(close_browsers):
+                close_browsers()
             self.automations.shutdown()
         finally:
             self.db.dispose()

@@ -328,3 +328,39 @@ def test_en_modo_real_las_cuentas_demo_no_publican(app):
             app.publish_queue.enqueue_master(None, refs(app, 1), copies=1, generate_images=False)
     finally:
         app.backend.demo = True
+
+
+def test_sesion_caducada_detiene_solo_esa_cuenta(app, monkeypatch):
+    from lot_bot.database.models import AccountStatus
+    from lot_bot.wallapop.errors import AuthenticationError
+
+    cuenta_a, cuenta_b = refs(app, 2)
+    service = app.wallapop
+    original = service.create_item
+    caducada = {"b": True}
+
+    def publicar(ref, draft):
+        if ref == cuenta_b and caducada["b"]:
+            raise AuthenticationError("sesión caducada")
+        return original(ref, draft)
+
+    monkeypatch.setattr(service, "create_item", publicar)
+    queue = app.publish_queue
+    job = queue.enqueue_master(None, [cuenta_a, cuenta_b], copies=4, generate_images=False)
+    queue.run_until_idle()
+    progress = queue.progress(job)
+    por_cuenta = {}
+    for t in progress.tasks:
+        por_cuenta.setdefault(t["cuenta_ref"], []).append(t["estado"])
+    assert por_cuenta[cuenta_a] == ["published", "published"]  # A sigue publicando
+    assert por_cuenta[cuenta_b] == ["pending", "pending"]  # B espera
+    assert progress.failed == 0
+    assert progress.status == "paused" and "Reconectar" in progress.pause_reason
+    assert app.accounts.get_account(cuenta_b).status == AccountStatus.EXPIRED
+
+    # El usuario reconecta B y reanuda: se reutiliza su sesión y termina.
+    caducada["b"] = False
+    app.accounts.mark_session_checked(cuenta_b, True)
+    queue.resume(job)
+    queue.run_until_idle()
+    assert queue.progress(job).published == 4

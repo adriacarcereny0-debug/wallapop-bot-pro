@@ -56,6 +56,10 @@ class BrowserPage(ABC):
     @abstractmethod
     def links_matching(self, pattern: str) -> list[str]: ...
 
+    def body_text(self) -> str:
+        """Texto visible de la página (para leer estadísticas)."""
+        return ""
+
     @abstractmethod
     def wait(self, ms: int) -> None: ...
 
@@ -132,6 +136,12 @@ class _PlaywrightPage(BrowserPage):
 
     def text_of(self, target: str) -> str:
         return (self._page.locator(target).first.inner_text() or "").strip()
+
+    def body_text(self) -> str:
+        try:
+            return self._page.inner_text("body") or ""
+        except Exception:
+            return ""
 
     def links_matching(self, pattern: str) -> list[str]:
         regex = re.compile(pattern)

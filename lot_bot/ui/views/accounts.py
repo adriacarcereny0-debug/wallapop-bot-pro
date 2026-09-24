@@ -35,7 +35,7 @@ class AccountsView(BaseView):
 
     def build(self) -> None:
         self.add_header_button("Añadir cuenta Wallapop", self._add_browser_account, primary=True)
-        self.add_header_button("Añadir cuenta", self._add_account)
+        self.generic_add_button = self.add_header_button("Añadir cuenta", self._add_account)
         self.add_header_button("Actualizar", self.refresh)
 
         # --- Estado del acceso ---
@@ -84,10 +84,15 @@ class AccountsView(BaseView):
         self.sync_button.clicked.connect(self._sync)
         actions.addWidget(self.sync_button)
 
-        self.browser_button = QPushButton("Abrir navegador")
+        self.check_button = QPushButton("Comprobar conexión")
+        self.check_button.setToolTip("Comprueba en Wallapop que la sesión de la cuenta sigue siendo válida.")
+        self.check_button.clicked.connect(self._check_connection)
+        actions.addWidget(self.check_button)
+
+        self.browser_button = QPushButton("Abrir cuenta")
         self.browser_button.setToolTip(
-            "Abre el navegador de esta cuenta para completar a mano una verificación "
-            "que pida Wallapop."
+            "Abre el navegador de esta cuenta, con su sesión, por ejemplo para completar "
+            "una verificación que pida Wallapop."
         )
         self.browser_button.clicked.connect(self._open_browser)
         actions.addWidget(self.browser_button)
@@ -206,11 +211,24 @@ class AccountsView(BaseView):
         ):
             button.setEnabled(has)
 
+        browser_mode = self.app.browser_auth is not None
+        browser_account = has and browser_mode and not account.is_demo
+        self.browser_button.setVisible(browser_mode)
+        self.check_button.setVisible(browser_mode)
+        self.sync_button.setVisible(not browser_mode)
+        self.reauth_button.setVisible(not browser_mode)
+        if getattr(self, "generic_add_button", None) is not None:
+            self.generic_add_button.setVisible(not browser_mode)
+        self.connect_button.setText("Reconectar" if browser_mode else "Conectar")
         self.browser_button.setEnabled(
-            has
-            and self.app.browser_auth is not None
-            and account.auth_method == AuthKind.BROWSER_SESSION.value
+            browser_account and account.auth_method == AuthKind.BROWSER_SESSION.value
         )
+        self.check_button.setEnabled(
+            browser_account and account.auth_method == AuthKind.BROWSER_SESSION.value
+        )
+        if browser_mode:
+            self.connect_button.setEnabled(browser_account)
+            return
         method_ready = self.app.auth_method.is_ready
         conectada = bool(account) and self._really_connected(account, self.app.demo_mode)
         self.connect_button.setEnabled(has and method_ready and not conectada)
@@ -383,7 +401,7 @@ class AccountsView(BaseView):
             "Se abrirá una ventana del navegador con Wallapop.\n\n"
             "1. Inicia sesión tú mismo con la cuenta que quieras conectar.\n"
             "2. Si Wallapop te pide una verificación, complétala en esa ventana.\n"
-            "3. Cuando LOT Bot detecte la sesión, te pedirá confirmación.\n\n"
+            "3. Pulsa «Ya he iniciado sesión»: LOT Bot comprobará que la sesión es válida.\n\n"
             "LOT Bot no ve ni guarda tu contraseña. Esta conexión es para tu uso "
             "personal autorizado; no es una integración oficial de Wallapop.",
         ):
@@ -398,61 +416,53 @@ class AccountsView(BaseView):
         self._browser_login(account, new=True)
 
     def _browser_login(self, account, *, new: bool) -> None:
+        """Abre el navegador (que queda abierto) y solo conecta la cuenta si
+        LOT Bot comprueba de verdad que hay sesión iniciada."""
+        from lot_bot.ui.views.browser_login import BrowserLoginDialog
+
         method = self.app.browser_auth
-        self.connect_button.setEnabled(False)
-        self.connect_button.setText("Esperando inicio de sesión…")
+        session = method.start_login(account.internal_ref)
+        dialog = BrowserLoginDialog(session, account.alias, self)
+        accepted = dialog.exec() == dialog.DialogCode.Accepted
+        check = session.check if session.verified else None
+        # Se cierra el navegador de inicio de sesión: las cookies quedan en el
+        # perfil de la cuenta y la cola lo volverá a abrir cuando publique.
+        self.run_task(session.close)
 
-        def work():
-            return method.wait_for_login(account.internal_ref)
-
-        def success(result) -> None:
-            if not result.ok:
-                self.app.audit.record_error(
-                    "Conexión de cuenta por navegador",
-                    error=result.message,
-                    account_ref=account.internal_ref,
-                    target=account.alias,
-                )
-                if new:
-                    self.app.accounts.remove_account(account.internal_ref)
-                show_error(self, "No se ha conectado la cuenta.", result.message)
-                return
-            shown = f"«{result.login}»" if result.login else "la cuenta con la que has iniciado sesión"
-            if not ask_confirmation(
-                self,
-                "Confirmar cuenta",
-                f"Se ha detectado la sesión de {shown}.\n\n"
-                f"¿Quieres conectarla a LOT Bot como «{account.alias}»?\n\n"
-                f"Quedará guardada en un perfil de navegador exclusivo de esta cuenta, "
-                f"en tu ordenador, para reutilizarla. Puedes borrarla con «Desconectar».",
-            ):
-                if new:
-                    self.app.accounts.remove_account(account.internal_ref)
-                else:
-                    self.app.accounts.disconnect(account.internal_ref)
-                self.app.audit.record_cancelled(
-                    "Conexión de cuenta por navegador", target=account.alias
-                )
-                return
-            outcome = self.app.accounts.connect(
-                account.internal_ref, method=method, login_detected=True, login=result.login
+        if not accepted or check is None:
+            self.app.audit.record_cancelled(
+                "Conexión de cuenta por navegador", target=account.alias, detail=session.message
             )
-            if outcome.success:
-                self.app.audit.record_success(
-                    "Conexión de cuenta",
-                    account_ref=account.internal_ref,
-                    target=account.alias,
-                    detail=method.describe(),
-                )
-                info_box(self, "Cuenta conectada", f"«{account.alias}» está conectada.")
-            else:
-                show_error(self, outcome.message)
-
-        def done(_=None) -> None:
-            self.connect_button.setText("Conectar")
+            if new:
+                self.app.accounts.remove_account(account.internal_ref)
             self.refresh()
-
-        self.run_task(work, on_success=success, on_done=done)
+            return
+        shown = f"«{check.login}»" if check.login else "la cuenta con la que has iniciado sesión"
+        if not ask_confirmation(
+            self,
+            "Confirmar cuenta",
+            f"LOT Bot ha comprobado que hay una sesión válida de {shown}.\n\n"
+            f"¿Conectarla como «{account.alias}»?\n\n"
+            f"Quedará en un perfil de navegador exclusivo de esta cuenta, en tu "
+            f"ordenador. Puedes borrarla con «Desconectar».",
+        ):
+            if new:
+                self.app.accounts.remove_account(account.internal_ref)
+            self.app.audit.record_cancelled("Conexión de cuenta por navegador", target=account.alias)
+            self.refresh()
+            return
+        outcome = self.app.accounts.connect(account.internal_ref, method=method, session_check=check)
+        if outcome.success:
+            self.app.audit.record_success(
+                "Conexión de cuenta",
+                account_ref=account.internal_ref,
+                target=account.alias,
+                detail="Sesión comprobada en Wallapop",
+            )
+            info_box(self, "Cuenta conectada", f"«{account.alias}» está conectada.")
+        else:
+            show_error(self, outcome.message)
+        self.refresh()
 
     def _open_browser(self) -> None:
         account = self._selected()
@@ -461,15 +471,40 @@ class AccountsView(BaseView):
             return
         info_box(
             self,
-            "Abrir navegador",
-            f"Se abrirá el navegador de «{account.alias}». Haz lo que Wallapop te pida "
-            f"(por ejemplo, una verificación) y cierra la ventana al terminar.",
+            "Abrir cuenta",
+            f"Se abrirá el navegador de «{account.alias}» con su sesión. Úsalo para lo que "
+            f"necesites (por ejemplo, completar una verificación de Wallapop) y ciérralo "
+            f"al terminar.",
         )
-        self.run_task(
-            method.open_for_user,
-            account.internal_ref,
-            on_done=lambda *_: self.refresh(),
-        )
+        self.run_task(method.open_for_user, account.internal_ref, on_done=lambda *_: self.refresh())
+
+    def _check_connection(self) -> None:
+        account = self._selected()
+        method = self.app.browser_auth
+        if account is None or method is None:
+            return
+        self.check_button.setEnabled(False)
+        self.check_button.setText("Comprobando…")
+
+        def success(check) -> None:
+            self.app.accounts.mark_session_checked(account.internal_ref, check.ok, check.message)
+            self.app.audit.record(
+                "Comprobación de sesión",
+                result="ok" if check.ok else "error",
+                account_ref=account.internal_ref,
+                target=account.alias,
+                detail=check.message,
+            )
+            if check.ok:
+                info_box(self, "Sesión válida", f"«{account.alias}» tiene la sesión iniciada.")
+            else:
+                show_error(self, f"«{account.alias}» no tiene una sesión válida.", check.message)
+
+        def done(*_) -> None:
+            self.check_button.setText("Comprobar conexión")
+            self.refresh()
+
+        self.run_task(method.check, account.internal_ref, on_success=success, on_done=done)
 
     # ------------------------------------------------------------------
     def _disconnect(self) -> None:

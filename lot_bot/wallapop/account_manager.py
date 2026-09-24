@@ -111,15 +111,20 @@ class AccountManager:
         #: Perfiles de navegador por cuenta (integración por navegador).
         self._browser_profiles: Any = None
 
-    def set_browser_profiles(self, store: Any) -> None:
+    def set_browser_profiles(self, store: Any, release: Any = None) -> None:
         """Almacén de perfiles de navegador: al desconectar o eliminar una
-        cuenta conectada por navegador, se borra su sesión guardada."""
+        cuenta conectada por navegador, se cierra su navegador (`release`) y
+        se borra su sesión guardada."""
         self._browser_profiles = store
+        self._browser_release = release
 
     def _forget_browser_session(self, internal_ref: str) -> None:
         if self._browser_profiles is None:
             return
         try:
+            release = getattr(self, "_browser_release", None)
+            if release is not None:
+                release(internal_ref)
             self._browser_profiles.delete(internal_ref)
         except Exception as exc:  # nunca debe impedir desconectar
             logger.warning("No se ha podido borrar la sesión del navegador: %s", type(exc).__name__)
@@ -430,6 +435,23 @@ class AccountManager:
                 account.last_sync_at = datetime.now(UTC).replace(tzinfo=None)
                 account.status = AccountStatus.CONNECTED
                 account.status_detail = None
+
+    def mark_session_checked(self, internal_ref: str, ok: bool, detail: str = "") -> None:
+        """Resultado de una comprobación REAL de la sesión de la cuenta.
+
+        Una comprobación correcta solo mantiene conectada una cuenta que ya
+        se había conectado (con confirmación del usuario); nunca conecta una
+        cuenta nueva por sí sola.
+        """
+        if ok:
+            with self._db.session_scope() as session:
+                account = self._find(session, internal_ref)
+                if account is not None and account.credential_enc:
+                    account.status = AccountStatus.CONNECTED
+                    account.status_detail = None
+                    account.last_sync_at = datetime.now(UTC).replace(tzinfo=None)
+        else:
+            self._mark_expired(internal_ref, detail or "La sesión no es válida. Pulsa «Reconectar».")
 
     def mark_session_invalid(self, internal_ref: str, detail: str = "") -> None:
         """Marca que Wallapop ha rechazado la sesión de esta cuenta."""

@@ -1,10 +1,16 @@
 """Conexión de una cuenta mediante el navegador.
 
-1. LOT Bot abre un navegador con un perfil NUEVO y exclusivo de la cuenta.
+Flujo (sin atajos):
+
+1. LOT Bot abre un navegador VISIBLE con el perfil PERSISTENTE y exclusivo de
+   la cuenta, y lo deja abierto.
 2. El usuario inicia sesión en Wallapop él mismo (y completa cualquier
-   verificación que Wallapop pida).
-3. LOT Bot detecta que la sesión está iniciada y cierra el navegador.
-4. La interfaz pide al usuario que confirme que quiere conectar esa cuenta.
+   verificación que Wallapop pida). LOT Bot no toca la página mientras tanto.
+3. El usuario pulsa «Ya he iniciado sesión» en LOT Bot.
+4. LOT Bot hace una comprobación REAL (`verify_session`): página privada sin
+   redirección, sin botón de acceso, sin verificación y con contenido privado.
+5. Solo si se cumple todo, la interfaz pide confirmación y la cuenta se marca
+   como conectada. Abrir el navegador NO conecta nada.
 
 LOT Bot no ve ni guarda la contraseña: la sesión queda dentro del perfil del
 navegador de esa cuenta, en la carpeta de datos del usuario.
@@ -13,9 +19,9 @@ navegador de esa cuenta, en la carpeta de datos del usuario.
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
 from typing import Any
 
 from lot_bot.wallapop.auth.base import (
@@ -27,7 +33,7 @@ from lot_bot.wallapop.auth.base import (
     RequirementSource,
 )
 from lot_bot.wallapop.browser.driver import BrowserUnavailable
-from lot_bot.wallapop.browser.service import BrowserWallapopService
+from lot_bot.wallapop.browser.service import BrowserWallapopService, SessionCheck
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +43,147 @@ AUTHORIZED_USE_NOTE = (
 )
 
 
-@dataclass(slots=True)
-class LoginResult:
-    ok: bool
-    login: str = ""
-    message: str = ""
+class LoginSession:
+    """Navegador abierto para que el usuario inicie sesión en una cuenta.
 
+    Todo lo que toca el navegador ocurre en el hilo propio de la sesión; la
+    interfaz solo envía órdenes («comprobar», «cerrar») y lee el estado.
+    """
 
-def profiles_lock(method: BrowserSessionAuthMethod, account_ref: str):
-    return method.service.profiles.lock(account_ref)
+    OPENING = "abriendo"
+    WAITING = "esperando_usuario"
+    CHECKING = "comprobando"
+    VERIFIED = "sesion_comprobada"
+    NOT_LOGGED = "sin_sesion"
+    VERIFICATION = "verificacion"
+    UNKNOWN = "desconocido"
+    CLOSED = "cerrado"
+    ERROR = "error"
+
+    def __init__(self, service: BrowserWallapopService, account_ref: str, timeout: float = 1800.0):
+        self.service = service
+        self.account_ref = account_ref
+        self._timeout = timeout
+        self._commands: queue.Queue = queue.Queue()
+        self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
+        self._state = self.OPENING
+        self._message = "Abriendo el navegador…"
+        self.check: SessionCheck | None = None
+        self._thread: threading.Thread | None = None
+
+    # -- Estado ------------------------------------------------------------
+    def _set(self, state: str, message: str) -> None:
+        with self._changed:
+            self._state = state
+            self._message = message
+            self._changed.notify_all()
+
+    @property
+    def state(self) -> str:
+        with self._lock:
+            return self._state
+
+    @property
+    def message(self) -> str:
+        with self._lock:
+            return self._message
+
+    @property
+    def verified(self) -> bool:
+        return self.check is not None and self.check.ok
+
+    def wait_for(self, *states: str, timeout: float = 10.0) -> str:
+        """Espera a que el estado sea uno de `states` (útil en pruebas)."""
+        deadline = time.monotonic() + timeout
+        with self._changed:
+            while self._state not in states:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._changed.wait(remaining)
+            return self._state
+
+    # -- Órdenes -----------------------------------------------------------
+    def start(self) -> LoginSession:
+        # Chrome no permite abrir el mismo perfil dos veces.
+        self.service.release(self.account_ref)
+        self._thread = threading.Thread(
+            target=self._run, name=f"lotbot-login-{self.account_ref}", daemon=True
+        )
+        self._thread.start()
+        return self
+
+    def request_check(self) -> None:
+        self._commands.put("check")
+
+    def close(self, wait: float = 10.0) -> None:
+        self._commands.put("close")
+        if self._thread is not None:
+            self._thread.join(wait)
+
+    # -- Hilo del navegador -----------------------------------------------
+    def _run(self) -> None:
+        site = self.service.site
+        try:
+            with self.service.profiles.lock(self.account_ref), self.service.launcher.open(
+                self.service.profiles.profile_dir(self.account_ref),
+                visible=True,
+                channels=site.channels,
+                locale=site.locale,
+            ) as page:
+                page.goto(site.url("inicio"))
+                self._set(
+                    self.WAITING,
+                    "Inicia sesión en Wallapop en la ventana del navegador. Cuando termines, "
+                    "pulsa «Ya he iniciado sesión».",
+                )
+                deadline = time.monotonic() + self._timeout
+                while time.monotonic() < deadline:
+                    try:
+                        command = self._commands.get(timeout=1.0)
+                    except queue.Empty:
+                        try:
+                            page.current_url()  # ¿sigue abierto?
+                        except Exception:
+                            self._set(self.CLOSED, "Se ha cerrado el navegador.")
+                            return
+                        continue
+                    if command == "close":
+                        break
+                    if command == "check":
+                        self._set(self.CHECKING, "Comprobando la sesión en Wallapop…")
+                        try:
+                            result = self.service.verify_session(page)
+                        except Exception as exc:
+                            result = SessionCheck(False, "error", f"Error al comprobar ({type(exc).__name__}).")
+                        self.check = result
+                        if result.ok:
+                            self._set(self.VERIFIED, "Sesión comprobada correctamente.")
+                        elif result.state == "verificacion":
+                            self._set(
+                                self.VERIFICATION,
+                                "Wallapop pide una verificación. Complétala tú en el navegador y "
+                                "vuelve a pulsar «Ya he iniciado sesión».",
+                            )
+                        elif result.state == "sin_sesion":
+                            self._set(
+                                self.NOT_LOGGED,
+                                f"Todavía no hay sesión iniciada. {result.message} Inicia sesión "
+                                "en el navegador y vuelve a pulsar «Ya he iniciado sesión».",
+                            )
+                        else:
+                            self._set(self.UNKNOWN, result.message)
+                else:
+                    self._set(self.CLOSED, "Tiempo agotado: se ha cerrado el navegador.")
+                    return
+            if self.state not in (self.VERIFIED,):
+                self._set(self.CLOSED, "Navegador cerrado.")
+        except BrowserUnavailable as exc:
+            self._set(self.ERROR, str(exc))
+        except Exception as exc:  # pragma: no cover - errores inesperados del navegador
+            logger.exception("Error en el inicio de sesión")
+            self._set(self.ERROR, f"Error del navegador ({type(exc).__name__}).")
 
 
 class BrowserSessionAuthMethod(AuthMethod):
@@ -58,7 +196,7 @@ class BrowserSessionAuthMethod(AuthMethod):
     )
     interactive = True
 
-    def __init__(self, service: BrowserWallapopService, login_timeout: float = 600.0) -> None:
+    def __init__(self, service: BrowserWallapopService, login_timeout: float = 1800.0) -> None:
         self.service = service
         self.login_timeout = login_timeout
 
@@ -75,84 +213,32 @@ class BrowserSessionAuthMethod(AuthMethod):
             )
         ]
 
-    def wait_for_login(
-        self,
-        account_ref: str,
-        *,
-        on_status: Callable[[str], None] | None = None,
-        should_stop: Callable[[], bool] | None = None,
-    ) -> LoginResult:
-        """Abre el navegador y espera a que el usuario inicie sesión."""
-        notify = on_status or (lambda _msg: None)
-        profiles = self.service.profiles
-        site = self.service.site
-        try:
-            with profiles.lock(account_ref), self.service.launcher.open(
-                profiles.profile_dir(account_ref),
-                visible=True,
-                channels=site.channels,
-                locale=site.locale,
-            ) as page:
-                page.goto(site.url("inicio"))
-                notify("Inicia sesión en Wallapop en la ventana del navegador.")
-                deadline = time.monotonic() + self.login_timeout
-                while time.monotonic() < deadline:
-                    if should_stop and should_stop():
-                        return LoginResult(False, message="Cancelado por el usuario.")
-                    try:
-                        state = self.service.session_state(page, timeout_ms=1500)
-                    except Exception:
-                        return LoginResult(
-                            False, message="Se ha cerrado el navegador antes de terminar."
-                        )
-                    if state == "iniciada":
-                        login = ""
-                        found = page.first_visible(site.user_name, 0) if site.user_name else None
-                        if found:
-                            try:
-                                login = page.text_of(found)[:120]
-                            except Exception:
-                                login = ""
-                        return LoginResult(True, login=login, message="Sesión detectada.")
-                    if state == "verificacion":
-                        notify("Wallapop pide una verificación: complétala en el navegador.")
-                    page.wait(1500)
-                return LoginResult(False, message="No se ha detectado el inicio de sesión a tiempo.")
-        except BrowserUnavailable as exc:
-            return LoginResult(False, message=str(exc))
+    def start_login(self, account_ref: str) -> LoginSession:
+        return LoginSession(self.service, account_ref, self.login_timeout).start()
+
+    def check(self, account_ref: str) -> SessionCheck:
+        return self.service.check_session(account_ref)
 
     def open_for_user(self, account_ref: str, max_seconds: float = 1800.0) -> str:
         """Abre el navegador de la cuenta para que el usuario haga algo a mano
         (p. ej. completar una verificación). Vuelve cuando lo cierra."""
-        site = self.service.site
-        try:
-            with profiles_lock(self, account_ref), self.service.launcher.open(
-                self.service.profiles.profile_dir(account_ref),
-                visible=True,
-                channels=site.channels,
-                locale=site.locale,
-            ) as page:
-                page.goto(site.url("inicio"))
-                deadline = time.monotonic() + max_seconds
-                while time.monotonic() < deadline:
-                    try:
-                        page.wait(1000)
-                        page.current_url()
-                    except Exception:
-                        break
-            return "Navegador cerrado."
-        except BrowserUnavailable as exc:
-            return str(exc)
+        session = LoginSession(self.service, account_ref, max_seconds).start()
+        session.wait_for(LoginSession.CLOSED, LoginSession.ERROR, timeout=max_seconds + 5)
+        return session.message
 
     def authenticate(self, account_ref: str, **context: Any) -> AuthOutcome:
-        """`login_detected=True` cuando la interfaz ya ha esperado el inicio de
-        sesión y el usuario lo ha confirmado. Sin él, se espera aquí."""
-        login = str(context.get("login") or "")
-        if not context.get("login_detected"):
-            result = self.wait_for_login(account_ref)
-            if not result.ok:
-                return AuthOutcome(success=False, message=result.message)
-            login = result.login
+        """Solo conecta con una comprobación REAL de la sesión ya hecha.
+
+        `session_check` debe ser el `SessionCheck` correcto devuelto por
+        `LoginSession` (o `check`). Sin él, no se conecta nada.
+        """
+        check = context.get("session_check")
+        if not isinstance(check, SessionCheck) or not check.ok:
+            return AuthOutcome(
+                success=False,
+                message="No se ha comprobado que haya una sesión iniciada en Wallapop. "
+                "Usa «Añadir cuenta» o «Reconectar» e inicia sesión en el navegador.",
+            )
         if not self.service.profiles.exists(account_ref):
             return AuthOutcome(success=False, message="No hay sesión de navegador para esta cuenta.")
         return AuthOutcome(
@@ -161,13 +247,16 @@ class BrowserSessionAuthMethod(AuthMethod):
                 kind=AuthKind.BROWSER_SESSION,
                 metadata={
                     "account_ref": account_ref,
-                    "login": login or None,
+                    "login": check.login or None,
                     "uso": AUTHORIZED_USE_NOTE,
                 },
             ),
-            message="Cuenta conectada mediante el navegador.",
+            message="Cuenta conectada: sesión comprobada en Wallapop.",
         )
 
     def revoke(self, credential: AuthCredential) -> bool:
         ref = credential.metadata.get("account_ref")
-        return bool(ref) and self.service.profiles.delete(str(ref))
+        if not ref:
+            return False
+        self.service.release(str(ref))
+        return self.service.profiles.delete(str(ref))

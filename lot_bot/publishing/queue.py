@@ -590,16 +590,20 @@ class PublishQueue:
             self._check_clock()
             with self._db.session_scope() as session:
                 job = session.get(PublishJob, job_id)
-                task = session.scalar(
+                pending = session.scalars(
                     select(PublishTask)
                     .where(
                         PublishTask.job_id == job_id,
                         PublishTask.status == PublishTaskStatus.PENDING,
                     )
                     .order_by(PublishTask.position)
-                    .limit(1)
-                )
-                if task is None:
+                ).all()
+                # Las cuentas cuya sesión ha caducado esperan; las demás siguen.
+                task = next((t for t in pending if self._account_usable(t.account_ref)), None)
+                blocked = sorted({t.account_ref for t in pending}) if pending and task is None else []
+                if blocked:
+                    job_done = False
+                elif task is None:
                     job_done = True
                 else:
                     job_done = False
@@ -610,6 +614,15 @@ class PublishQueue:
                     interval = job.interval_seconds
                     actor = job.actor
                     position = task.position
+            if blocked:
+                aliases = {a.internal_ref: a.alias for a in self._app.accounts.list_accounts()}
+                names = ", ".join(aliases.get(r, r) for r in blocked)
+                self.pause(
+                    job_id,
+                    f"La sesión de estas cuentas no es válida: {names}. Pulsa «Reconectar» en "
+                    "Cuentas y después «Reanudar».",
+                )
+                return True
             if job_done:
                 self._set_job(job_id, PublishJobStatus.COMPLETED)
                 self._audit.record_success(
@@ -729,6 +742,9 @@ class PublishQueue:
         *,
         allow_retry: bool = True,
     ) -> None:
+        if code == "AuthenticationError":
+            self._session_expired(task_id, job_id, attempts, message)
+            return
         settings = self.settings()
         pausing = code in PAUSING_ERRORS
         retry = (
@@ -759,6 +775,33 @@ class PublishQueue:
                 f"Se han producido {self._consecutive_failures} fallos seguidos. Revisa los "
                 "errores antes de reanudar.",
             )
+        self._notify(job_id)
+
+    def _account_usable(self, ref: str) -> bool:
+        from lot_bot.database.models import AccountStatus
+
+        info = self._app.accounts.get_account(ref)
+        return info is not None and info.status == AccountStatus.CONNECTED
+
+    def _session_expired(self, task_id: int, job_id: int, attempts: int, message: str) -> None:
+        """La sesión de UNA cuenta ha caducado: sus anuncios esperan a que el
+        usuario la reconecte; los de las demás cuentas siguen publicándose."""
+        with self._db.session_scope() as session:
+            task = session.get(PublishTask, task_id)
+            task.attempts = max(0, attempts - 1)  # no cuenta como intento fallido
+            task.error = message[:1000]
+            task.error_code = "SESION_CADUCADA"
+            task.status = PublishTaskStatus.PENDING
+            ref, title = task.account_ref, task.title
+        self._app.accounts.mark_session_invalid(
+            ref, "La sesión de Wallapop ha caducado. Pulsa «Reconectar»."
+        )
+        self._audit.record_error(
+            "Sesión de Wallapop caducada: se detienen los anuncios de esta cuenta",
+            error=message,
+            account_ref=ref,
+            target=title,
+        )
         self._notify(job_id)
 
     def _notify(self, job_id: int) -> None:

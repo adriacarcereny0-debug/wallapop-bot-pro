@@ -33,33 +33,46 @@ SITE = load_site_config(Path(__file__).resolve().parents[1] / "lot_bot/resources
 
 
 class FakePage(BrowserPage):
+    """Imita la web: sin sesión, la zona privada redirige a la portada y se ve
+    el botón de acceso. Hay un enlace a /app/chat SIEMPRE visible (también sin
+    sesión): es lo que provocaba el falso «conectada» del fallo original."""
+
+    ALWAYS = {"a[href*='/app/chat']"}
+
     def __init__(self, world: dict) -> None:
         self.world = world
         self.url = ""
         self.log: list[tuple] = []
 
     def goto(self, url: str) -> None:
-        self.url = url
         self.log.append(("goto", url))
+        if url == SITE.url("subir"):
+            self.world["published"] = False
+            if not self.world.get("logged_in"):
+                url = SITE.url("inicio")  # Wallapop saca de la zona privada
+        self.url = url
 
     def current_url(self) -> str:
+        if self.world.get("closed"):
+            raise RuntimeError("navegador cerrado")
         if self.world.get("published") and self.world.get("item_url"):
             return self.world["item_url"]
         return self.url
 
     def first_visible(self, targets, timeout_ms=0):
-        visible = set(self.world.get("visible", set()))
-        if self.world.get("logged_in"):
-            visible |= {SITE.logged_in[0]}
-        else:
+        visible = set(self.world.get("visible", set())) | self.ALWAYS
+        if not self.world.get("logged_in"):
             visible |= {SITE.logged_out[0]}
+        elif self.url.startswith(SITE.url("subir")):
+            visible |= set(SITE.check_private[:1])
         if self.world.get("verification"):
             visible |= {SITE.verification[0]}
         if self.world.get("published"):
             visible |= set(SITE.success_texts)
-        for step in SITE.steps:
-            if step.targets and step.name not in self.world.get("missing_steps", set()):
-                visible.add(step.targets[0])
+        if self.world.get("logged_in"):
+            for step in SITE.steps:
+                if step.targets and step.name not in self.world.get("missing_steps", set()):
+                    visible.add(step.targets[0])
         for target in targets:
             if target in visible:
                 return target
@@ -84,6 +97,9 @@ class FakePage(BrowserPage):
     def text_of(self, target):
         return self.world.get("user_name", "")
 
+    def body_text(self):
+        return self.world.get("body", "")
+
     def links_matching(self, pattern):
         return []
 
@@ -99,6 +115,7 @@ class FakeLauncher(BrowserLauncher):
     def __init__(self, world: dict) -> None:
         self.world = world
         self.opened: list[Path] = []
+        self.closed: list[Path] = []
         self.pages: list[FakePage] = []
 
     @contextmanager
@@ -110,7 +127,10 @@ class FakeLauncher(BrowserLauncher):
         self.opened.append(profile_dir)
         page = FakePage(self.world)
         self.pages.append(page)
-        yield page
+        try:
+            yield page
+        finally:
+            self.closed.append(profile_dir)
 
 
 @pytest.fixture()
@@ -120,6 +140,7 @@ def profiles(tmp_path):
 
 def make_service(profiles, world, tmp_path, connected=True):
     launcher = FakeLauncher(world)
+    SITE.check_wait_ms = 0
     service = BrowserWallapopService(
         profiles,
         launcher=launcher,
@@ -237,7 +258,11 @@ def test_si_la_web_cambia_se_indica_el_paso_y_se_guarda_captura(profiles, tmp_pa
 
 def test_solo_declara_lo_que_hace_de_verdad(profiles, tmp_path):
     service, _ = make_service(profiles, {"logged_in": True}, tmp_path)
-    assert service.capabilities() == {Capability.ACCOUNT_PROFILE, Capability.CREATE_ITEM}
+    assert service.capabilities() == {
+        Capability.ACCOUNT_PROFILE,
+        Capability.CREATE_ITEM,
+        Capability.ITEM_STATS,
+    }
     for llamada in (
         lambda: service.list_items("acc-1"),
         lambda: service.update_item_price("acc-1", "x", 10),
@@ -303,28 +328,130 @@ def test_desconectar_y_eliminar_borran_la_sesion_guardada(database, profiles, se
 # ---------------------------------------------------------------------------
 # Conexión de la cuenta
 # ---------------------------------------------------------------------------
-def test_conectar_espera_al_usuario_y_no_guarda_contrasena(profiles, tmp_path):
-    world = {"logged_in": True, "user_name": "Ana"}
+# ---------------------------------------------------------------------------
+# Conexión: nunca «conectada» sin comprobar la sesión de verdad
+# ---------------------------------------------------------------------------
+def test_abrir_el_navegador_no_conecta_la_cuenta(profiles, tmp_path):
+    """El fallo original: el enlace /app/chat se ve sin sesión y la cuenta se
+    daba por conectada. Ahora no basta con abrir el navegador."""
+    world = {"logged_in": False}
+    service, launcher = make_service(profiles, world, tmp_path)
+    method = BrowserSessionAuthMethod(service, login_timeout=30)
+    session = method.start_login("acc-1")
+    assert session.wait_for(session.WAITING) == session.WAITING
+    assert not session.verified
+    # El navegador sigue abierto mientras el usuario inicia sesión.
+    assert launcher.opened and not launcher.closed
+    # Sin comprobación real, authenticate se niega.
+    assert not method.authenticate("acc-1").success
+    session.request_check()
+    assert session.wait_for(session.NOT_LOGGED) == session.NOT_LOGGED
+    assert not session.verified
+    assert not launcher.closed  # sigue abierto para que el usuario lo intente
+    session.close()
+    assert launcher.closed
+
+
+def test_la_cuenta_solo_se_conecta_tras_comprobar_la_sesion(database, profiles, secret_box, tmp_path):
+    from lot_bot.database.models import AccountStatus
+    from lot_bot.wallapop.account_manager import AccountManager
+
+    world = {"logged_in": False, "user_name": "Ana"}
     service, _ = make_service(profiles, world, tmp_path)
     service.site.user_name = ["#nombre"]
     world["visible"] = {"#nombre"}
-    method = BrowserSessionAuthMethod(service, login_timeout=5)
-    result = method.wait_for_login("acc-1")
-    assert result.ok and result.login == "Ana"
-    outcome = method.authenticate("acc-1", login_detected=True, login=result.login)
+    method = BrowserSessionAuthMethod(service, login_timeout=30)
+    manager = AccountManager(database, secret_box)
+    info = manager.add_account("Principal", internal_ref="acc-1")
+
+    session = method.start_login("acc-1")
+    session.wait_for(session.WAITING)
+    session.request_check()
+    session.wait_for(session.NOT_LOGGED)
+    assert not manager.connect("acc-1", method=method, session_check=session.check).success
+    assert manager.get_account("acc-1").status != AccountStatus.CONNECTED
+
+    world["logged_in"] = True  # el usuario inicia sesión en la ventana
+    session.request_check()
+    assert session.wait_for(session.VERIFIED) == session.VERIFIED
+    session.close()
+    outcome = manager.connect("acc-1", method=method, session_check=session.check)
     assert outcome.success
-    credential = outcome.credential
-    assert credential.kind.value == "browser_session"
+    account = manager.get_account("acc-1")
+    assert account.status == AccountStatus.CONNECTED and account.wallapop_login == "Ana"
+    credential = manager.get_credential(info.internal_ref)
     assert credential.headers == {} and credential.cookies == {}  # nada sensible
     assert "password" not in str(credential.to_storage()).lower()
-    assert "uso personal autorizado" in credential.metadata["uso"]
     service.site.user_name = []
 
 
-def test_si_no_inicia_sesion_no_se_conecta(profiles, tmp_path):
-    service, _ = make_service(profiles, {"logged_in": False}, tmp_path)
-    method = BrowserSessionAuthMethod(service, login_timeout=0.01)
-    assert not method.wait_for_login("acc-1").ok
+def test_una_verificacion_durante_el_login_se_deja_al_usuario(profiles, tmp_path):
+    world = {"logged_in": True, "verification": True}
+    service, launcher = make_service(profiles, world, tmp_path)
+    session = BrowserSessionAuthMethod(service, login_timeout=30).start_login("acc-1")
+    session.wait_for(session.WAITING)
+    session.request_check()
+    assert session.wait_for(session.VERIFICATION) == session.VERIFICATION
+    fills = [e for p in launcher.pages for e in p.log if e[0] in ("fill", "click")]
+    assert fills == []  # no se toca nada de la verificación
+    session.close()
+
+
+def test_si_el_usuario_cierra_el_navegador_no_se_conecta(profiles, tmp_path):
+    world = {"logged_in": False}
+    service, _ = make_service(profiles, world, tmp_path)
+    session = BrowserSessionAuthMethod(service, login_timeout=30).start_login("acc-1")
+    session.wait_for(session.WAITING)
+    world["closed"] = True
+    assert session.wait_for(session.CLOSED, timeout=5) == session.CLOSED
+    assert not session.verified
+
+
+def test_el_perfil_es_persistente_y_sobrevive_al_cierre(profiles, tmp_path):
+    world = {"logged_in": True}
+    service, launcher = make_service(profiles, world, tmp_path)
+    session = BrowserSessionAuthMethod(service, login_timeout=30).start_login("acc-1")
+    session.wait_for(session.WAITING)
+    session.close()
+    assert profiles.exists("acc-1")  # no es un perfil temporal
+    assert launcher.opened[0] == profiles.profile_dir("acc-1")
+    assert service.check_session("acc-1").ok  # la sesión guardada se reutiliza
+
+
+# ---------------------------------------------------------------------------
+# Reutilización y caducidad de la sesión
+# ---------------------------------------------------------------------------
+def test_varias_publicaciones_reutilizan_el_mismo_navegador(profiles, tmp_path):
+    world = {"logged_in": True, "item_url": "https://es.wallapop.com/item/x-1"}
+    service, launcher = make_service(profiles, world, tmp_path)
+    for _ in range(3):
+        assert service.create_item("acc-b", draft(tmp_path)).success
+    assert service.pool.open_count == {"acc-b": 1}
+    assert len(launcher.opened) == 1 and not launcher.closed
+    service.shutdown()
+    assert launcher.closed == launcher.opened
+
+
+def test_dos_cuentas_con_navegadores_aislados(profiles, tmp_path):
+    world = {"logged_in": True}
+    service, launcher = make_service(profiles, world, tmp_path)
+    service.create_item("acc-a", draft(tmp_path))
+    service.create_item("acc-b", draft(tmp_path))
+    service.create_item("acc-a", draft(tmp_path))
+    assert service.pool.open_count == {"acc-a": 1, "acc-b": 1}
+    assert {p.name for p in launcher.opened} == {"acc-a", "acc-b"}
+    assert launcher.opened[0] != launcher.opened[1]
+    service.shutdown()
+
+
+def test_sesion_caducada_al_publicar(profiles, tmp_path):
+    world = {"logged_in": True}
+    service, _ = make_service(profiles, world, tmp_path)
+    assert service.create_item("acc-1", draft(tmp_path)).success
+    world["logged_in"] = False  # Wallapop ha cerrado la sesión
+    with pytest.raises(AuthenticationError):
+        service.create_item("acc-1", draft(tmp_path))
+    service.shutdown()
 
 
 def test_backend_navegador_desde_la_configuracion(database, temp_paths):

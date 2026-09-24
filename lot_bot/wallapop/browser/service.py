@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from lot_bot.wallapop.browser.driver import (
     BrowserUnavailable,
     PlaywrightLauncher,
 )
+from lot_bot.wallapop.browser.pool import BrowserSessionPool
 from lot_bot.wallapop.browser.profiles import BrowserProfileStore
 from lot_bot.wallapop.capabilities import Capability
 from lot_bot.wallapop.dto import (
@@ -49,6 +51,29 @@ from lot_bot.wallapop.service import WallapopService
 logger = logging.getLogger(__name__)
 
 
+@dataclass(slots=True)
+class SessionCheck:
+    """Resultado de comprobar de verdad si hay sesión iniciada."""
+
+    ok: bool
+    state: str
+    message: str
+    login: str = ""
+
+
+def parse_count(pattern: str, text: str) -> int | None:
+    """Número que acompaña a un texto («1.234 visualizaciones»). None si no está."""
+    if not pattern or not text:
+        return None
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1).replace(".", "").replace(",", ""))
+    except (ValueError, IndexError):
+        return None
+
+
 def format_price(price: float, style: str) -> str:
     text = f"{price:.2f}"
     if text.endswith(".00"):
@@ -68,6 +93,7 @@ class BrowserWallapopService(WallapopService):
         site: BrowserSiteConfig | None = None,
         screenshots_dir: Path | None = None,
         is_account_connected=None,
+        pool: BrowserSessionPool | None = None,
     ) -> None:
         self.profiles = profiles
         self.launcher = launcher or PlaywrightLauncher()
@@ -75,10 +101,12 @@ class BrowserWallapopService(WallapopService):
         self._shots = screenshots_dir
         #: Callable(ref) -> bool: la cuenta está conectada por navegador.
         self._is_connected = is_account_connected or (lambda ref: profiles.exists(ref))
+        #: Navegadores abiertos por cuenta, reutilizados entre publicaciones.
+        self.pool = pool or BrowserSessionPool(self.launcher, self.site.keep_open_seconds)
 
     # ------------------------------------------------------------------
     def capabilities(self) -> set[Capability]:
-        return {Capability.ACCOUNT_PROFILE, Capability.CREATE_ITEM}
+        return {Capability.ACCOUNT_PROFILE, Capability.CREATE_ITEM, Capability.ITEM_STATS}
 
     def _unavailable(self, capability: Capability):
         raise NotAvailableWithCurrentAPIError(
@@ -89,43 +117,132 @@ class BrowserWallapopService(WallapopService):
     # ------------------------------------------------------------------
     # Sesión
     # ------------------------------------------------------------------
-    def _open(self, account_ref: str):
-        if not self._is_connected(account_ref):
+    def _browser_options(self) -> dict[str, Any]:
+        return {
+            "visible": self.site.visible,
+            "channels": self.site.channels,
+            "locale": self.site.locale,
+        }
+
+    def _in_browser(self, account_ref: str, fn, *, require_connected: bool = True):
+        """Ejecuta `fn(page)` en el navegador persistente de la cuenta."""
+        if require_connected and not self._is_connected(account_ref):
             raise AuthenticationError(
                 f"La cuenta {account_ref} no tiene sesión de navegador.",
                 user_message="Esta cuenta no está conectada. Conéctala en Cuentas → "
                 "«Añadir cuenta Wallapop».",
             )
-        return self.launcher.open(
+        return self.pool.run(
+            account_ref,
             self.profiles.profile_dir(account_ref),
-            visible=self.site.visible,
-            channels=self.site.channels,
-            locale=self.site.locale,
+            fn,
+            **self._browser_options(),
         )
 
+    def release(self, account_ref: str) -> None:
+        """Cierra el navegador abierto de una cuenta (p. ej. antes de iniciar sesión)."""
+        self.pool.close(account_ref)
+
+    def shutdown(self) -> None:
+        self.pool.close_all()
+
     def session_state(self, page: BrowserPage, timeout_ms: int = 8000) -> str:
-        """«verificacion», «iniciada», «sin_sesion» o «desconocido»."""
+        """Pista rápida: «verificacion», «iniciada», «sin_sesion» o «desconocido».
+
+        NO basta para dar una cuenta por conectada: para eso está
+        `verify_session`.
+        """
         found = page.first_visible(
-            self.site.verification + self.site.logged_in + self.site.logged_out, timeout_ms
+            self.site.verification + self.site.logged_out + self.site.logged_in, timeout_ms
         )
         if found is None:
             return "desconocido"
         if found in self.site.verification:
             return "verificacion"
-        if found in self.site.logged_in:
-            return "iniciada"
-        return "sin_sesion"
+        if found in self.site.logged_out:
+            return "sin_sesion"
+        return "iniciada"
+
+    def verify_session(self, page: BrowserPage) -> SessionCheck:
+        """Comprobación REAL de que hay una sesión iniciada.
+
+        Abre una página privada y exige, a la vez: que Wallapop no redirija
+        fuera de ella, que no haya botón de acceso ni verificación y que se vea
+        contenido privado. Si algo falla o no se puede confirmar, NO hay sesión.
+        """
+        site = self.site
+        if site.verification and page.first_visible(site.verification, 0):
+            return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")
+        try:
+            page.goto(site.url(site.check_url))
+        except Exception as exc:
+            return SessionCheck(False, "error", f"No se ha podido abrir Wallapop ({type(exc).__name__}).")
+        page.wait(site.check_wait_ms)
+        if site.verification and page.first_visible(site.verification, 0):
+            return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")
+        current = page.current_url()
+        if site.check_url_contains and site.check_url_contains not in current:
+            return SessionCheck(
+                False, "sin_sesion", "Wallapop ha redirigido fuera de la zona privada: no hay sesión."
+            )
+        if site.logged_out and page.first_visible(site.logged_out, 0):
+            return SessionCheck(False, "sin_sesion", "Wallapop muestra el botón de iniciar sesión.")
+        proof = page.first_visible(site.check_private + site.logged_in, 2000)
+        if proof is None:
+            return SessionCheck(
+                False,
+                "desconocido",
+                "No se ha podido confirmar la sesión (no se ve ninguna página privada).",
+            )
+        login = ""
+        if site.user_name:
+            found = page.first_visible(site.user_name, 0)
+            if found:
+                try:
+                    login = page.text_of(found)[:120]
+                except Exception:
+                    login = ""
+        return SessionCheck(True, "iniciada", "Sesión comprobada.", login=login)
+
+    def check_session(self, account_ref: str) -> SessionCheck:
+        """Comprueba la sesión guardada de una cuenta en su propio navegador."""
+        if not self.profiles.exists(account_ref):
+            return SessionCheck(False, "sin_sesion", "No hay sesión guardada para esta cuenta.")
+        try:
+            return self._in_browser(account_ref, self.verify_session, require_connected=False)
+        except BrowserUnavailable as exc:
+            return SessionCheck(False, "error", str(exc))
 
     def check_connection(self, account_ref: str) -> bool:
-        try:
-            with self.profiles.lock(account_ref), self._open(account_ref) as page:
-                page.goto(self.site.url("inicio"))
-                return self.session_state(page) == "iniciada"
-        except (AuthenticationError, BrowserUnavailable):
-            return False
+        return self.check_session(account_ref).ok
 
     def get_account_profile(self, account_ref: str) -> AccountProfile:
         return AccountProfile(user_id=account_ref, display_name=account_ref)
+
+    # ------------------------------------------------------------------
+    # Estadísticas (solo lo que se ve de verdad en la página del anuncio)
+    # ------------------------------------------------------------------
+    def get_item_stats(self, account_ref: str, item_url: str) -> dict[str, Any]:
+        """Lee visualizaciones y favoritos de la página del anuncio.
+
+        Devuelve `None` en cada dato que no aparezca: nunca se estima.
+        """
+        patterns = self.site.stats_patterns
+
+        def read(page: BrowserPage) -> dict[str, Any]:
+            page.goto(item_url)
+            page.wait(1500)
+            if self.site.verification and page.first_visible(self.site.verification, 0):
+                raise VerificationRequiredError("Verificación al leer estadísticas.")
+            text = page.body_text()
+            return {key: parse_count(pattern, text) for key, pattern in patterns.items()}
+
+        values = self._in_browser(account_ref, read)
+        return {
+            "views": values.get("visualizaciones"),
+            "favorites": values.get("favoritos"),
+            "source": "navegador",
+        }
 
     # ------------------------------------------------------------------
     # Publicar
@@ -139,6 +256,8 @@ class BrowserWallapopService(WallapopService):
             "categoria": draft.category or "",
             "subcategoria": str(attributes.get("subcategoria") or ""),
             "estado": draft.condition or "",
+            "color": str(attributes.get("color") or ""),
+            "material": str(attributes.get("material") or ""),
         }
 
     @staticmethod
@@ -246,20 +365,22 @@ class BrowserWallapopService(WallapopService):
             raise ConfigurationError("wallapop_browser.yaml no define los pasos de publicación.")
         values = self._values(draft)
         images = [str(Path(p)) for p in draft.image_paths if Path(p).is_file()]
-        with self.profiles.lock(account_ref), self._open(account_ref) as page:
-            page.goto(self.site.url("inicio"))
-            state = self.session_state(page)
-            if state == "verificacion":
+
+        def publish(page: BrowserPage) -> str | None:
+            check = self.verify_session(page)
+            if check.state == "verificacion":
                 raise VerificationRequiredError("Verificación al abrir Wallapop.")
-            if state == "sin_sesion":
+            if not check.ok:
                 raise AuthenticationError(
-                    "Sesión de navegador no iniciada.",
-                    user_message="La sesión de Wallapop de esta cuenta ha terminado. "
-                    "Vuelve a autenticarla en Cuentas.",
+                    f"Sesión de navegador no válida: {check.message}",
+                    user_message="La sesión de Wallapop de esta cuenta ha caducado o no se ha "
+                    "podido comprobar. Vuelve a conectarla en Cuentas → «Reconectar».",
                 )
             for step in self.site.steps:
                 self._run_step(page, step, values, images, account_ref)
-            url = self._wait_success(page, account_ref)
+            return self._wait_success(page, account_ref)
+
+        url = self._in_browser(account_ref, publish)
         item_id = None
         if url:
             item_id = url.rstrip("/").rsplit("/", 1)[-1]

@@ -58,6 +58,12 @@ class BrowserSiteConfig:
     success_url_regex: str
     success_texts: list[str]
     success_timeout_ms: int
+    check_url: str = "subir"
+    check_url_contains: str = "/app/"
+    check_wait_ms: int = 4000
+    check_private: list[str] = field(default_factory=list)
+    keep_open_seconds: int = 900
+    stats_patterns: dict[str, str] = field(default_factory=dict)
     source: Path | None = None
 
     def url(self, name: str) -> str:
@@ -76,6 +82,7 @@ class BrowserSiteConfig:
         session = data.get("sesion") or {}
         publish = data.get("publicar") or {}
         success = publish.get("exito") or {}
+        check = session.get("comprobacion") or {}
         steps = [
             Step(
                 name=str(s.get("nombre", "")),
@@ -105,6 +112,14 @@ class BrowserSiteConfig:
             success_url_regex=str(success.get("url_regex", "")),
             success_texts=[str(x) for x in (success.get("textos") or [])],
             success_timeout_ms=int(success.get("tiempo_espera_ms", 60000)),
+            check_url=str(check.get("url", "subir")),
+            check_url_contains=str(check.get("url_debe_contener", "/app/")),
+            check_wait_ms=int(check.get("espera_ms", 4000)),
+            check_private=[str(x) for x in (check.get("privada") or [])],
+            keep_open_seconds=int(session.get("mantener_abierto_s", 900)),
+            stats_patterns={
+                str(k): str(v) for k, v in (data.get("estadisticas") or {}).items() if v
+            },
             source=source,
         )
 
