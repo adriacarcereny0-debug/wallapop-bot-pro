@@ -138,11 +138,23 @@ def test_actualizar_la_plantilla_desde_el_chat(app_with_data):
 
 
 def test_cambiar_la_oferta_de_una_medida(app_with_data):
+    app_with_data.master_ads.update(None, {"locked": False}, confirmed=True)
     agente = app_with_data.agent
     respuesta = agente.ask("Cambia el precio de los canapés de 135x190 a 275 €")
     assert any("Oferta" in linea and "135x190" in linea for linea in respuesta.pending.request.lines)
     agente.confirm(respuesta.pending.token)
     assert "135x190 → 275€" in app_with_data.master_ads.get().description
+
+
+def test_con_la_plantilla_unica_la_oferta_no_cambia_sola(app_with_data):
+    antes = app_with_data.master_ads.get().description
+    respuesta = app_with_data.agent.ask("Cambia el precio de los canapés de 135x190 a 275 €")
+    if respuesta.needs_confirmation:
+        assert any("plantilla única" in linea for linea in respuesta.pending.request.lines)
+        app_with_data.agent.confirm(respuesta.pending.token)
+    else:
+        assert "plantilla única" in " ".join(m.text for m in respuesta.messages)
+    assert app_with_data.master_ads.get().description == antes
 
 
 def test_generar_descripcion_no_modifica_la_plantilla(app_with_data):

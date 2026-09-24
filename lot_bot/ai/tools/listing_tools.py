@@ -174,6 +174,7 @@ def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     medida = args.get("medida")
     master = None
     old_offer = None
+    locked_note = ""
     # Se decide por la medida pedida, no por cómo se localizaron los anuncios:
     # al confirmar, los argumentos ya traen la lista de anuncios del plan, y lo
     # que se ejecuta tiene que ser EXACTAMENTE lo que se anunció en el plan.
@@ -182,11 +183,17 @@ def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         candidate = context.app.master_ads.get()
         if candidate is not None and (not texto or context.app.master_ads.find_by_text(texto)):
             old_offer = candidate.variant_price(medida)
-            if old_offer is not None:
+            if old_offer is not None and candidate.locked:
+                locked_note = (
+                    "La plantilla única de canapés está activa: su título, precio y "
+                    "descripción no se cambian automáticamente. Para cambiar la oferta de "
+                    f"{medida}, edita la plantilla en «Anuncio principal»."
+                )
+            elif old_offer is not None:
                 master = candidate
 
     if not listings and master is None:
-        return fail("No se ha encontrado ningún anuncio que coincida con esos criterios.")
+        return fail(locked_note or "No se ha encontrado ningún anuncio que coincida con esos criterios.")
 
     if not context.confirmed:
         lines: list[str] = []
@@ -221,6 +228,8 @@ def _update_price(context: ToolContext, args: dict[str, Any]) -> ToolResult:
                 f"Oferta «Canapé + colchón {medida}» en la plantilla «{master.name}»: "
                 f"{_price_text(old_offer)} → {_price_text(price)} (cambia el texto de la descripción)"
             )
+        if locked_note:
+            lines.append(locked_note)
         return confirm_first(
             "update_price",
             {**args, "anuncios": [v.id for v in listings], "precio": price},

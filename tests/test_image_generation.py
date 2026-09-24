@@ -43,7 +43,7 @@ def test_prompt_con_los_datos_reales_del_canape(master):
     assert "grey and white" in prompt  # «Gris y Blanco»
     assert "wood" in prompt  # «Madera»
     assert "mattress" in prompt  # la descripción habla de «colchón»
-    assert '"Dormitorio Y Madera"' in prompt  # lo no clasificable va literal
+    assert '"Dormitorio"' in prompt  # lo no clasificable va literal
     assert "Photorealistic" in prompt and "real home" in prompt
     assert "No people" in prompt and "No text" in prompt and "no logos" in prompt
     assert "no price tags" in prompt

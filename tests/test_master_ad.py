@@ -12,8 +12,19 @@ from lot_bot.master_ad import (
 )
 from lot_bot.publishing.service import ConfirmationRequiredError
 
-TITULO_CLIENTE = "Canapé canapé canapé canapé canapé canapé"
-CARACTERISTICAS_CLIENTE = ["Nuevo", "Dormitorio Y Madera", "Gris y Blanco", "Madera"]
+TITULO_CLIENTE = "Canapé canapé canapé canapé canapé"
+CARACTERISTICAS_CLIENTE = ["Nuevo", "Dormitorio", "Gris y Blanco", "Madera"]
+DESCRIPCION_EXACTA = (
+    "GRAN OFERTA LIMITADA! Renueva tu descanso hoy y paga menos ✨ Canapé + colchón "
+    "90x190 → 230€ ✨ Canapé + colchón 135x190 → 270€ ✨ Canapé + colchón 150x190 → "
+    "290€ 🚚 Transporte y montaje GRATUITO 📲 Pide el tuyo ahora por WhatsApp: "
+    "603710542 🕒 Solo por tiempo limitado. ¡No te quedes sin el tuyo"
+)
+
+
+def desbloquear(app):
+    """Desactiva la plantilla única (lo haría el usuario en el panel)."""
+    app.master_ads.update(None, {"locked": False}, confirmed=True)
 
 
 def cuentas(app) -> list[str]:
@@ -35,9 +46,16 @@ def test_los_datos_coinciden_exactamente_con_los_del_cliente(app):
     master = app.master_ads.get()
     assert master.title == TITULO_CLIENTE
     assert master.features == CARACTERISTICAS_CLIENTE
-    assert master.features_line == "Nuevo · Dormitorio Y Madera · Gris y Blanco · Madera"
+    assert master.features_line == "Nuevo · Dormitorio · Gris y Blanco · Madera"
+    assert master.attributes == {
+        "estado": "Nuevo",
+        "uso": "Dormitorio",
+        "color": "Gris y Blanco",
+        "material": "Madera",
+    }
     assert master.price == 11.44
-    assert master.description == CLIENT_DESCRIPTION_RENDERED
+    assert master.locked
+    assert master.description == CLIENT_DESCRIPTION_RENDERED == DESCRIPCION_EXACTA
     assert master.contact_whatsapp == "603710542"
     assert [(v["medida"], v["precio"]) for v in master.variants] == [
         ("90x190", 230),
@@ -52,7 +70,10 @@ def test_la_descripcion_es_identica_letra_por_letra(app):
     assert "✨ Canapé + colchón 135x190 → 270€" in texto
     assert "🚚 Transporte y montaje GRATUITO" in texto
     assert "📲 Pide el tuyo ahora por WhatsApp: 603710542" in texto
-    assert texto.endswith("🕒 Solo por tiempo limitado. ¡No te quedes sin el tuyo!")
+    assert texto.endswith("🕒 Solo por tiempo limitado. ¡No te quedes sin el tuyo")
+    # Las características estructuradas NO se mueven a la descripción.
+    for campo in ("Dormitorio", "Gris y Blanco", "Madera"):
+        assert campo not in texto
 
 
 def test_los_datos_comerciales_son_variables_y_no_texto_fijo():
@@ -64,7 +85,7 @@ def test_los_datos_comerciales_son_variables_y_no_texto_fijo():
 
 
 def test_el_texto_del_cliente_no_se_corrige(app):
-    """El título repetido y «Dormitorio Y Madera» se conservan tal cual."""
+    """El título repetido se conserva tal cual."""
     refs = cuentas(app)
     vista = app.master_ads.build_previews(None, refs[:1])[0]
     assert vista.title == TITULO_CLIENTE
@@ -114,6 +135,7 @@ def test_publicar_varias_copias_reparte_por_turnos(app):
 
 
 def test_publicar_con_cambios_solo_afecta_a_esas_publicaciones(app):
+    desbloquear(app)
     app.master_ads.publish(None, cuentas(app)[:1], overrides={"price": 12.0}, confirmed=True)
     publicacion = app.master_ads.publications()[0]
     assert publicacion.price == 12.0
@@ -177,6 +199,7 @@ def test_actualizar_la_plantilla_no_cambia_lo_ya_publicado(app):
 
 
 def test_cambiar_una_oferta_actualiza_la_descripcion(app):
+    desbloquear(app)
     app.master_ads.set_variant_price(None, "135x190", 275, confirmed=True)
     master = app.master_ads.get()
     assert "✨ Canapé + colchón 135x190 → 275€" in master.description
@@ -184,12 +207,82 @@ def test_cambiar_una_oferta_actualiza_la_descripcion(app):
 
 
 def test_restaurar_vuelve_a_los_datos_del_cliente(app):
-    app.master_ads.update(None, {"price": 99.0, "title": "X"}, confirmed=True)
+    app.master_ads.update(None, {"price": 99.0, "title": "X", "locked": False}, confirmed=True)
     app.master_ads.restore_original(None, confirmed=True)
     master = app.master_ads.get()
     assert master.price == 11.44
     assert master.title == TITULO_CLIENTE
     assert master.description == CLIENT_DESCRIPTION_RENDERED
+    assert master.locked
+
+
+# ---------------------------------------------------------------------------
+# Plantilla única: nada automático cambia título, precio ni descripción
+# ---------------------------------------------------------------------------
+def test_con_la_plantilla_unica_no_se_admiten_cambios_por_publicacion(app):
+    from lot_bot.master_ad.service import TemplateLockedError
+
+    for cambio in ({"price": 12.0}, {"title": "Otro"}, {"description": "x"}):
+        with pytest.raises(TemplateLockedError):
+            app.master_ads.publish(None, cuentas(app)[:1], overrides=cambio, confirmed=True)
+        with pytest.raises(ValueError):
+            app.publish_queue.enqueue_master(None, cuentas(app)[:1], 1, cambio, generate_images=False)
+    with pytest.raises(TemplateLockedError):
+        app.master_ads.set_variant_price(None, "135x190", 275, confirmed=True)
+    master = app.master_ads.get()
+    assert (master.title, master.price, master.description) == (
+        TITULO_CLIENTE,
+        11.44,
+        DESCRIPCION_EXACTA,
+    )
+
+
+def test_la_cola_publica_exactamente_la_plantilla(app):
+    queue = app.publish_queue
+    queue.enqueue_master(None, cuentas(app), copies=4, generate_images=True)
+    queue.run_until_idle()
+    publicaciones = app.master_ads.publications()
+    assert len(publicaciones) == 4
+    for anuncio in publicaciones:
+        assert anuncio.title == TITULO_CLIENTE
+        assert anuncio.price == 11.44
+        assert anuncio.description == DESCRIPCION_EXACTA
+    master = app.master_ads.get()
+    assert (master.title, master.price, master.description) == (
+        TITULO_CLIENTE,
+        11.44,
+        DESCRIPCION_EXACTA,
+    )
+
+
+def test_los_campos_estructurados_van_al_formulario(app, monkeypatch):
+    enviados = []
+    original = app.wallapop.create_item
+
+    def espiar(ref, draft):
+        enviados.append(draft)
+        return original(ref, draft)
+
+    monkeypatch.setattr(app.wallapop, "create_item", espiar)
+    app.master_ads.publish(None, cuentas(app)[:1], confirmed=True)
+    atributos = enviados[0].attributes
+    assert atributos["color"] == "Gris y Blanco"
+    assert atributos["material"] == "Madera"
+    assert atributos["uso"] == "Dormitorio"
+    assert atributos["estado"] == "Nuevo"
+    assert enviados[0].description == DESCRIPCION_EXACTA
+
+
+def test_una_instalacion_antigua_recibe_la_plantilla_nueva(app):
+    """Si la base de datos tenía la versión anterior, se actualiza una vez."""
+    from lot_bot.database.models import MasterAd
+
+    with app.db.session_scope() as session:
+        row = session.query(MasterAd).first()
+        row.title = "Canapé canapé canapé canapé canapé canapé"
+        row.original = {**row.original, "title": row.title}
+    master = app.master_ads.ensure_default()
+    assert master.title == TITULO_CLIENTE and master.locked
 
 
 # ---------------------------------------------------------------------------

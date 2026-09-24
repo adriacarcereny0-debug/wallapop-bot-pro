@@ -19,35 +19,51 @@ from typing import Any
 MASTER_KEY = "canape-principal"
 MASTER_NAME = "Canapés — Anuncio principal"
 
-#: Descripcion exacta del cliente, una vez renderizada. Se usa en las pruebas
-#: para garantizar que la plantilla produce este texto letra por letra.
+#: Descripcion EXACTA indicada por el cliente (una sola linea, tal cual,
+#: sin exclamacion final). Las pruebas comprueban que la plantilla produce
+#: este texto letra por letra.
 CLIENT_DESCRIPTION_RENDERED = (
-    "GRAN OFERTA LIMITADA! Renueva tu descanso hoy y paga menos ✨\n"
-    "✨ Canapé + colchón 90x190 → 230€\n"
-    "✨ Canapé + colchón 135x190 → 270€\n"
-    "✨ Canapé + colchón 150x190 → 290€\n"
-    "🚚 Transporte y montaje GRATUITO\n"
-    "📲 Pide el tuyo ahora por WhatsApp: 603710542\n"
-    "🕒 Solo por tiempo limitado. ¡No te quedes sin el tuyo!"
+    "GRAN OFERTA LIMITADA! Renueva tu descanso hoy y paga menos ✨ "
+    "Canapé + colchón 90x190 → 230€ ✨ "
+    "Canapé + colchón 135x190 → 270€ ✨ "
+    "Canapé + colchón 150x190 → 290€ 🚚 "
+    "Transporte y montaje GRATUITO 📲 "
+    "Pide el tuyo ahora por WhatsApp: 603710542 🕒 "
+    "Solo por tiempo limitado. ¡No te quedes sin el tuyo"
 )
 
 #: La misma descripcion, con los datos comerciales convertidos en variables.
 CLIENT_DESCRIPTION_PATTERN = (
-    "GRAN OFERTA LIMITADA! Renueva tu descanso hoy y paga menos ✨\n"
-    "✨ Canapé + colchón 90x190 → {precio_90x190}€\n"
-    "✨ Canapé + colchón 135x190 → {precio_135x190}€\n"
-    "✨ Canapé + colchón 150x190 → {precio_150x190}€\n"
-    "🚚 Transporte y montaje GRATUITO\n"
-    "📲 Pide el tuyo ahora por WhatsApp: {whatsapp}\n"
-    "🕒 Solo por tiempo limitado. ¡No te quedes sin el tuyo!"
+    "GRAN OFERTA LIMITADA! Renueva tu descanso hoy y paga menos ✨ "
+    "Canapé + colchón 90x190 → {precio_90x190}€ ✨ "
+    "Canapé + colchón 135x190 → {precio_135x190}€ ✨ "
+    "Canapé + colchón 150x190 → {precio_150x190}€ 🚚 "
+    "Transporte y montaje GRATUITO 📲 "
+    "Pide el tuyo ahora por WhatsApp: {whatsapp} 🕒 "
+    "Solo por tiempo limitado. ¡No te quedes sin el tuyo"
 )
+
+#: Título y precio exactos.
+CLIENT_TITLE = "Canapé canapé canapé canapé canapé"
+CLIENT_PRICE = 11.44
+
+#: Características estructuradas: van a los campos del formulario de
+#: Wallapop, NUNCA a la descripción.
+CLIENT_ATTRIBUTES: dict[str, str] = {
+    "estado": "Nuevo",
+    "uso": "Dormitorio",
+    "color": "Gris y Blanco",
+    "material": "Madera",
+}
 
 CLIENT_MASTER_AD: dict[str, Any] = {
     "key": MASTER_KEY,
     "name": MASTER_NAME,
-    "title": "Canapé canapé canapé canapé canapé canapé",
-    "features": ["Nuevo", "Dormitorio Y Madera", "Gris y Blanco", "Madera"],
-    "price": 11.44,
+    "title": CLIENT_TITLE,
+    # Mismos valores que CLIENT_ATTRIBUTES, en el orden en que se muestran.
+    "features": list(CLIENT_ATTRIBUTES.values()),
+    "attributes": dict(CLIENT_ATTRIBUTES),
+    "price": CLIENT_PRICE,
     "description": CLIENT_DESCRIPTION_PATTERN,
     "variants": [
         {"medida": "90x190", "precio": 230},
@@ -74,4 +90,7 @@ CLIENT_MASTER_AD: dict[str, Any] = {
     ],
     "variables": {},
     "is_default": True,
+    # Plantilla única activa: los anuncios automáticos usan exactamente estos
+    # valores (sin cambios por publicación).
+    "locked": True,
 }

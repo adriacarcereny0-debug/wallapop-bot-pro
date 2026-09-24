@@ -133,9 +133,6 @@ class MasterAdView(BaseView):
 
         self.name = QLineEdit()
         self.title_field = QLineEdit()
-        self.features = QPlainTextEdit()
-        self.features.setFixedHeight(84)
-        self.features.setPlaceholderText("Una característica por línea")
         self.price = QDoubleSpinBox()
         self.price.setRange(0, 100000)
         self.price.setDecimals(2)
@@ -143,6 +140,13 @@ class MasterAdView(BaseView):
         self.condition = QComboBox()
         self.condition.setEditable(True)
         self.condition.addItems(["Nuevo", "Como nuevo", "En buen estado", "Con uso"])
+        self.attr_uso = QLineEdit()
+        self.attr_color = QLineEdit()
+        self.attr_material = QLineEdit()
+        self.locked_box = QCheckBox(
+            "Plantilla única activa: todos los anuncios automáticos usan exactamente "
+            "este título, precio y descripción"
+        )
         self.category = QLineEdit()
         self.category.setPlaceholderText("Sin categoría (obligatoria para publicar en real)")
         self.subcategory = QLineEdit()
@@ -172,10 +176,13 @@ class MasterAdView(BaseView):
         variant_buttons.addStretch(1)
 
         form.addRow("Nombre interno", self.name)
+        form.addRow("", self.locked_box)
         form.addRow("Título", self.title_field)
-        form.addRow("Características", self.features)
         form.addRow("Precio", self.price)
         form.addRow("Estado", self.condition)
+        form.addRow("Categoría / uso", self.attr_uso)
+        form.addRow("Color", self.attr_color)
+        form.addRow("Material", self.attr_material)
         form.addRow("Categoría", self.category)
         form.addRow("Subcategoría", self.subcategory)
         form.addRow("Ofertas por medida", self.variants)
@@ -197,6 +204,7 @@ class MasterAdView(BaseView):
         # una altura mínima (el precio llegaba a quedar ilegible).
         for field in (
             self.name, self.title_field, self.price, self.condition, self.category,
+            self.attr_uso, self.attr_color, self.attr_material, self.locked_box,
             self.subcategory, self.whatsapp, self.delivery, self.tags, self.keywords,
             self.aliases,
         ):
@@ -264,7 +272,10 @@ class MasterAdView(BaseView):
 
         self.name.setText(master.name)
         self.title_field.setText(master.title)
-        self.features.setPlainText("\n".join(master.features))
+        self.attr_uso.setText(str(master.attributes.get("uso") or ""))
+        self.attr_color.setText(str(master.attributes.get("color") or ""))
+        self.attr_material.setText(str(master.attributes.get("material") or ""))
+        self.locked_box.setChecked(master.locked)
         self.price.setValue(master.price or 0)
         self.condition.setCurrentText(master.condition or "")
         self.category.setText(master.category or "")
@@ -364,7 +375,13 @@ class MasterAdView(BaseView):
         return {
             "name": self.name.text().strip(),
             "title": self.title_field.text(),
-            "features": [line for line in self.features.toPlainText().splitlines() if line.strip()],
+            "attributes": {
+                "estado": self.condition.currentText().strip(),
+                "uso": self.attr_uso.text().strip(),
+                "color": self.attr_color.text().strip(),
+                "material": self.attr_material.text().strip(),
+            },
+            "locked": self.locked_box.isChecked(),
             "price": self.price.value() or None,
             "condition": self.condition.currentText().strip() or None,
             "category": self.category.text().strip(),
@@ -388,7 +405,8 @@ class MasterAdView(BaseView):
         current = {
             "name": master.name,
             "title": master.title,
-            "features": master.features,
+            "attributes": master.attributes,
+            "locked": master.locked,
             "price": master.price,
             "condition": master.condition,
             "category": master.category or "",

@@ -66,10 +66,16 @@ EDITABLE_FIELDS = {
     "keywords",
     "aliases",
     "variables",
+    "attributes",
+    "locked",
 }
 
 #: Campos que se pueden cambiar en UNA publicación sin tocar la plantilla.
 OVERRIDABLE_FIELDS = {"title", "description", "price", "category", "condition"}
+
+
+class TemplateLockedError(ValueError):
+    """La plantilla única está activa y no admite cambios automáticos."""
 
 
 def format_price_value(value: Any) -> str:
@@ -112,6 +118,10 @@ class MasterAdView:
     variables: dict[str, Any]
     is_default: bool
     missing_variables: list[str] = field(default_factory=list)
+    #: Características estructuradas (estado, uso, color, material).
+    attributes: dict[str, Any] = field(default_factory=dict)
+    #: Plantilla única activa: sin cambios por publicación.
+    locked: bool = True
 
     @property
     def features_line(self) -> str:
@@ -184,6 +194,15 @@ class MasterAdService:
                 session.add(row)
                 session.flush()
                 logger.info("Anuncio principal creado: %s", row.name)
+            elif (row.original or {}) != CLIENT_MASTER_AD:
+                # El cliente ha dado una nueva versión de la plantilla única:
+                # se aplica una vez (las fotografías se conservan).
+                for name, value in copy.deepcopy(CLIENT_MASTER_AD).items():
+                    if name in EDITABLE_FIELDS:
+                        setattr(row, name, value)
+                row.original = copy.deepcopy(CLIENT_MASTER_AD)
+                session.flush()
+                logger.info("Plantilla única del anuncio principal actualizada a la versión del cliente.")
             return self._to_view(row)
 
     # ------------------------------------------------------------------
@@ -251,6 +270,8 @@ class MasterAdService:
             variables=dict(row.variables or {}),
             is_default=row.is_default,
             missing_variables=missing,
+            attributes=dict(row.attributes or {}),
+            locked=bool(row.locked) if row.locked is not None else True,
         )
 
     def _render_description(
@@ -285,6 +306,8 @@ class MasterAdService:
             row = self._find(session, key)
             if row is None:
                 raise ValueError("No existe el anuncio principal.")
+            if "attributes" in changes and "features" not in changes:
+                changes = {**changes, "features": list((changes["attributes"] or {}).values())}
             before = {name: getattr(row, name) for name in changes}
             for name, value in changes.items():
                 if name == "price" and value is not None:
@@ -309,6 +332,11 @@ class MasterAdService:
         view = self.get(key)
         if view is None:
             raise ValueError("No existe el anuncio principal.")
+        if view.locked:
+            raise TemplateLockedError(
+                "La plantilla única está activa: sus precios no se cambian automáticamente. "
+                "Edítala en «Anuncio principal» si quieres cambiarlos."
+            )
         target = str(medida).lower().replace(" ", "")
         variants = [dict(v) for v in view.variants]
         found = False
@@ -436,6 +464,12 @@ class MasterAdService:
     def render(self, view: MasterAdView, overrides: dict[str, Any] | None = None) -> dict[str, Any]:
         """Datos listos para una publicación. `overrides` NO toca la plantilla."""
         overrides = {k: v for k, v in (overrides or {}).items() if v not in (None, "")}
+        if overrides and view.locked:
+            raise TemplateLockedError(
+                "La plantilla única está activa: todos los anuncios usan exactamente su "
+                "título, precio y descripción. Para cambiarlos, edita la plantilla o "
+                "desactívala en «Anuncio principal»."
+            )
         unknown = set(overrides) - OVERRIDABLE_FIELDS
         if unknown:
             raise ValueError(
@@ -456,6 +490,7 @@ class MasterAdService:
             "demo_category": demo_category,
             "condition": overrides.get("condition", view.condition),
             "features": list(view.features),
+            "attributes": dict(view.attributes),
             "tags": list(view.tags),
             "keywords": list(view.keywords),
             "images": self.effective_images(view),
@@ -629,7 +664,10 @@ class MasterAdService:
             price=float(preview.price or 0),
             category=preview.category,
             condition=preview.condition,
-            attributes={"caracteristicas": list(view.features)},
+            attributes={
+                "caracteristicas": list(view.features),
+                **{k: v for k, v in (view.attributes or {}).items() if v},
+            },
             image_paths=preview.image_paths,
             image_urls=image_urls,
         )

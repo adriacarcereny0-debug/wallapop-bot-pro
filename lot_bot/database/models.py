@@ -294,6 +294,12 @@ class MasterAd(Base, TimestampMixin):
     #: Variables adicionales de la descripcion.
     variables: Mapped[dict] = mapped_column(JSON, default=dict)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    #: Características estructuradas (estado, uso, color, material): van a
+    #: los campos del formulario, no a la descripción.
+    attributes: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Plantilla única activa: los anuncios automáticos usan exactamente sus
+    #: valores; no se admiten cambios por publicación.
+    locked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     #: Copia de los datos originales del cliente, para poder restaurarlos.
     original: Mapped[dict] = mapped_column(JSON, default=dict)
 
