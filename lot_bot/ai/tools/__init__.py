@@ -10,11 +10,13 @@ from lot_bot.ai.tools.base import (
 )
 from lot_bot.ai.tools.catalog_tools import CATALOG_TOOLS
 from lot_bot.ai.tools.content_tools import CONTENT_TOOLS
+from lot_bot.ai.tools.image_tools import IMAGE_TOOLS
 from lot_bot.ai.tools.listing_tools import LISTING_TOOLS
 from lot_bot.ai.tools.market_tools import MARKET_TOOLS
 from lot_bot.ai.tools.master_ad_tools import MASTER_AD_TOOLS
 from lot_bot.ai.tools.message_tools import MESSAGE_TOOLS
 from lot_bot.ai.tools.registry import ToolRegistry
+from lot_bot.ai.tools.stats_tools import STATS_TOOLS
 
 
 def build_registry() -> ToolRegistry:
@@ -27,6 +29,8 @@ def build_registry() -> ToolRegistry:
     registry.register_all(CONTENT_TOOLS)
     registry.register_all(MESSAGE_TOOLS)
     registry.register_all(MARKET_TOOLS)
+    registry.register_all(IMAGE_TOOLS)
+    registry.register_all(STATS_TOOLS)
     return registry
 
 

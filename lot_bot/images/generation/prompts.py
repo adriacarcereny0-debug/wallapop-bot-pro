@@ -43,28 +43,61 @@ _MATERIALS = {
 }
 _CONDITIONS = {"nuevo", "como nuevo", "en buen estado", "en condiciones aceptables"}
 
-#: Variaciones de escena (no del producto).
-_ANGLES = [
-    "three-quarter view from the foot of the bed",
-    "front view at eye level",
-    "slightly elevated view from the bedroom door",
-    "side view showing the full length",
-    "three-quarter view from the left corner of the room",
-    "low angle view from the side",
-]
-_LIGHT = [
-    "soft natural morning light from a window",
-    "bright diffuse daylight",
-    "warm late-afternoon sunlight through sheer curtains",
-    "overcast daylight, even soft shadows",
-]
-_ROOMS = [
-    "a tidy bedroom with white walls and light wooden floor",
-    "a small apartment bedroom with neutral beige walls",
-    "a bright bedroom with a plain rug and a simple nightstand",
-    "a minimalist bedroom with light grey walls",
-    "a cosy bedroom with a window and plain curtains",
-]
+#: Variaciones de escena (no del producto). Cada una con nombre en español
+#: para mostrarla y analizar después qué funciona mejor.
+ANGLES: dict[str, str] = {
+    "tres_cuartos_pie": "three-quarter view from the foot of the bed",
+    "frontal": "front view at eye level",
+    "desde_la_puerta": "slightly elevated view from the bedroom door",
+    "lateral": "side view showing the full length",
+    "esquina_izquierda": "three-quarter view from the left corner of the room",
+    "bajo_lateral": "low angle view from the side",
+}
+LIGHTS: dict[str, str] = {
+    "manana": "soft natural morning light from a window",
+    "dia_luminoso": "bright diffuse daylight",
+    "tarde_calida": "warm late-afternoon sunlight through sheer curtains",
+    "nublado": "overcast daylight, even soft shadows",
+}
+ROOMS: dict[str, str] = {
+    "dormitorio_blanco": "a tidy bedroom with white walls and light wooden floor",
+    "dormitorio_beige": "a small apartment bedroom with neutral beige walls",
+    "dormitorio_alfombra": "a bright bedroom with a plain rug and a simple nightstand",
+    "dormitorio_minimalista": "a minimalist bedroom with light grey walls",
+    "dormitorio_acogedor": "a cosy bedroom with a window and plain curtains",
+}
+#: Estilos de decoración para «Cambiar estilo».
+STYLES: dict[str, str] = {
+    "natural": "natural, realistic home photo",
+    "nordico": "Scandinavian decor, light wood and white tones",
+    "moderno": "modern contemporary decor, clean lines",
+    "calido": "warm, cosy decor with soft textiles",
+    "minimalista": "minimalist decor, very few objects",
+}
+ROOM_LABELS = {
+    "dormitorio_blanco": "Dormitorio blanco",
+    "dormitorio_beige": "Dormitorio beige",
+    "dormitorio_alfombra": "Dormitorio con alfombra",
+    "dormitorio_minimalista": "Dormitorio minimalista",
+    "dormitorio_acogedor": "Dormitorio acogedor",
+}
+STYLE_LABELS = {
+    "natural": "Natural",
+    "nordico": "Nórdico",
+    "moderno": "Moderno",
+    "calido": "Cálido",
+    "minimalista": "Minimalista",
+}
+LIGHT_LABELS = {
+    "manana": "Luz de mañana",
+    "dia_luminoso": "Día luminoso",
+    "tarde_calida": "Tarde cálida",
+    "nublado": "Día nublado",
+}
+
+_ANGLES = list(ANGLES.values())
+_LIGHT = list(LIGHTS.values())
+_ROOMS = list(ROOMS.values())
 
 BASE_STYLE = (
     "Photorealistic product photograph taken with a camera in a real home, "
@@ -113,11 +146,33 @@ class ProductImageSpec:
 
 
 def _translate_words(text: str, table: dict[str, str]) -> list[str]:
+    """Traduce colores/materiales reconocidos, en masculino, femenino o plural
+    («blanca», «grises», «negras»...)."""
     found = []
     for word in re.split(r"[\s,/·]+|\by\b", _plain(text)):
-        if word in table and table[word] not in found:
-            found.append(table[word])
+        candidates = [word, word.rstrip("s"), re.sub(r"es$", "", word)]
+        candidates += [c[:-1] + "o" for c in list(candidates) if c.endswith("a")]
+        for candidate in candidates:
+            if candidate in table and table[candidate] not in found:
+                found.append(table[candidate])
+                break
     return found
+
+
+def spec_from_text(text: str) -> ProductImageSpec:
+    """Producto indicado por el usuario («canapé abatible gris de madera»).
+
+    Solo se usa lo que el usuario escribe: el tipo va literal y el color y el
+    material se traducen si se reconocen. Nada se añade.
+    """
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("Indica qué producto quieres representar.")
+    return ProductImageSpec(
+        product_type=text,
+        colors=_translate_words(text, _COLORS),
+        materials=_translate_words(text, _MATERIALS),
+    )
 
 
 def spec_from_master(master: Any, size: str | None = None) -> ProductImageSpec:
@@ -150,12 +205,73 @@ def spec_from_master(master: Any, size: str | None = None) -> ProductImageSpec:
     )
 
 
-def build_prompt(spec: ProductImageSpec, variation: int) -> str:
-    """Prompt completo. `variation` cambia solo encuadre, luz y escena."""
-    angle = _ANGLES[variation % len(_ANGLES)]
-    light = _LIGHT[(variation // len(_ANGLES)) % len(_LIGHT)]
-    room = _ROOMS[(variation * 7 + 3) % len(_ROOMS)]
+def scene_for(variation: int, preferred_rooms: list[str] | None = None) -> dict[str, str]:
+    """Escena (habitación, luz, ángulo) de una variación.
+
+    `preferred_rooms` (habitaciones que mejor han funcionado, según el
+    optimizador) se usan en 2 de cada 3 variaciones; la tercera sigue
+    probando otras para no dejar de aprender.
+    """
+    angle = list(ANGLES)[variation % len(ANGLES)]
+    light = list(LIGHTS)[(variation // len(ANGLES)) % len(LIGHTS)]
+    rooms = list(ROOMS)
+    room = rooms[(variation * 7 + 3) % len(rooms)]
+    preferred = [r for r in (preferred_rooms or []) if r in ROOMS]
+    if preferred and variation % 3 != 2:
+        room = preferred[variation % len(preferred)]
+    return {"habitacion": room, "luz": light, "angulo": angle, "estilo": "natural"}
+
+
+def build_scene_prompt(spec: ProductImageSpec, scene: dict[str, str]) -> str:
+    room = ROOMS.get(scene.get("habitacion", ""), _ROOMS[0])
+    light = LIGHTS.get(scene.get("luz", ""), _LIGHT[0])
+    angle = ANGLES.get(scene.get("angulo", ""), _ANGLES[0])
+    style = STYLES.get(scene.get("estilo", "natural"), STYLES["natural"])
     return (
         f"{BASE_STYLE} The photo shows {spec.product_sentence()}, "
-        f"placed in {room}, {light}, {angle}. {NEGATIVE}"
+        f"placed in {room}, {style}, {light}, {angle}. {NEGATIVE}"
     )
+
+
+def build_prompt(spec: ProductImageSpec, variation: int) -> str:
+    """Prompt completo. `variation` cambia solo encuadre, luz y escena."""
+    return build_scene_prompt(spec, scene_for(variation))
+
+
+KEEP_PRODUCT = (
+    "Keep the product from the reference image exactly as it is: same shape, "
+    "colours, materials, proportions and details. Do not add, remove or change "
+    "any feature of the product."
+)
+
+#: Operaciones sobre una imagen existente.
+OPERATIONS = {
+    "generar": "Generar",
+    "mejorar": "Mejorar",
+    "estilo": "Cambiar estilo",
+    "habitacion": "Cambiar habitación",
+    "referencia": "Usar como referencia",
+}
+
+
+def build_edit_prompt(
+    operation: str, scene: dict[str, str], spec: ProductImageSpec | None = None
+) -> str:
+    """Prompt para editar a partir de una imagen de referencia (FLUX.2)."""
+    product = f" The product is {spec.product_sentence()}." if spec else ""
+    room = ROOMS.get(scene.get("habitacion", ""), "")
+    light = LIGHTS.get(scene.get("luz", ""), "")
+    angle = ANGLES.get(scene.get("angulo", ""), "")
+    style = STYLES.get(scene.get("estilo", ""), "")
+    if operation == "estilo":
+        change = f"Change only the decor and photographic style of the room to: {style}."
+    elif operation == "habitacion":
+        change = f"Place the same product in {room}, {light}."
+    elif operation == "referencia":
+        change = (
+            f"Create a new photograph of this same product placed in {room}, {style}, "
+            f"{light}, {angle}."
+        )
+    else:
+        raise ValueError(f"Operación desconocida: {operation}")
+    return f"{BASE_STYLE}{product} {KEEP_PRODUCT} {change} {NEGATIVE}"

@@ -148,6 +148,47 @@ class RuleBasedProvider(AIProvider):
         )
         explicit_template = bool(re.search(r"\bplantilla\b", normalized))
 
+        # --- 0a. Estadísticas, análisis y recomendaciones ---
+        if re.search(r"\b(recomendacion|recomendaciones|recomiendas|que me recomiendas|sugerencias)\b", normalized):
+            return call("get_recommendations", cuenta=accounts[0] if accounts else None)
+        if re.search(r"\b(bajo rendimiento|funcionan peor|rinden peor|peores anuncios)\b", normalized):
+            return call("get_low_performers")
+        performance = re.search(r"\b(funciona|funcionan|rinde|rinden|mejor resultado|mejores resultados)\b", normalized)
+        if re.search(r"\b(estadistica|estadisticas|visualizaciones|visitas|favoritos|rendimiento)\b", normalized) or (
+            performance and re.search(r"\b(habitacion|luz|estilo|imagen|imagenes|dia|dias|horario|hora|titulo|descripcion)\b", normalized)
+        ):
+            if re.search(r"\b(actualiza|actualizar|lee|leer|refresca|refrescar|recoge|obtener|obten)\b", normalized):
+                return call("refresh_statistics", cuenta=accounts[0] if accounts else None)
+            aspect = None
+            for word, key in (
+                ("habitacion", "habitacion"), ("luz", "luz"), ("estilo", "estilo"),
+                ("imagen", "origen_imagen"), ("imagenes", "origen_imagen"), ("dia", "dia"),
+                ("dias", "dia"), ("horario", "franja"), ("hora", "franja"), ("titulo", "titulo"),
+                ("descripcion", "descripcion"),
+            ):
+                if re.search(rf"\b{word}\b", normalized):
+                    aspect = key
+                    break
+            if aspect or re.search(r"\b(analiza|analizar|analisis|patron|patrones|funciona mejor|funcionan mejor)\b", normalized):
+                return call("analyze_statistics", aspecto=aspect, cuenta=accounts[0] if accounts else None)
+            order = "favoritos" if "favorito" in normalized else "visualizaciones"
+            return call("get_statistics", ordenar_por=order, cuenta=accounts[0] if accounts else None)
+
+        # --- 0b. Imágenes ---
+        image_number = re.search(r"\bimagen\s+(?:numero\s+|n\s*)?(\d+)\b", normalized)
+        if re.search(r"\b(lista|listar|muestra|ensename|ver)\b.*\bimagenes\b", normalized):
+            return call("list_images")
+        if image_number and re.search(r"\b(mejora|mejorar|calidad|resolucion)\b", normalized):
+            return call("enhance_image", imagen=int(image_number.group(1)))
+        if image_number and re.search(r"\b(habitacion|dormitorio)\b", normalized):
+            return call("change_image_room", imagen=int(image_number.group(1)), habitacion=_extract_after(normalized, "habitacion"))
+        if image_number and re.search(r"\bestilo\b", normalized):
+            return call("change_image_style", imagen=int(image_number.group(1)), estilo=_extract_after(normalized, "estilo"))
+        if image_number and re.search(r"\b(referencia|basada|basandote)\b", normalized):
+            return call("image_from_reference", imagen=int(image_number.group(1)))
+        if re.search(r"\b(genera|generar|crea|crear|haz)\b.*\b(imagen|foto|fotografia)\b", normalized):
+            return call("generate_image")
+
         # --- 0. Cola de publicación automática ---
         if re.search(r"\b(cola|publicacion automatica|publicaciones automaticas)\b", normalized) or re.search(
             r"\b(reintenta|reintentar|vuelve a intentar)\b.*\b(fallid|error)", normalized
@@ -338,6 +379,9 @@ class RuleBasedProvider(AIProvider):
             "Puedo hacer, por ejemplo:\n"
             "• «Publica el anuncio de canapé» / «Publica 10 canapés»\n"
             "• «¿Cómo va la cola?» / «Pausa la cola» / «Reanuda la cola» / «Reintenta los fallidos»\n"
+            "• «Estadísticas» / «¿Qué anuncios tienen más favoritos?» / «Actualiza las estadísticas»\n"
+            "• «¿Qué habitación funciona mejor?» / «Recomendaciones»\n"
+            "• «Genera una imagen» / «Mejora la imagen 3» / «Cambia la habitación de la imagen 3 a dormitorio beige»\n"
             "• «Prepara el anuncio de canapé» (vista previa, sin publicar)\n"
             "• «Muéstrame los anuncios de la cuenta 1»\n"
             "• «Cambia el precio de los canapés de 135x190 a 270 €»\n"
@@ -349,6 +393,12 @@ class RuleBasedProvider(AIProvider):
             "Para entender lenguaje natural libre, configura una clave de IA en "
             "Ajustes → IA."
         )
+
+
+def _extract_after(normalized: str, word: str) -> str | None:
+    """«cambia la habitación de la imagen 3 a dormitorio beige» → «dormitorio beige»."""
+    match = re.search(rf"\b{word}\b.*?\b(?:a|al|por|en)\s+(?:un|una|el|la)?\s*([a-z ]+)$", normalized)
+    return match.group(1).strip() if match else None
 
 
 def _last_user_text(messages: list[dict[str, Any]]) -> str:

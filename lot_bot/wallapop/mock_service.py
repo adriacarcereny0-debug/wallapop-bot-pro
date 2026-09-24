@@ -308,6 +308,22 @@ class MockWallapopService(WallapopService):
             values = list(self._account(account_ref).values())
         return [self._to_item(raw) for raw in values[offset : offset + limit]]
 
+    def get_item_stats(self, account_ref: str, item_ref: str) -> dict[str, Any]:
+        """Estadísticas SIMULADAS de un anuncio DEMO (crecen con el tiempo).
+
+        Solo existen en modo demostración y se marcan como «demo»: nunca se
+        presentan como datos reales de Wallapop.
+        """
+        item_id = str(item_ref).rstrip("/").rsplit("/", 1)[-1]
+        with self._lock:
+            raw = self._account(account_ref).get(item_id)
+            if raw is None:
+                raise NotFoundError(f"El anuncio '{item_id}' no existe en la cuenta {account_ref}.")
+            raw["views"] = int(raw.get("views", 0)) + self._rng.randint(0, 40)
+            raw["favorites"] = int(raw.get("favorites", 0)) + self._rng.randint(0, 3)
+            self._save()
+            return {"views": raw["views"], "favorites": raw["favorites"], "source": "demo"}
+
     def get_item(self, account_ref: str, item_id: str) -> Item:
         with self._lock:
             raw = self._account(account_ref).get(item_id)

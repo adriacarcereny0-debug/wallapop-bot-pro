@@ -56,6 +56,8 @@ class ListingView:
     overrides: dict[str, Any] = field(default_factory=dict)
     #: True si pertenece a una cuenta de demostración.
     is_demo: bool = False
+    url: str | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -245,6 +247,8 @@ class ListingService:
             master_ad_name=listing.master_ad.name if listing.master_ad else None,
             overrides=dict(listing.overrides or {}),
             is_demo=account.is_demo,
+            url=listing.url,
+            meta=dict(listing.meta or {}),
         )
 
     # ------------------------------------------------------------------
@@ -320,6 +324,7 @@ class ListingService:
         data: dict[str, Any],
         master_ad_id: int | None = None,
         overrides: dict[str, Any] | None = None,
+        meta: dict[str, Any] | None = None,
     ) -> int:
         """Guarda en local un anuncio recien publicado."""
         with self._db.session_scope() as session:
@@ -346,6 +351,8 @@ class ListingService:
             listing.attributes = dict(data.get("attributes") or {})
             listing.image_urls = list(data.get("image_urls") or [])
             listing.status = ListingStatus.ACTIVE
+            listing.url = data.get("url") or listing.url
+            listing.meta = dict(meta or {})
             listing.published_at = datetime.now(UTC).replace(tzinfo=None)
             listing.last_synced_at = listing.published_at
             session.flush()

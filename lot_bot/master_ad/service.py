@@ -603,6 +603,7 @@ class MasterAdService:
         overrides: dict[str, Any] | None = None,
         *,
         extra_images: list[str] | None = None,
+        meta: dict[str, Any] | None = None,
         confirmed: bool,
         actor: str = "usuario",
     ) -> PublishOutcome:
@@ -620,7 +621,7 @@ class MasterAdService:
         clean_overrides = {
             k: v for k, v in (overrides or {}).items() if k in OVERRIDABLE_FIELDS and v not in (None, "")
         }
-        return self._publish_preview(view, data, previews[0], clean_overrides, actor)
+        return self._publish_preview(view, data, previews[0], clean_overrides, actor, meta=meta)
 
     def _publish_preview(
         self,
@@ -629,6 +630,8 @@ class MasterAdService:
         preview: ListingPreview,
         clean_overrides: dict[str, Any],
         actor: str,
+        *,
+        meta: dict[str, Any] | None = None,
     ) -> PublishOutcome:
         if not preview.can_publish:
             reasons = [i.message for i in (preview.quality.errors if preview.quality else [])]
@@ -705,9 +708,11 @@ class MasterAdService:
                         "estado": view.condition,
                     },
                     "image_urls": image_urls or preview.image_paths,
+                    "url": (result.data or {}).get("url"),
                 },
                 master_ad_id=view.id,
                 overrides=clean_overrides,
+                meta=meta,
             )
         self._audit.record_success(
             "Publicación del anuncio principal",

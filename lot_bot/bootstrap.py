@@ -38,6 +38,7 @@ from lot_bot.messages.service import MessageService
 from lot_bot.publishing.listings import ListingService
 from lot_bot.publishing.queue import PublishQueue
 from lot_bot.publishing.service import PublishingService
+from lot_bot.stats import Optimizer, StatsAnalyzer, StatsService
 from lot_bot.templates_engine.defaults import ensure_default_templates
 from lot_bot.wallapop.account_manager import AccountManager
 from lot_bot.wallapop.factory import WallapopBackend, build_backend
@@ -87,6 +88,9 @@ class Application:
     api_keys: ApiKeyStore = None  # type: ignore[assignment]
     image_generation: ImageGenerationService = None  # type: ignore[assignment]
     publish_queue: PublishQueue = None  # type: ignore[assignment]
+    stats: StatsService = None  # type: ignore[assignment]
+    analyzer: StatsAnalyzer = None  # type: ignore[assignment]
+    optimizer: Optimizer = None  # type: ignore[assignment]
     business_settings: dict[str, Any] = field(default_factory=dict)
 
     # ------------------------------------------------------------------
@@ -335,6 +339,9 @@ def create_application(
         db, build_image_generator(backend.demo, app.api_keys), paths.images / "generadas"
     )
     app.publish_queue = PublishQueue(db, audit, app)
+    app.stats = StatsService(db, app)
+    app.analyzer = StatsAnalyzer(app.stats)
+    app.optimizer = Optimizer(app.analyzer)
 
     app.automations.ensure_definitions()
     if start_scheduler:

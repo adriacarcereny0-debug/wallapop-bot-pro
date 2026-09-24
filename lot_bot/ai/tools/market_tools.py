@@ -126,17 +126,6 @@ def _find_duplicate_images(context: ToolContext, args: dict[str, Any]) -> ToolRe
     )
 
 
-def _image_generation(context: ToolContext, args: dict[str, Any]) -> ToolResult:
-    return ToolResult(
-        ok=False,
-        summary=(
-            "La generación de imágenes por IA requiere un proveedor autorizado que no "
-            "está configurado en esta instalación. Importa fotografías reales del producto."
-        ),
-        unavailable=True,
-    )
-
-
 MARKET_TOOLS: list[Tool] = [
     Tool(
         name="get_market_data",
@@ -192,16 +181,6 @@ MARKET_TOOLS: list[Tool] = [
         description="Busca fotografías repetidas en todo el catálogo. No elimina ninguna.",
         parameters={"properties": {}, "required": []},
         handler=_find_duplicate_images,
-        category=ToolCategory.IMAGES,
-    ),
-    Tool(
-        name="generate_images",
-        description=(
-            "Generación de imágenes por IA. No disponible: requiere un proveedor "
-            "autorizado que no está configurado."
-        ),
-        parameters={"properties": {"descripcion": {"type": "string"}}, "required": []},
-        handler=_image_generation,
         category=ToolCategory.IMAGES,
     ),
 ]

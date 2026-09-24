@@ -10,6 +10,10 @@ Flujo documentado por Black Forest Labs (https://help.bfl.ai, «Quickstart»):
 
 Saldo: GET {BASE}/v1/credits → {"credits": <número>}.
 
+Edición con referencias (misma dirección, documentada para FLUX.2 [pro]):
+`input_image`, `input_image_2` … `input_image_8` con la imagen en base64. Así
+se mantiene el producto y se cambia el estilo, la habitación o el encuadre.
+
 Se usa siempre la `polling_url` devuelta, nunca una construida a mano. Solo
 "Pending" significa «seguir esperando»: cualquier otro estado distinto de
 "Ready" se trata como fallo y se muestra tal cual.
@@ -20,6 +24,7 @@ redacción y los mensajes de error no incluyen cabeceras.
 
 from __future__ import annotations
 
+import base64
 import logging
 import time
 from collections.abc import Callable
@@ -42,9 +47,13 @@ DEFAULT_WIDTH = 1024
 DEFAULT_HEIGHT = 768
 
 
+MAX_REFERENCE_IMAGES = 8
+
+
 class FluxImageService(ImageGenerator):
     name = "FLUX.2 Pro (Black Forest Labs)"
     is_demo = False
+    supports_reference = True
 
     def __init__(
         self,
@@ -131,14 +140,25 @@ class FluxImageService(ImageGenerator):
         return self.get_credits()
 
     # ------------------------------------------------------------------
-    def generate(self, prompt: str, seed: int, destination: Path) -> Path:
+    def generate(
+        self,
+        prompt: str,
+        seed: int,
+        destination: Path,
+        input_images: list[Path] | None = None,
+        **_: Any,
+    ) -> Path:
         headers = self._headers()
-        body: dict[str, Any] = {
-            "prompt": prompt,
-            "width": self._width,
-            "height": self._height,
-            "seed": int(seed),
-        }
+        body: dict[str, Any] = {"prompt": prompt, "seed": int(seed)}
+        references = list(input_images or [])[:MAX_REFERENCE_IMAGES]
+        if references:
+            # Con referencia, FLUX conserva las proporciones de la imagen.
+            for index, image in enumerate(references):
+                key = "input_image" if index == 0 else f"input_image_{index + 1}"
+                body[key] = base64.b64encode(Path(image).read_bytes()).decode("ascii")
+        else:
+            body["width"] = self._width
+            body["height"] = self._height
         with self._client_factory() as client:
             try:
                 response = client.post(f"{self._base}{FLUX_2_PRO_PATH}", headers=headers, json=body)

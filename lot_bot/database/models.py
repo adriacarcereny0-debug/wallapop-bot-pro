@@ -340,6 +340,11 @@ class Listing(Base, TimestampMixin):
     favorites: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime)
+    #: Dirección pública del anuncio en Wallapop (si Wallapop la mostró).
+    url: Mapped[str | None] = mapped_column(Text)
+    #: Cómo se creó: imagen usada (habitación, luz, ángulo...), para analizar
+    #: qué funciona mejor. Nunca datos de Wallapop inventados.
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)
 
     account: Mapped[Account] = relationship(back_populates="listings")
     product: Mapped[Product | None] = relationship(back_populates="listings")
@@ -550,3 +555,36 @@ class GeneratedImage(Base, TimestampMixin):
     subject: Mapped[str | None] = mapped_column(String(200))
     account_ref: Mapped[str | None] = mapped_column(String(64))
     task_id: Mapped[int | None] = mapped_column(Integer)
+    #: generar, mejorar, estilo, habitacion, referencia
+    operation: Mapped[str | None] = mapped_column(String(40))
+    #: Escena elegida (habitación, luz, ángulo, estilo) para poder analizarla.
+    scene: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Imagen de partida en mejoras, cambios de estilo o de habitación.
+    source_image: Mapped[str | None] = mapped_column(Text)
+
+
+# ---------------------------------------------------------------------------
+# Estadísticas: histórico de mediciones REALES
+# ---------------------------------------------------------------------------
+class ListingStat(Base):
+    """Una medición de un anuncio en un momento dado.
+
+    `views` y `favorites` son None cuando el dato no se ha podido leer de
+    verdad: nunca se guardan ceros ni estimaciones en su lugar.
+    """
+
+    __tablename__ = "listing_stats"
+    __table_args__ = (Index("ix_listing_stats_listing", "listing_id", "captured_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    listing_id: Mapped[int] = mapped_column(
+        ForeignKey("listings.id", ondelete="CASCADE"), nullable=False
+    )
+    account_ref: Mapped[str] = mapped_column(String(64), nullable=False)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    views: Mapped[int | None] = mapped_column(Integer)
+    favorites: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str | None] = mapped_column(String(40))
+    #: «navegador» (leído en la web) o «demo» (simulado).
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)

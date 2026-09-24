@@ -25,7 +25,7 @@ desde un único programa, con un asistente de IA que interpreta órdenes en espa
 
 ## Qué hace
 
-* **Multicuenta real.** Cada cuenta está aislada: anuncios, mensajes, inventario y
+* **Multicuenta real.** Cada cuenta está aislada: anuncios, estadísticas, sesión de navegador y
   credenciales nunca se mezclan.
 * **Asistente en lenguaje natural.** «Cambia el precio de todos los canapés de
   135x190 a 269 €» → busca los anuncios, te enseña el plan, espera tu confirmación y
@@ -47,14 +47,14 @@ desde un único programa, con un asistente de IA que interpreta órdenes en espa
 2. Descarga o clona este repositorio.
 3. Doble clic en **`iniciar_lot_bot.bat`**. La primera vez prepara el entorno
    (unos minutos) y abre el programa.
-4. Arranca en **MODO DEMO**: cuentas, anuncios, mensajes y el anuncio principal de
+4. Arranca en **MODO DEMO**: cuentas, anuncios, estadísticas simuladas y el anuncio principal de
    canapés vienen precargados. No hace falta API key, `client_id`, internet ni
    Wallapop. Nada de lo que hagas sale del ordenador.
 5. Para generar el `.exe` del cliente: doble clic en **`compilar_exe.bat`**
    → `dist\LOT-Bot\LOT-Bot.exe`.
 
 Prueba en el asistente: «sube el canapé», «publica 10 canapés en las cuentas 1 y 2»,
-«cambia el precio del 135x190 a 270 €», «qué mensajes tengo sin leer»,
+«estadísticas», «¿qué habitación funciona mejor?», «genera una imagen»,
 «prepara una respuesta para este cliente».
 
 ## Anuncio principal (plantilla de canapés)
@@ -235,7 +235,9 @@ tecnicismos. Empieza por [uso-lot-bot.md](docs/cliente/uso-lot-bot.md).
 | Anuncio principal de canapés (plantilla fija) | ✅ |
 | Gestión y deduplicación de imágenes | ✅ |
 | Publicación con vista previa | ✅ |
-| Mensajería y asistente de ventas | ✅ |
+| Mensajes sin leer | ⛔ Desactivados: no se pueden leer de forma fiable desde el navegador |
+| Estadísticas con histórico, análisis y recomendaciones | ✅ «No disponible» si Wallapop no muestra el dato |
+| Imágenes: generar, mejorar, cambiar estilo/habitación, referencia | ✅ |
 | Automatizaciones programadas | ✅ |
 | Historial y registro seguro | ✅ |
 | Modo DEMO completo | ✅ |

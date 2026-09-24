@@ -17,11 +17,16 @@ from lot_bot.images.generation.base import ImageGenerator
 class DemoImageGenerator(ImageGenerator):
     name = "Imágenes de demostración"
     is_demo = True
+    supports_reference = True
 
     def __init__(self, size: tuple[int, int] = (1024, 768)) -> None:
         self._size = size
 
-    def generate(self, prompt: str, seed: int, destination: Path) -> Path:
+    def generate(
+        self, prompt: str, seed: int, destination: Path, input_images=None, **_
+    ) -> Path:
+        if input_images:
+            return self._from_reference(prompt, seed, destination, Path(input_images[0]))
         rnd = random.Random(f"{seed}|{prompt}")
         width, height = self._size
         image = Image.new("RGB", self._size)
@@ -47,6 +52,24 @@ class DemoImageGenerator(ImageGenerator):
             draw.ellipse([x, y, x + r, y + r], fill=tuple(rnd.randint(100, 255) for _ in range(3)))
         draw.rectangle([0, height - 60, width, height], fill=(20, 20, 20))
         draw.text((20, height - 42), f"IMAGEN DE DEMOSTRACION  #{seed}", fill=(255, 255, 255))
+        path = destination.with_suffix(".png")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        image.save(path, "PNG")
+        return path
+
+    def _from_reference(self, prompt: str, seed: int, destination: Path, reference: Path) -> Path:
+        """Simula una edición: la referencia, con otro tono y marco según la semilla."""
+        rnd = random.Random(f"{seed}|{prompt}|ref")
+        with Image.open(reference) as source:
+            base = source.convert("RGB").resize(self._size)
+        tint = Image.new("RGB", self._size, tuple(rnd.randint(40, 220) for _ in range(3)))
+        image = Image.blend(base, tint, 0.35)
+        draw = ImageDraw.Draw(image)
+        width, height = self._size
+        margin = rnd.randint(10, 60)
+        draw.rectangle([margin, margin, width - margin, height - margin], outline=tint.getpixel((0, 0)), width=8)
+        draw.rectangle([0, height - 60, width, height], fill=(20, 20, 20))
+        draw.text((20, height - 42), f"IMAGEN DE DEMOSTRACION (edicion)  #{seed}", fill=(255, 255, 255))
         path = destination.with_suffix(".png")
         path.parent.mkdir(parents=True, exist_ok=True)
         image.save(path, "PNG")

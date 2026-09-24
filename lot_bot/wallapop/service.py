@@ -145,3 +145,16 @@ class WallapopService(ABC):
         self, account_ref: str, query: str, limit: int = 50
     ) -> list[MarketDataPoint]:
         ...
+
+    # ------------------------------------------------------------------
+    # Estadisticas de los anuncios propios
+    # ------------------------------------------------------------------
+    def get_item_stats(self, account_ref: str, item_ref: str) -> dict[str, Any]:
+        """{"views": int|None, "favorites": int|None, "source": str}.
+
+        Por defecto no disponible: solo lo implementa quien puede leer los
+        datos de verdad. Nunca se devuelven cifras estimadas.
+        """
+        raise NotAvailableWithCurrentAPIError(
+            Capability.ITEM_STATS.value, "Esta integración no puede leer estadísticas."
+        )

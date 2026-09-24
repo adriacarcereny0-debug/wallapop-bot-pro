@@ -29,9 +29,13 @@ class ImageGenerator(ABC):
     #: True si no consume créditos ni contacta con ningún servicio.
     is_demo: bool = False
 
+    #: True si admite imágenes de referencia (editar, cambiar habitación...).
+    supports_reference: bool = False
+
     @abstractmethod
-    def generate(self, prompt: str, seed: int, destination: Path) -> Path:
+    def generate(self, prompt: str, seed: int, destination: Path, **kwargs) -> Path:
         """Genera una imagen y la guarda en `destination` (sin extensión).
 
+        `input_images` (opcional): imágenes de referencia del producto.
         Devuelve la ruta final del fichero.
         """

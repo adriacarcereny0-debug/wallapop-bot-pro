@@ -22,11 +22,12 @@ Escribe como hablarías con una persona. Ejemplos:
 | Publicar varias copias | «publica 10 canapés en las cuentas 1 y 2» |
 | Ver cómo va la publicación | «¿cómo va la cola?» |
 | Pausar / seguir | «pausa la cola» / «reanuda la cola» |
-| Cambiar un precio | «cambia el precio del 135x190 a 270 €» |
 | Cambiar el precio de lo que estás viendo | «cambia el precio de este anuncio a 250 €» |
 | Ver tus anuncios | «enséñame los anuncios activos» |
-| Ver mensajes | «qué mensajes tengo sin leer» |
-| Contestar a un comprador | «prepara una respuesta para este cliente» |
+| Ver estadísticas | «estadísticas» / «¿qué anuncios tienen más favoritos?» |
+| Leer estadísticas nuevas | «actualiza las estadísticas» |
+| Saber qué funciona mejor | «¿qué habitación funciona mejor?» / «recomendaciones» |
+| Imágenes | «genera una imagen» / «mejora la imagen 3» / «cambia la habitación de la imagen 3 a dormitorio beige» |
 | Revisar la calidad | «revisa los anuncios con problemas» |
 
 Si el asistente no está seguro de a qué te refieres, **te pregunta** en lugar de
@@ -42,16 +43,20 @@ que va a hacer. Por ejemplo:
 Pulsa **Confirmar** si es correcto o **Cancelar** si no. Sin tu confirmación no se
 hace nada.
 
-## 4. El anuncio principal de canapés
+## 4. La plantilla única de canapés
 
-En el menú, **Anuncio principal** guarda tu anuncio de canapés con tus datos:
-título, características, precio, descripción con las tres medidas y tu WhatsApp.
+Todos los anuncios automáticos usan **exactamente** tu plantilla:
 
-* Puedes editar los precios de cada medida y el teléfono desde esa pantalla.
-* Cuando cambias el precio **de una publicación concreta**, tu anuncio principal
-  **no cambia**.
-* Solo cambia si lo pides expresamente: «actualiza la plantilla» (y confirmas).
-* El botón **Restaurar datos originales** devuelve los datos iniciales.
+* Título: «Canapé canapé canapé canapé canapé»
+* Precio: 11,44 €
+* Estado: Nuevo · Categoría/uso: Dormitorio · Color: Gris y Blanco · Material: Madera
+  (van en los campos del formulario de Wallapop, no en la descripción)
+* La descripción exacta, con las tres medidas y tu WhatsApp.
+
+Mientras la casilla **«Plantilla única activa»** esté marcada (en **Anuncio
+principal**), LOT Bot no cambia nunca por su cuenta el título, el precio ni la
+descripción. Para cambiarlos, edítalos en esa pantalla y pulsa **Guardar**.
+**Restaurar datos originales** vuelve a tus datos.
 
 ## 5. Fotos
 
@@ -62,18 +67,27 @@ o está repetida.
 
 ## 6. Conectar tus cuentas de Wallapop
 
-1. Ve a **Configuración → Wallapop**, elige **«Integración mediante navegador»**
-   y pulsa **Aplicar**.
-2. En **Cuentas**, pulsa **«Añadir cuenta Wallapop»** y ponle un nombre.
-3. Se abre una ventana del navegador con Wallapop. **Inicia sesión tú** con
-   esa cuenta. Si Wallapop te pide un código o una verificación, complétala
-   en esa ventana.
-4. Cuando LOT Bot detecte la sesión, te preguntará si quieres conectarla.
-   Pulsa **Sí**.
+1. En **Cuentas**, pulsa **«Añadir cuenta Wallapop»** (si LOT Bot está en modo
+   demostración, te pregunta si activas la integración) y ponle un nombre.
+2. Se abre una ventana del navegador con Wallapop **y se queda abierta**.
+   **Inicia sesión tú** con esa cuenta. Si Wallapop te pide un código o una
+   verificación, complétala allí.
+3. Cuando veas tu cuenta en Wallapop, pulsa **«Ya he iniciado sesión»** en LOT Bot.
+4. LOT Bot **comprueba de verdad** que la sesión es válida. Solo entonces te
+   pregunta si quieres conectarla. Si todavía no has entrado, te lo dice y
+   puedes volver a intentarlo.
 
-Cada cuenta queda guardada en su propio navegador, separado de las demás. LOT
-Bot **nunca ve ni guarda tu contraseña**. Para borrar la sesión guardada,
-selecciona la cuenta y pulsa **Desconectar**.
+Cada cuenta tiene su propio navegador guardado, separado de las demás, y LOT
+Bot lo reutiliza para publicar: no tendrás que volver a iniciar sesión en cada
+anuncio. LOT Bot **nunca ve ni guarda tu contraseña**.
+
+Botones de cada cuenta: **Abrir cuenta** (abre su navegador, por ejemplo para
+completar una verificación), **Comprobar conexión**, **Reconectar**,
+**Desconectar** (borra la sesión guardada) y **Eliminar cuenta**.
+
+Si la sesión de una cuenta caduca mientras se publica, se detienen **solo** los
+anuncios de esa cuenta; las demás siguen. Pulsa **Reconectar** y después
+**Reanudar** en Publicación automática.
 
 Estas cuentas se conectan para tu uso personal autorizado; no es una
 aplicación oficial de Wallapop.
@@ -109,27 +123,43 @@ La clave se guarda cifrada en tu ordenador. Cada imagen consume créditos de
 tu cuenta de Black Forest Labs. En el modo demostración no se gastan
 créditos: se usan imágenes de prueba.
 
-## 9. Cuentas
+## 9. Estadísticas
 
-En **Cuentas** puedes **Añadir**, **Conectar**, **Desconectar**, **Volver a
-autenticar** y **Eliminar** cada cuenta. Cada cuenta está separada de las demás.
-Las cuentas marcadas como **Solo demostración** son de prueba y nunca se conectan a
-Wallapop.
+En **Estadísticas** ves, por cuenta y anuncio: visualizaciones, favoritos,
+visualizaciones por día, favoritos por cada 100 visitas, fecha de publicación,
+estado y enlace. Puedes ordenar por visualizaciones, favoritos o rendimiento.
 
-LOT Bot **nunca te pide tu contraseña de Wallapop**.
+* Pulsa **Actualizar estadísticas** para leerlas de nuevo. Cada lectura se
+  guarda, y así se ve cómo evoluciona cada anuncio (**Ver histórico del anuncio**).
+* Si Wallapop no muestra un dato, aparece **«No disponible»**. LOT Bot nunca se
+  inventa cifras.
+* Abajo verás el análisis: los **DATOS** (lo que ha pasado) separados de las
+  **RECOMENDACIONES** (lo que podrías probar). Con pocos datos, LOT Bot dice
+  que todavía no puede sacar conclusiones.
 
-## 10. Mensajes de compradores
+## 10. Imágenes / IA
 
-En **Mensajes** ves las conversaciones. El asistente prepara respuestas usando
-solo los datos reales de tus anuncios. Si un comprador pregunta algo que no está
-en el anuncio, la respuesta dirá: «No dispongo de esa información.» Revisa y
-edita siempre antes de enviar.
+Selecciona una imagen de la lista y elige qué hacer:
+
+* **Generar**: una foto nueva desde cero con los datos de tu anuncio (o con el
+  producto que escribas en «Producto»).
+* **Mejorar**: más resolución y nitidez (se hace en tu ordenador, sin gastar créditos).
+* **Cambiar estilo** / **Cambiar habitación**: el mismo producto con otro ambiente.
+* **Usar como referencia**: una foto nueva basada en el producto de la imagen
+  elegida. Con **Subir foto propia…** puedes usar una foto tuya.
+
+La imagen original nunca se modifica, las fotos repetidas se descartan y nunca
+se añaden precios, teléfonos, logos ni texto. Generar y editar con FLUX.2 Pro
+consume créditos y pide confirmación.
+
+Los **mensajes sin leer** ya no aparecen en LOT Bot: no se pueden leer de
+forma fiable desde el navegador. Consulta los mensajes en Wallapop.
 
 ## 11. Si algo no funciona
 
 * **«Esta operación no está disponible con el acceso actual a Wallapop»**: esa
   función todavía no está habilitada para tus cuentas. No es un error tuyo.
-* **«La sesión ha caducado»**: ve a **Cuentas** y pulsa **Volver a autenticar**.
+* **«La sesión ha caducado»**: ve a **Cuentas** y pulsa **Reconectar**.
 * **La cola se ha pausado con «No se ha podido completar el paso…»**: la web
   de Wallapop puede haber cambiado. Avisa a tu técnico; no hace falta
   reinstalar LOT Bot.

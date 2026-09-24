@@ -16,7 +16,7 @@ from lot_bot.database.models import Base
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 #: Columnas añadidas después de la primera versión. Se crean solas al
 #: arrancar en bases de datos antiguas, sin perder datos.
@@ -32,6 +32,13 @@ LIGHT_MIGRATIONS: dict[str, list[tuple[str, str]]] = {
     "listings": [
         ("master_ad_id", "INTEGER REFERENCES master_ads(id) ON DELETE SET NULL"),
         ("overrides", "JSON"),
+        ("url", "TEXT"),
+        ("meta", "JSON"),
+    ],
+    "generated_images": [
+        ("operation", "VARCHAR(40)"),
+        ("scene", "JSON"),
+        ("source_image", "TEXT"),
     ],
 }
 

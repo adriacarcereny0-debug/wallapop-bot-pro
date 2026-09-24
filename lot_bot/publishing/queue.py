@@ -666,6 +666,7 @@ class PublishQueue:
                     ref,
                     payload.get("overrides") or {},
                     extra_images=[image_path] if image_path else None,
+                    meta={"imagen": payload.get("imagen") or {"origen": "plantilla"}},
                     confirmed=True,
                     actor=actor,
                 )
@@ -708,6 +709,7 @@ class PublishQueue:
                 subject=f"Cola {job_id} · anuncio {position} · {master.name}",
                 account_ref=ref,
                 task_id=task_id,
+                preferred_rooms=self._preferred_rooms(),
             )
         except GenerationError as exc:
             self._fail(task_id, job_id, 1, exc.code, exc.user_message, allow_retry=exc.code != "DUPLICATE")
@@ -715,7 +717,15 @@ class PublishQueue:
         except Exception as exc:
             self._fail(task_id, job_id, 1, type(exc).__name__, str(exc))
             return None
-        self._set_task(task_id, image_path=str(result.path))
+        # Se guarda qué escena se usó: servirá para analizar qué funciona mejor.
+        payload["imagen"] = {
+            "id": result.image_id,
+            "escena": dict(result.scene),
+            "proveedor": result.provider,
+            "operacion": result.operation,
+            "demo": result.is_demo,
+        }
+        self._set_task(task_id, image_path=str(result.path), payload=dict(payload))
         self._audit.record_success(
             "Imagen generada para anuncio",
             account_ref=ref,
@@ -723,6 +733,17 @@ class PublishQueue:
             detail=f"{result.provider}; intento {result.attempts}; {result.path.name}",
         )
         return str(result.path)
+
+    def _preferred_rooms(self) -> list[str]:
+        """Habitaciones que mejor han funcionado (si hay datos suficientes)."""
+        optimizer = getattr(self._app, "optimizer", None)
+        if optimizer is None:
+            return []
+        try:
+            return optimizer.preferred_rooms()
+        except Exception:  # la optimización nunca debe parar la cola
+            logger.debug("Optimizador no disponible", exc_info=True)
+            return []
 
     def _set_task(self, task_id: int, **fields: Any) -> None:
         with self._db.session_scope() as session:

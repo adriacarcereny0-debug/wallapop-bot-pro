@@ -77,6 +77,49 @@ El controlador real se ha probado contra una página local que imita el
 formulario (rellenar, elegir categoría, subir la foto a un `input` oculto,
 detectar la confirmación y extraer la URL del anuncio).
 
+## Conexión de cuentas (comprobación real)
+
+Antes, una cuenta se daba por conectada al ver un enlace a `/app/chat`, que
+Wallapop muestra también sin sesión: el navegador se cerraba al instante y la
+cuenta quedaba «conectada» sin haber iniciado sesión. Ahora:
+
+1. `LoginSession` abre el perfil persistente de la cuenta en un navegador
+   visible y lo deja abierto.
+2. El usuario inicia sesión y pulsa «Ya he iniciado sesión».
+3. `verify_session` abre una página privada (`sesion.comprobacion` del YAML) y
+   exige a la vez: que no haya redirección fuera de `/app/`, que no se vea el
+   botón de acceso ni una verificación y que se vea contenido privado.
+4. Solo con esa comprobación correcta `authenticate` crea la credencial (sin
+   secretos: la sesión vive en el perfil) y la interfaz pide confirmación.
+
+Probado con Chromium real contra una web local que imita ese comportamiento
+(incluido el enlace `/app/chat` visible sin sesión).
+
+## Reutilización y caducidad
+
+`BrowserSessionPool` mantiene un navegador por cuenta, en su propio hilo,
+entre publicaciones (se cierra solo tras `mantener_abierto_s`). Publicar 50
+anuncios en una cuenta abre su navegador una vez. Si la sesión caduca, la cola
+marca la cuenta como «Sesión caducada», deja sus anuncios pendientes y sigue
+con las demás cuentas; si solo quedan anuncios de cuentas caducadas, se pausa.
+
+## Estadísticas
+
+`estadisticas:` en el YAML define patrones para leer visualizaciones y
+favoritos del texto de la página pública del anuncio (sin verificar contra la
+web real). Lo que no aparece se guarda como `None` («No disponible»). Cada
+lectura se guarda en `listing_stats` (histórico). `StatsAnalyzer` compara
+grupos (habitación, luz, estilo, tipo de imagen, día, franja, título,
+descripción, cuenta) solo con ≥3 anuncios por grupo y ≥2 grupos, sin afirmar
+causalidad; `Optimizer` recomienda y hace que 2 de cada 3 imágenes nuevas usen
+las habitaciones que mejor funcionan (la tercera sigue explorando). Nunca
+cambia el título, el precio ni la descripción de la plantilla única.
+
+## Mensajes
+
+Desactivados: no hay API de mensajes y leer el chat de la web sería frágil.
+`MessageService.messaging_available` es falso con el navegador y en DEMO.
+
 ## Sesiones
 
 * Un perfil de Chromium por cuenta en `<datos>/browser_profiles/<cuenta>/`
@@ -131,3 +174,9 @@ fallo y se muestra tal cual.
 * La clave se introduce en Configuración → IA / Imágenes, se guarda cifrada
   con la clave maestra del sistema y se tacha en los registros.
 * En DEMO se generan imágenes de prueba locales: ni red ni créditos.
+* Edición con referencias (`input_image`, `input_image_2`…, FLUX.2 [pro]):
+  «Cambiar estilo», «Cambiar habitación» y «Usar como referencia» envían la
+  imagen elegida y piden mantener el producto sin cambios. «Mejorar» es local
+  (Pillow: hasta 2048 px, nitidez y contraste), sin IA.
+* Cada imagen guarda su escena (habitación, luz, ángulo, estilo) y su imagen de
+  partida; una edición idéntica a la original se descarta.

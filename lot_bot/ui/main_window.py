@@ -28,13 +28,14 @@ from lot_bot.ui.views import (
     AutomationsView,
     DashboardView,
     HistoryView,
-    InventoryView,
+    ImageStudioView,
     ListingsView,
     LogsView,
     MasterAdView,
     ProductsView,
     PublishQueueView,
     SettingsView,
+    StatisticsView,
 )
 from lot_bot.ui.widgets.workers import TaskRunner
 
@@ -45,17 +46,20 @@ logger = logging.getLogger(__name__)
 
 #: (etiqueta, icono textual, clase de la vista)
 NAVIGATION = [
-    ("Panel", "▦", DashboardView),
+    # --- Lo principal ---
     ("Asistente IA", "✦", AssistantView),
-    ("Anuncio principal", "★", MasterAdView),
-    ("Publicación automática", "⇪", PublishQueueView),
     ("Cuentas de Wallapop", "◉", AccountsView),
-    ("Productos", "▤", ProductsView),
     ("Anuncios", "◨", ListingsView),
-    ("Inventario", "▩", InventoryView),
+    ("Publicación automática", "⇪", PublishQueueView),
+    ("Estadísticas", "▲", StatisticsView),
+    ("Imágenes / IA", "▣", ImageStudioView),
+    ("Anuncio principal", "★", MasterAdView),
+    ("Configuración", "⚙", SettingsView),
+    # --- Más ---
+    ("Panel", "▦", DashboardView),
+    ("Productos", "▤", ProductsView),
     ("Automatizaciones", "⟳", AutomationsView),
     ("Historial", "☰", HistoryView),
-    ("Configuración", "⚙", SettingsView),
     ("Logs y errores", "⚠", LogsView),
 ]
 
@@ -115,7 +119,7 @@ class MainWindow(QMainWindow):
         self._update_status()
 
         # El asistente es el centro de la aplicación: se abre directamente ahí.
-        self._go_to(1)
+        self._go_to(0)  # el asistente es el centro de la aplicación
 
     # ------------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
