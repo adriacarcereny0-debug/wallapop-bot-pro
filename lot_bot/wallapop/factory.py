@@ -147,12 +147,15 @@ def build_backend(
     """Construye el backend que corresponde a la configuracion actual.
 
     `integration` es la elección guardada en Configuración («navegador» o
-    «demo»). `LOT_BOT_DEMO_MODE=true` explícito siempre gana.
+    «demo»). Esa elección manda sobre LOT_BOT_DEMO_MODE.
     """
     chosen = settings.wallapop_integration or (integration or "")
 
-    # --- 1. DEMO explicito ---
-    if settings.demo_forced or (settings.demo_mode and chosen != INTEGRATION_BROWSER):
+    # --- 1. DEMO ---
+    # Lo que el usuario elige en Configuración → Wallapop manda sobre el
+    # LOT_BOT_DEMO_MODE del .env (el .env de ejemplo trae «true» y, si no,
+    # la integración por navegador no se podría activar desde la pantalla).
+    if settings.demo_mode and chosen != INTEGRATION_BROWSER:
         return _demo_backend("Modo DEMO activado en la configuración.")
 
     # --- 1b. Integración por navegador ---

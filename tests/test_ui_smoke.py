@@ -109,10 +109,6 @@ def test_todas_las_pantallas_funcionan_en_modo_navegador(qt_app, app_with_data, 
         "open",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("no debe abrir el navegador")),
     )
-    from lot_bot.config.settings import Settings
-
-    # Las pruebas fuerzan LOT_BOT_DEMO_MODE=true, que siempre gana: se quita.
-    app_with_data.settings = Settings(LOT_BOT_AI_PROVIDER="rules")
     app_with_data.set_integration_mode("navegador")
     assert app_with_data.backend_label == "WALLAPOP (NAVEGADOR)"
     ventana = MainWindow(app_with_data)

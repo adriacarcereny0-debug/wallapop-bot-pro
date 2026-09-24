@@ -337,9 +337,13 @@ def test_backend_navegador_desde_la_configuracion(database, temp_paths):
     assert not backend.demo
     assert isinstance(backend.service, BrowserWallapopService)
     assert "uso personal autorizado" in backend.reason
-    # LOT_BOT_DEMO_MODE=true explícito siempre gana.
-    forced = build_backend(Settings(LOT_BOT_DEMO_MODE=True), manager, "navegador")
-    assert forced.demo
+    # La elección de la pantalla manda sobre LOT_BOT_DEMO_MODE=true del .env
+    # (el .env de ejemplo lo trae así).
+    elegido = build_backend(
+        Settings(LOT_BOT_DEMO_MODE=True), manager, "navegador", launcher=FakeLauncher({})
+    )
+    assert not elegido.demo
+    assert build_backend(Settings(LOT_BOT_DEMO_MODE=True), manager, "demo").demo
 
 
 def test_sin_eleccion_se_queda_en_demo(database, temp_paths):

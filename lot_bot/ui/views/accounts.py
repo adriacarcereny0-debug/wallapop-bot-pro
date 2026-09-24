@@ -346,14 +346,32 @@ class AccountsView(BaseView):
     # ------------------------------------------------------------------
     def _add_browser_account(self) -> None:
         if self.app.browser_auth is None:
-            info_box(
+            # Se puede activar aquí mismo, sin pasar por Configuración.
+            if not ask_confirmation(
                 self,
-                "Integración por navegador desactivada",
-                "Para conectar tus cuentas de Wallapop, activa primero la integración en "
-                "Configuración → Wallapop → «Integración mediante navegador».\n\n"
-                "Mientras tanto LOT Bot funciona en modo demostración.",
-            )
-            return
+                "Activar la integración por navegador",
+                "Ahora mismo LOT Bot está en modo demostración.\n\n"
+                "¿Quieres activar la integración con Wallapop mediante navegador para "
+                "conectar tu cuenta? (Se puede volver al modo demostración desde "
+                "Configuración → Wallapop.)",
+            ):
+                return
+            try:
+                self.app.set_integration_mode("navegador")
+            except Exception as exc:
+                show_error(self, "No se ha podido activar la integración.", str(exc))
+                return
+            if self.app.browser_auth is None:
+                show_error(
+                    self,
+                    "La integración por navegador no está disponible.",
+                    self.app.backend.describe_missing() or self.app.backend.reason,
+                )
+                return
+            window = self.window()
+            if hasattr(window, "_update_status"):
+                window._update_status()
+            self.refresh()
         alias, accepted = QInputDialog.getText(
             self, "Añadir cuenta Wallapop", "Nombre para reconocer esta cuenta en LOT Bot:"
         )

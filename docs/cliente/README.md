@@ -45,7 +45,7 @@ técnico, LOT Bot te dice cuál en vez de pedirte algo que no tienes.
 | **Productos** | Tu catálogo: fichas, fotos y publicación |
 | **Anuncios** | Lo que tienes publicado en Wallapop |
 | **Inventario** | Unidades disponibles y avisos de stock |
-| **Precios** | Análisis y cambios de precio en lote |
+| **Publicación automática** | Progreso de la cola de publicación |
 | **Mensajes** | Conversaciones con compradores |
 | **Automatizaciones** | Tareas que se repiten solas |
 | **Historial** | Todo lo que se ha hecho, con fecha y resultado |

@@ -11,7 +11,6 @@ from lot_bot.ui.views.listings import ListingsView
 from lot_bot.ui.views.logs import LogsView
 from lot_bot.ui.views.master_ad import MasterAdView
 from lot_bot.ui.views.messages import MessagesView
-from lot_bot.ui.views.pricing import PricingView
 from lot_bot.ui.views.products import ProductsView
 from lot_bot.ui.views.publish_queue import PublishQueueView
 from lot_bot.ui.views.settings import SettingsView
@@ -24,7 +23,6 @@ __all__ = [
     "ProductsView",
     "ListingsView",
     "InventoryView",
-    "PricingView",
     "MessagesView",
     "AutomationsView",
     "HistoryView",

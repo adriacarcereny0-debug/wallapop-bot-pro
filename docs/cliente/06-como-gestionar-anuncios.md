@@ -35,11 +35,6 @@ historial sin avisarte.
 3. Verás cuántos anuncios y de qué cuentas se van a cambiar
 4. Confirma
 
-### Desde la pantalla de Precios
-
-En **Precios** puedes filtrar (por ejemplo, todos los de 135x190) y aplicar un precio
-a todos los del filtro de una vez. Antes de hacerlo, te enseña el desglose por cuenta.
-
 ### Desde el asistente
 
 ```
@@ -93,9 +88,7 @@ Para cambiar el stock: selecciona los productos, pon la cantidad y pulsa
 
 ## Analizar precios
 
-En **Precios** verás el precio medio, la mediana, el mínimo y el máximo de los
-anuncios filtrados. Con **Analizar mercado** obtienes una comparación con los datos de
-mercado disponibles.
+Pídeselo al asistente, por ejemplo «analiza los precios de los canapés».
 
 Si no hay una fuente de mercado autorizada, LOT Bot te lo dice claramente en lugar de
 inventarse cifras.

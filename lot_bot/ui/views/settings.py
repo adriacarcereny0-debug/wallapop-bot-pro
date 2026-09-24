@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -29,6 +31,23 @@ from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import Card, SectionTitle, info_box, show_error
 
+MIN_CONTROL_HEIGHT = 34
+
+
+def _scrollable(content: QWidget) -> QScrollArea:
+    area = QScrollArea()
+    area.setWidgetResizable(True)
+    area.setFrameShape(QScrollArea.Shape.NoFrame)
+    area.setWidget(content)
+    return area
+
+
+def _fixed_height(*widgets: QWidget) -> None:
+    """Altura mínima y sin encogerse: el diseño nunca los deja ilegibles."""
+    for widget in widgets:
+        widget.setMinimumHeight(MIN_CONTROL_HEIGHT)
+        widget.setSizePolicy(widget.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Fixed)
+
 
 class SettingsView(BaseView):
     title = "Configuración"
@@ -36,11 +55,13 @@ class SettingsView(BaseView):
 
     def build(self) -> None:
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._business_tab(), "Negocio")
-        self.tabs.addTab(self._templates_tab(), "Plantillas")
-        self.tabs.addTab(self._ai_tab(), "IA / Imágenes")
-        self.tabs.addTab(self._wallapop_tab(), "Wallapop")
-        self.tabs.addTab(self._about_tab(), "Acerca de")
+        # Cada pestaña va dentro de un área con desplazamiento: si la ventana
+        # es baja, se hace scroll en vez de aplastar los controles.
+        self.tabs.addTab(_scrollable(self._business_tab()), "Negocio")
+        self.tabs.addTab(_scrollable(self._templates_tab()), "Plantillas")
+        self.tabs.addTab(_scrollable(self._ai_tab()), "IA / Imágenes")
+        self.tabs.addTab(_scrollable(self._wallapop_tab()), "Wallapop")
+        self.tabs.addTab(_scrollable(self._about_tab()), "Acerca de")
         self.body.addWidget(self.tabs, 1)
 
     # ------------------------------------------------------------------
@@ -199,6 +220,7 @@ class SettingsView(BaseView):
         self.flux_show.setCheckable(True)
         self.flux_show.toggled.connect(self._toggle_flux_visibility)
         row.addWidget(self.flux_show)
+        _fixed_height(self.flux_key, self.flux_show)
         card.body.addLayout(row)
 
         self.flux_status = QLabel()
@@ -315,6 +337,7 @@ class SettingsView(BaseView):
         form.addRow("Intervalo mínimo entre publicaciones", self.publish_interval)
         self.publish_images = QCheckBox("Generar una imagen distinta para cada anuncio")
         form.addRow("Imágenes", self.publish_images)
+        _fixed_height(self.integration_mode, self.publish_interval, self.publish_images)
         integration.body.addLayout(form)
         integration_note = QLabel(
             "Con la integración por navegador tú inicias sesión en Wallapop y LOT Bot "
@@ -334,12 +357,13 @@ class SettingsView(BaseView):
         integration.add(self.selectors_label)
         apply_integration = QPushButton("Aplicar")
         apply_integration.setObjectName("Primary")
+        _fixed_height(apply_integration)
         apply_integration.clicked.connect(self._apply_integration)
         integration.add(apply_integration)
         layout.addWidget(integration)
 
         card = Card()
-        card.add(SectionTitle("Acceso a Wallapop"))
+        card.add(SectionTitle("Estado de la conexión"))
         self.wallapop_status = QLabel()
         self.wallapop_status.setWordWrap(True)
         card.add(self.wallapop_status)
@@ -583,6 +607,9 @@ class SettingsView(BaseView):
         except (ValueError, RuntimeError) as exc:
             show_error(self, "No se ha podido aplicar la configuración.", str(exc))
             return
+        window = self.window()
+        if hasattr(window, "_update_status"):
+            window._update_status()
         info_box(self, "Configuración aplicada", f"Modo activo: {self.app.backend_label}")
         self.refresh()
 
