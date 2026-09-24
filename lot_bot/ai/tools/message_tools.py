@@ -21,8 +21,10 @@ def _get_messages(context: ToolContext, args: dict[str, Any]) -> ToolResult:
         return ToolResult(
             ok=False,
             summary=(
-                "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS: la integración autorizada no incluye "
-                "acceso a los mensajes de Wallapop."
+                "NOT_AVAILABLE_WITH_CURRENT_WALLAPOP_ACCESS: los mensajes sin leer están "
+                "desactivados. LOT Bot no puede leer el buzón de Wallapop de forma fiable con "
+                "la integración actual (no hay API de mensajes) y no muestra datos que no "
+                "sean reales. Consulta los mensajes en Wallapop."
             ),
             unavailable=True,
         )
@@ -94,6 +96,8 @@ def _sales_context(context: ToolContext, view) -> Any:
 
 def _prepare_message_response(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     """Prepara una respuesta SIN enviarla. Nunca inventa datos."""
+    if not context.app.messages.messaging_available:
+        return _get_messages(context, args)
     conversation_id = args.get("conversacion") or context.focus.get("conversation_id")
     if conversation_id is None:
         # «Este cliente» sin haber abierto ninguna conversación: la más

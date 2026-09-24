@@ -80,6 +80,15 @@ class MessageService:
 
     @property
     def messaging_available(self) -> bool:
+        """Solo con una integración que entregue los mensajes de forma fiable.
+
+        La integración por navegador NO lee el buzón (sería extraer datos de
+        la web del chat, frágil y poco fiable) y los mensajes del modo DEMO son
+        inventados: en ninguno de los dos casos se muestra la función, para no
+        aparentar que funciona sin datos reales.
+        """
+        if getattr(self._wallapop, "is_mock", False):
+            return False
         return self._wallapop.supports(Capability.LIST_CONVERSATIONS)
 
     @property

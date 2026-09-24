@@ -164,13 +164,11 @@ def test_generar_descripcion_no_modifica_la_plantilla(app_with_data):
     assert app_with_data.master_ads.get().description == antes
 
 
-def test_respuesta_para_este_cliente_sin_numero(app_with_data):
-    agente = app_with_data.agent
-    agente.ask("¿Qué mensajes nuevos hay?")
-    respuesta = agente.ask("Prepara una respuesta para este cliente")
+def test_respuesta_para_este_cliente_con_mensajes_desactivados(app_with_data):
+    respuesta = app_with_data.agent.ask("Prepara una respuesta para este cliente")
     texto = " ".join(m.text for m in respuesta.messages)
-    assert "Respuesta preparada" in texto
-    assert "NO se ha enviado" in texto
+    assert "desactivados" in texto
+    assert not respuesta.needs_confirmation
 
 
 def test_anuncios_de_una_cuenta(app_with_data):

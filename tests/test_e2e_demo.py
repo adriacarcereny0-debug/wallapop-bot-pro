@@ -218,11 +218,21 @@ def test_deteccion_de_duplicados_no_borra_nada(app_with_data):
     assert app_with_data.listings.stats()["total"] == antes
 
 
-def test_una_instalacion_nueva_trae_mensajes_de_demostracion(app):
-    """Fallo corregido: al estrenar el modo DEMO no había conversaciones, y
-    «¿qué mensajes nuevos hay?» respondía que ninguno."""
-    assert app.messages.list_conversations()
-    assert app.messages.unread_count() > 0
+def test_los_mensajes_sin_leer_estan_desactivados(app):
+    """No hay forma fiable de leer el buzón de Wallapop con la integración
+    actual: la función se desactiva en vez de mostrar datos inventados."""
+    assert not app.messages.messaging_available
+    assert app.messages.list_conversations() == []  # ni siquiera mensajes DEMO
+    texto = " ".join(m.text for m in app.agent.ask("¿Qué mensajes nuevos hay?").messages)
+    assert "desactivados" in texto and "no muestra datos que no sean reales" in texto
+
+
+def test_mensajes_desactivados_tambien_con_el_navegador():
+    from lot_bot.wallapop.browser import BrowserWallapopService
+    from lot_bot.wallapop.capabilities import Capability
+
+    service = object.__new__(BrowserWallapopService)  # sin abrir ningún navegador
+    assert Capability.LIST_CONVERSATIONS not in service.capabilities()
 
 
 def test_los_mensajes_del_modo_demo_dicen_que_son_simulados(app):

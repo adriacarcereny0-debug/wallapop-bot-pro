@@ -138,9 +138,15 @@ def test_la_herramienta_de_hechos_avisa_de_lo_que_falta(app_with_data):
     assert isinstance(resultado.data["desconocidos"], list)
 
 
-def test_preparar_respuesta_no_envia_nada(app_with_data):
+def test_preparar_respuesta_no_envia_nada(app_with_data, monkeypatch):
+    """El asistente de ventas se conserva para una futura integración con
+    mensajes reales; aquí se simula que existe."""
     from lot_bot.ai.tools import build_registry
     from lot_bot.ai.tools.base import ToolContext
+    from lot_bot.messages.service import MessageService
+
+    monkeypatch.setattr(MessageService, "messaging_available", property(lambda self: True))
+    app_with_data.messages.sync_all([a.internal_ref for a in app_with_data.accounts.list_accounts()])
 
     conversacion = app_with_data.messages.list_conversations()[0]
     registro = build_registry()
