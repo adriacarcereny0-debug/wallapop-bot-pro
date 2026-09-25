@@ -94,6 +94,7 @@ class BrowserWallapopService(WallapopService):
         screenshots_dir: Path | None = None,
         is_account_connected=None,
         pool: BrowserSessionPool | None = None,
+        normal_launcher=None,
     ) -> None:
         self.profiles = profiles
         self.launcher = launcher or PlaywrightLauncher()
@@ -103,6 +104,9 @@ class BrowserWallapopService(WallapopService):
         self._is_connected = is_account_connected or (lambda ref: profiles.exists(ref))
         #: Navegadores abiertos por cuenta, reutilizados entre publicaciones.
         self.pool = pool or BrowserSessionPool(self.launcher, self.site.keep_open_seconds)
+        #: Chrome/Edge normal (sin automatización) para que el usuario inicie
+        #: sesión a mano. None = se usa el navegador integrado.
+        self.normal_launcher = normal_launcher
 
     # ------------------------------------------------------------------
     def capabilities(self) -> set[Capability]:
@@ -179,9 +183,11 @@ class BrowserWallapopService(WallapopService):
             return SessionCheck(False, "error", f"No se ha podido abrir Wallapop ({type(exc).__name__}).")
         page.wait(site.check_wait_ms)
         if site.verification and page.first_visible(site.verification, 0):
+            logger.info("Verificación de Wallapop. Diagnóstico: %s", page.diagnostics())
             return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")
         current = page.current_url()
         if site.check_url_contains and site.check_url_contains not in current:
+            logger.info("Sin sesión (redirección). Diagnóstico: %s", page.diagnostics())
             return SessionCheck(
                 False, "sin_sesion", "Wallapop ha redirigido fuera de la zona privada: no hay sesión."
             )
@@ -189,6 +195,7 @@ class BrowserWallapopService(WallapopService):
             return SessionCheck(False, "sin_sesion", "Wallapop muestra el botón de iniciar sesión.")
         proof = page.first_visible(site.check_private + site.logged_in, 2000)
         if proof is None:
+            logger.info("Sesión no confirmada. Diagnóstico: %s", page.diagnostics())
             return SessionCheck(
                 False,
                 "desconocido",

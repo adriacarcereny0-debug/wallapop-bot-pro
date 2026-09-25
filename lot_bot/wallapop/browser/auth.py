@@ -38,6 +38,12 @@ from lot_bot.wallapop.browser.service import BrowserWallapopService, SessionChec
 logger = logging.getLogger(__name__)
 
 UNCONFIRMED = "Estado de sesión no confirmado"
+VERIFICATION_MESSAGE = "Completa la verificación en el navegador y vuelve a LOT-Bot."
+STEP_1 = "Paso 1/2 — Navegador abierto"
+STEP_2 = (
+    "Paso 2/2 — Inicia sesión manualmente en Wallapop en la ventana del navegador. "
+    "Cuando termines, pulsa «Ya he iniciado sesión»."
+)
 
 AUTHORIZED_USE_NOTE = (
     "Cuenta de Wallapop conectada para el uso personal autorizado del titular de "
@@ -61,6 +67,11 @@ class LoginSession:
     UNKNOWN = "desconocido"
     CLOSED = "cerrado"
     ERROR = "error"
+    #: Navegador normal: esperando a que el usuario cierre la ventana para
+    #: que Chrome guarde la sesión.
+    CLOSE_TO_SAVE = "cerrar_para_guardar"
+    #: Navegador normal cerrado sin haber pulsado «Ya he iniciado sesión».
+    BROWSER_CLOSED = "navegador_cerrado"
 
     def __init__(self, service: BrowserWallapopService, account_ref: str, timeout: float = 1800.0):
         self.service = service
@@ -71,6 +82,7 @@ class LoginSession:
         self._changed = threading.Condition(self._lock)
         self._state = self.OPENING
         self._message = "Abriendo el navegador…"
+        self.mode = "normal" if getattr(service, "normal_launcher", None) else "integrado"
         self.check: SessionCheck | None = None
         self._thread: threading.Thread | None = None
 
@@ -125,7 +137,106 @@ class LoginSession:
             self._thread.join(wait)
 
     # -- Hilo del navegador -----------------------------------------------
+    def _apply(self, result: SessionCheck) -> None:
+        self.check = result
+        if result.ok:
+            self._set(self.VERIFIED, "Sesión comprobada correctamente.")
+        elif result.state == "verificacion":
+            self._set(
+                self.VERIFICATION,
+                f"{VERIFICATION_MESSAGE} (Wallapop pide un CAPTCHA o una verificación; "
+                "LOT Bot no la resuelve ni la salta.) Después pulsa «Ya he iniciado sesión».",
+            )
+        elif result.state == "sin_sesion":
+            self._set(
+                self.NOT_LOGGED,
+                f"Todavía no hay sesión iniciada. {result.message} Inicia sesión en el "
+                "navegador y vuelve a pulsar «Ya he iniciado sesión».",
+            )
+        else:
+            self._set(
+                self.UNKNOWN,
+                f"{UNCONFIRMED}. {result.message} La cuenta NO se conecta: comprueba en el "
+                "navegador que has entrado en tu cuenta y vuelve a pulsar «Ya he iniciado sesión».",
+            )
+
     def _run(self) -> None:
+        normal = getattr(self.service, "normal_launcher", None)
+        if normal is not None and normal.available():
+            try:
+                self._run_normal(normal)
+                return
+            except Exception as exc:
+                logger.error(
+                    "No se ha podido usar el navegador normal (%s); se usa el integrado.",
+                    type(exc).__name__,
+                )
+        self._run_playwright()
+
+    def _run_normal(self, launcher) -> None:
+        """Inicio de sesión en el Chrome/Edge normal (sin automatización).
+
+        Chrome solo guarda la sesión en disco al cerrarse: por eso, tras «Ya he
+        iniciado sesión», se pide cerrar la ventana y después se comprueba.
+        """
+        site = self.service.site
+        self.service.release(self.account_ref)
+        profile = self.service.profiles.profile_dir(self.account_ref)
+        browser = launcher.launch(profile, site.url("inicio"))
+        self._set(self.OPENING, "Paso 1/2 — Navegador abierto")
+        self._set(self.WAITING, STEP_2)
+        pending = False
+        deadline = time.monotonic() + self._timeout
+        while time.monotonic() < deadline:
+            try:
+                command = self._commands.get(timeout=1.0)
+            except queue.Empty:
+                command = None
+            if command == "close":
+                if browser.running() and browser.process is not None:
+                    browser.process.terminate()
+                self._set(self.CLOSED, "Navegador cerrado.")
+                return
+            if command == "reopen":
+                if not browser.running():
+                    self.service.release(self.account_ref)
+                    browser = launcher.launch(profile, site.url("inicio"))
+                    self._set(self.WAITING, STEP_2)
+                continue
+            if command == "check":
+                pending = True
+            running = browser.running()
+            if pending and running and self.state != self.CLOSE_TO_SAVE:
+                self._set(
+                    self.CLOSE_TO_SAVE,
+                    "Para guardar la sesión, cierra la ventana del navegador de esta cuenta. "
+                    "LOT Bot la comprobará en cuanto se cierre.",
+                )
+            elif pending and not running:
+                pending = False
+                browser.wait_closed()
+                self._set(self.CHECKING, "Comprobando la sesión en Wallapop…")
+                try:
+                    result = self.service.check_session(self.account_ref)
+                except Exception as exc:
+                    result = SessionCheck(False, "error", f"Error al comprobar ({type(exc).__name__}).")
+                finally:
+                    self.service.release(self.account_ref)
+                self._apply(result)
+                if result.ok:
+                    return
+            elif not running and self.state == self.WAITING:
+                self._set(
+                    self.BROWSER_CLOSED,
+                    "Se ha cerrado el navegador. Si ya iniciaste sesión, pulsa «Ya he iniciado "
+                    "sesión». Si no, pulsa «Abrir de nuevo el navegador».",
+                )
+        self._set(self.CLOSED, "Tiempo agotado.")
+
+    def request_reopen(self) -> None:
+        self._commands.put("reopen")
+
+    def _run_playwright(self) -> None:
         site = self.service.site
         try:
             with self.service.profiles.lock(self.account_ref), self.service.launcher.open(
@@ -134,12 +245,9 @@ class LoginSession:
                 channels=site.channels,
                 locale=site.locale,
             ) as page:
+                self._set(self.OPENING, STEP_1)
                 page.goto(site.url("inicio"))
-                self._set(
-                    self.WAITING,
-                    "Inicia sesión en Wallapop en la ventana del navegador. Cuando termines, "
-                    "pulsa «Ya he iniciado sesión».",
-                )
+                self._set(self.WAITING, STEP_2)
                 deadline = time.monotonic() + self._timeout
                 while time.monotonic() < deadline:
                     try:
@@ -159,29 +267,7 @@ class LoginSession:
                             result = self.service.verify_session(page)
                         except Exception as exc:
                             result = SessionCheck(False, "error", f"Error al comprobar ({type(exc).__name__}).")
-                        self.check = result
-                        if result.ok:
-                            self._set(self.VERIFIED, "Sesión comprobada correctamente.")
-                        elif result.state == "verificacion":
-                            self._set(
-                                self.VERIFICATION,
-                                "Wallapop pide una verificación (CAPTCHA o similar). El navegador "
-                                "sigue abierto: complétala tú allí y después vuelve a pulsar "
-                                "«Ya he iniciado sesión». LOT Bot no la resuelve ni la salta.",
-                            )
-                        elif result.state == "sin_sesion":
-                            self._set(
-                                self.NOT_LOGGED,
-                                f"Todavía no hay sesión iniciada. {result.message} Inicia sesión "
-                                "en el navegador y vuelve a pulsar «Ya he iniciado sesión».",
-                            )
-                        else:
-                            self._set(
-                                self.UNKNOWN,
-                                f"{UNCONFIRMED}. {result.message} La cuenta NO se conecta: "
-                                "comprueba en el navegador que has entrado en tu cuenta y "
-                                "vuelve a pulsar «Ya he iniciado sesión».",
-                            )
+                        self._apply(result)
                 else:
                     self._set(self.CLOSED, "Tiempo agotado: se ha cerrado el navegador.")
                     return
@@ -231,7 +317,13 @@ class BrowserSessionAuthMethod(AuthMethod):
         """Abre el navegador de la cuenta para que el usuario haga algo a mano
         (p. ej. completar una verificación). Vuelve cuando lo cierra."""
         session = LoginSession(self.service, account_ref, max_seconds).start()
-        session.wait_for(LoginSession.CLOSED, LoginSession.ERROR, timeout=max_seconds + 5)
+        session.wait_for(
+            LoginSession.CLOSED,
+            LoginSession.ERROR,
+            LoginSession.BROWSER_CLOSED,
+            timeout=max_seconds + 5,
+        )
+        session.close()
         return session.message
 
     def authenticate(self, account_ref: str, **context: Any) -> AuthOutcome:

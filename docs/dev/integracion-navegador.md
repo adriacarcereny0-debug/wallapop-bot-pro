@@ -131,7 +131,31 @@ Desactivados: no hay API de mensajes y leer el chat de la web sería frágil.
 * `.gitignore` bloquea además `browser_profiles/`, `Cookies`, `Login Data`,
   `storage_state*.json`, `*.har`, `*.local.yaml`.
 
-Navegador (`driver.py`):
+Inicio de sesión en el navegador NORMAL (`normal.py`):
+
+* Para «Añadir cuenta Wallapop», «Reconectar» y «Abrir cuenta» se lanza el
+  Chrome o Edge instalado como un proceso normal, **sin Playwright**, con solo
+  `--user-data-dir=<perfil de la cuenta> --no-first-run
+  --no-default-browser-check <url>`. Es el mismo navegador que el usuario usa a
+  diario: reCAPTCHA y las verificaciones se comportan como en su Chrome.
+* Pasos: «Paso 1/2 — Navegador abierto», «Paso 2/2 — Inicia sesión
+  manualmente en Wallapop». «Ya he iniciado sesión» NO conecta: pide cerrar la
+  ventana (Chrome guarda la sesión en disco al cerrarse) y después comprueba la
+  sesión con Playwright sobre ese mismo perfil.
+* CAPTCHA en la comprobación: «Completa la verificación en el navegador y
+  vuelve a LOT-Bot» y botón «Abrir de nuevo el navegador».
+* Si no hay Chrome ni Edge instalados, se usa el navegador integrado
+  (Playwright), con el mismo flujo de comprobación.
+* LOT Bot no intercepta ni bloquea peticiones (ni JavaScript, imágenes,
+  iframes, cookies, almacenamiento ni recursos de Google): no hay `route()`,
+  `abort()` ni filtros; una prueba lo vigila.
+
+Diagnóstico: al abrir el navegador normal se registra navegador, versión,
+ruta, perfil y argumentos; si una comprobación falla, se registra la URL (sin
+parámetros), si JavaScript funciona y los errores de navegación, de consola y
+de red de la página. Nunca cookies, contraseñas, tokens ni «storage state».
+
+Navegador para comprobar y publicar (`driver.py`):
 
 * En Windows se buscan primero Chrome y Edge instalados en sus rutas
   habituales (`%ProgramFiles%`, `%ProgramFiles(x86)%`, `%LOCALAPPDATA%`), luego

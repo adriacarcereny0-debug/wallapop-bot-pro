@@ -63,6 +63,10 @@ class BrowserPage(ABC):
         """Texto visible de la página (para leer estadísticas)."""
         return ""
 
+    def diagnostics(self) -> dict[str, Any]:
+        """Datos para diagnosticar fallos. Nunca cookies, contraseñas ni tokens."""
+        return {}
+
     @abstractmethod
     def wait(self, ms: int) -> None: ...
 
@@ -84,13 +88,72 @@ class BrowserLauncher(ABC):
 # ---------------------------------------------------------------------------
 # Implementación con Playwright
 # ---------------------------------------------------------------------------
+def safe_url(url: str) -> str:
+    """URL sin parámetros ni fragmento (pueden llevar tokens)."""
+    return re.split(r"[?#]", url or "", maxsplit=1)[0]
+
+
 class _PlaywrightPage(BrowserPage):
-    def __init__(self, page, default_timeout_ms: int) -> None:
+    MAX_EVENTS = 15
+
+    def __init__(self, page, default_timeout_ms: int, launch_info: str = "") -> None:
         self._page = page
         self._page.set_default_timeout(default_timeout_ms)
+        self._launch_info = launch_info
+        self._console_errors: list[str] = []
+        self._network_errors: list[str] = []
+        self._navigation_errors: list[str] = []
+        page.on("console", self._on_console)
+        page.on("pageerror", lambda exc: self._add(self._console_errors, f"pageerror: {exc}"))
+        page.on("requestfailed", self._on_request_failed)
+
+    def _add(self, bucket: list[str], text: str) -> None:
+        if len(bucket) < self.MAX_EVENTS:
+            bucket.append(text[:300])
+
+    def _on_console(self, message) -> None:
+        try:
+            if message.type == "error":
+                self._add(self._console_errors, message.text)
+        except Exception:
+            pass
+
+    def _on_request_failed(self, request) -> None:
+        try:
+            self._add(
+                self._network_errors,
+                f"{request.resource_type} {safe_url(request.url)} → {request.failure or 'fallo'}",
+            )
+        except Exception:
+            pass
+
+    def diagnostics(self) -> dict[str, Any]:
+        try:
+            javascript = self._page.evaluate("() => 1 + 1") == 2
+        except Exception:
+            javascript = None
+        try:
+            user_agent_version = self._page.evaluate(
+                "() => (navigator.userAgent.match(/(Chrome|Edg)\\/[\\d.]+/g) || []).join(' ')"
+            )
+        except Exception:
+            user_agent_version = "desconocida"
+        return {
+            "arranque": self._launch_info,
+            "version": user_agent_version,
+            "url": safe_url(self._page.url),
+            "javascript": javascript,
+            "errores_navegacion": list(self._navigation_errors),
+            "errores_consola": list(self._console_errors),
+            "errores_red": list(self._network_errors),
+        }
 
     def goto(self, url: str) -> None:
-        self._page.goto(url, wait_until="domcontentloaded")
+        try:
+            self._page.goto(url, wait_until="domcontentloaded")
+        except Exception as exc:
+            self._add(self._navigation_errors, f"{safe_url(url)}: {str(exc).splitlines()[0]}")
+            raise
 
     def current_url(self) -> str:
         return self._page.url
@@ -339,7 +402,7 @@ class PlaywrightLauncher(BrowserLauncher):
                 )
             try:
                 page = context.pages[0] if context.pages else context.new_page()
-                yield _PlaywrightPage(page, self._timeout)
+                yield _PlaywrightPage(page, self._timeout, describe_launch(candidate, options))
             finally:
                 try:
                     context.close()

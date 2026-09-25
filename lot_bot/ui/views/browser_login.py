@@ -20,6 +20,8 @@ STATE_COLORS = {
     LoginSession.UNKNOWN: theme.WARNING,
     LoginSession.ERROR: theme.DANGER,
     LoginSession.CLOSED: theme.DANGER,
+    LoginSession.CLOSE_TO_SAVE: theme.WARNING,
+    LoginSession.BROWSER_CLOSED: theme.WARNING,
 }
 
 
@@ -30,13 +32,19 @@ class BrowserLoginDialog(QDialog):
         self.setWindowTitle(f"Conectar «{alias}»")
         self.setMinimumWidth(520)
         layout = QVBoxLayout(self)
+        normal = session.mode == "normal"
         steps = QLabel(
-            "<b>1.</b> En la ventana del navegador que se ha abierto, inicia sesión en "
-            "Wallapop con la cuenta que quieres conectar.<br>"
-            "<b>2.</b> Si Wallapop te pide un código o una verificación, complétala allí.<br>"
-            "<b>3.</b> Cuando veas tu cuenta en Wallapop, pulsa <b>«Ya he iniciado sesión»</b>.<br><br>"
-            "LOT Bot no ve ni guarda tu contraseña. La cuenta solo se conecta si LOT Bot "
-            "comprueba que la sesión es válida."
+            "<b>Paso 1/2 — Navegador abierto</b><br>"
+            "<b>Paso 2/2 — Inicia sesión manualmente en Wallapop.</b> Si aparece un "
+            "CAPTCHA o una verificación, complétala tú en el navegador.<br><br>"
+            + (
+                "Cuando termines, pulsa <b>«Ya he iniciado sesión»</b> y después <b>cierra la "
+                "ventana del navegador</b>: así Chrome guarda la sesión y LOT Bot la comprueba."
+                if normal
+                else "Cuando termines, pulsa <b>«Ya he iniciado sesión»</b>."
+            )
+            + "<br><br>LOT Bot no ve ni guarda tu contraseña. La cuenta solo se conecta si "
+            "LOT Bot comprueba que la sesión es válida."
         )
         steps.setWordWrap(True)
         layout.addWidget(steps)
@@ -50,6 +58,11 @@ class BrowserLoginDialog(QDialog):
         self.check_button.setMinimumHeight(34)
         self.check_button.clicked.connect(self._check)
         buttons.addWidget(self.check_button)
+        self.reopen_button = QPushButton("Abrir de nuevo el navegador")
+        self.reopen_button.setMinimumHeight(34)
+        self.reopen_button.clicked.connect(self.session.request_reopen)
+        self.reopen_button.setVisible(normal)
+        buttons.addWidget(self.reopen_button)
         buttons.addStretch(1)
         cancel = QPushButton("Cancelar")
         cancel.setMinimumHeight(34)
@@ -70,9 +83,18 @@ class BrowserLoginDialog(QDialog):
         state = self.session.state
         color = STATE_COLORS.get(state, theme.TEXT_MUTED)
         self.status.setText(f"<span style='color:{color}'>{self.session.message}</span>")
-        busy = state in (LoginSession.OPENING, LoginSession.CHECKING)
+        busy = state in (LoginSession.OPENING, LoginSession.CHECKING, LoginSession.CLOSE_TO_SAVE)
         finished = state in (LoginSession.CLOSED, LoginSession.ERROR)
         self.check_button.setEnabled(not busy and not finished)
+        self.reopen_button.setEnabled(
+            state
+            in (
+                LoginSession.BROWSER_CLOSED,
+                LoginSession.VERIFICATION,
+                LoginSession.NOT_LOGGED,
+                LoginSession.UNKNOWN,
+            )
+        )
         if state == LoginSession.VERIFIED:
             self._timer.stop()
             self.accept()

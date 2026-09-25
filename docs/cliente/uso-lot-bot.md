@@ -69,10 +69,12 @@ o está repetida.
 
 1. En **Cuentas**, pulsa **«Añadir cuenta Wallapop»** (si LOT Bot está en modo
    demostración, te pregunta si activas la integración) y ponle un nombre.
-2. Se abre una ventana del navegador con Wallapop **y se queda abierta**.
-   **Inicia sesión tú** con esa cuenta. Si Wallapop te pide un código o una
-   verificación, complétala allí.
-3. Cuando veas tu cuenta en Wallapop, pulsa **«Ya he iniciado sesión»** en LOT Bot.
+2. Se abre **tu Chrome (o Edge) normal** con Wallapop, en una ventana propia
+   de esa cuenta, **y se queda abierta** (Paso 1/2). **Inicia sesión tú** con
+   esa cuenta (Paso 2/2). Si Wallapop te pide un código o un CAPTCHA,
+   complétalo allí.
+3. Cuando veas tu cuenta en Wallapop, pulsa **«Ya he iniciado sesión»** en LOT
+   Bot y **cierra esa ventana del navegador**: así se guarda la sesión.
 4. LOT Bot **comprueba de verdad** que la sesión es válida. Solo entonces te
    pregunta si quieres conectarla. Si todavía no has entrado, te lo dice y
    puedes volver a intentarlo.

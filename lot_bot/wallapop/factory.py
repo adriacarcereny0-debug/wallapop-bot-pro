@@ -115,6 +115,14 @@ def _browser_backend(
         screenshots_dir=paths.logs / "navegador",
         is_account_connected=connected,
     )
+    # Inicio de sesión en el Chrome/Edge normal si está instalado (sin
+    # automatización: reCAPTCHA y verificaciones como en el navegador diario).
+    if launcher is None:
+        from lot_bot.wallapop.browser.normal import NormalBrowserLauncher
+
+        normal = NormalBrowserLauncher(service.site.channels)
+        if normal.available():
+            service.normal_launcher = normal
     auth_method = BrowserSessionAuthMethod(service)
     account_manager.set_browser_profiles(profiles, release=service.release)
     pending = auth_method.missing_requirements()
