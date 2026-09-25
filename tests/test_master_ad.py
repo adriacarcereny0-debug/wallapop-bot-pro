@@ -299,13 +299,20 @@ def test_las_imagenes_demo_no_se_guardan_en_la_plantilla(app):
     assert app.master_ads.get().images == []
 
 
-def test_en_modo_real_sin_fotos_ni_categoria_no_se_publica(app):
+def test_en_modo_real_sin_fotos_no_se_publica(app):
     app.master_ads.demo_mode = False
     vista = app.master_ads.build_previews(None, cuentas(app)[:1])[0]
     assert not vista.can_publish
-    campos = {i.field for i in vista.quality.errors}
-    assert "fotografias" in campos
-    assert "categoria" in campos
+    assert {i.field for i in vista.quality.errors} == {"fotografias"}
+    # La categoría viene puesta (Wallapop la exige) y se puede cambiar.
+    assert vista.category == "Hogar y jardín"
+
+
+def test_en_modo_real_sin_categoria_no_se_publica(app):
+    app.master_ads.demo_mode = False
+    app.master_ads.update(None, {"category": ""}, confirmed=True)
+    vista = app.master_ads.build_previews(None, cuentas(app)[:1])[0]
+    assert "categoria" in {i.field for i in vista.quality.errors}
 
 
 def test_el_historial_marca_las_operaciones_demo(app):

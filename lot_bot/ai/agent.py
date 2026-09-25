@@ -10,6 +10,7 @@ espera a que el usuario pulse [Confirmar] o [Cancelar] en la interfaz.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
@@ -168,7 +169,33 @@ class Agent:
         self._app.audit.record(
             "Orden al asistente", actor="usuario", detail=user_text[:400]
         )
+        awaiting = self._focus.pop("awaiting", None)
+        if awaiting:
+            return self._answer_question(awaiting, user_text)
         return self._run_loop()
+
+    def _answer_question(self, awaiting: dict[str, Any], user_text: str) -> AgentResponse:
+        """El asistente había hecho una pregunta (p. ej. «¿En qué cuenta?»): la
+        respuesta del usuario completa esa misma acción."""
+        if re.search(r"^\s*(no|cancela|cancelar|déjalo|dejalo|olvídalo|olvidalo|nada)\b", user_text.lower()):
+            self._append({"role": "assistant", "content": "De acuerdo, lo dejamos."})
+            return AgentResponse(messages=[AgentMessage("asistente", "De acuerdo, lo dejamos.")])
+        call = ToolCall(
+            id=f"respuesta-{awaiting['tool']}",
+            name=awaiting["tool"],
+            arguments={**awaiting.get("args", {}), "respuesta": user_text},
+        )
+        result = self._execute(call)
+        response = AgentResponse(tool_results=[result])
+        response.messages.append(
+            AgentMessage("herramienta", result.summary, tool_name=call.name, data=result.data)
+        )
+        self._append({"role": "assistant", "content": result.summary})
+        if result.confirmation is not None:
+            self._pending = PendingAction(result.confirmation, call.id)
+            response.pending = self._pending
+            response.messages.append(AgentMessage("sistema", self._pending.request.message()))
+        return response
 
     # ------------------------------------------------------------------
     def _run_loop(self) -> AgentResponse:

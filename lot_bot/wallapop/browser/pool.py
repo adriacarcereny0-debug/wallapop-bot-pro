@@ -17,6 +17,7 @@ import queue
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path
 from typing import Any
 
@@ -98,6 +99,10 @@ class _AccountWorker:
 
 
 class BrowserSessionPool:
+    #: Tiempo máximo esperando una operación del navegador (publicar incluye
+    #: subir fotos y esperar la confirmación de Wallapop).
+    DEFAULT_TIMEOUT = 600.0
+
     def __init__(self, launcher: BrowserLauncher, idle_seconds: float = 900.0) -> None:
         self._launcher = launcher
         self._idle = idle_seconds
@@ -130,7 +135,17 @@ class BrowserSessionPool:
                 self._workers[ref] = worker
                 self.open_count[ref] = self.open_count.get(ref, 0) + 1
             future = worker.submit(fn)
-        return future.result(timeout)
+        try:
+            return future.result(timeout if timeout is not None else self.DEFAULT_TIMEOUT)
+        except FutureTimeout as exc:
+            future.cancel()
+            logger.error("El navegador de %s no ha respondido a tiempo; se cierra.", ref)
+            threading.Thread(target=self.close, args=(ref, 5.0), daemon=True).start()
+            from lot_bot.wallapop.browser.driver import BrowserUnavailable
+
+            raise BrowserUnavailable(
+                "El navegador no ha respondido a tiempo. Se ha cerrado; vuelve a intentarlo."
+            ) from exc
 
     def is_open(self, ref: str) -> bool:
         with self._lock:

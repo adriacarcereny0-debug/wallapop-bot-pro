@@ -48,8 +48,15 @@ class TaskRunner:
     """Lanza funciones en segundo plano y entrega el resultado a la interfaz."""
 
     def __init__(self, max_threads: int = 4) -> None:
-        self._pool = QThreadPool.globalInstance()
+        # Grupo de hilos PROPIO: así el asistente tiene los suyos y una tarea
+        # larga de otra pantalla (p. ej. el navegador) nunca lo deja esperando.
+        self._pool = QThreadPool()
         self._pool.setMaxThreadCount(max_threads)
+        #: Señales de las tareas en curso. Se guardan aquí hasta que la
+        #: interfaz ha recibido «terminado»: si Python las destruyera antes (al
+        #: acabar la tarea en su hilo), Qt descartaría los avisos pendientes y
+        #: la interfaz se quedaría esperando para siempre («Pensando…»).
+        self._alive: set[_Signals] = set()
 
     def run(
         self,
@@ -72,6 +79,9 @@ class TaskRunner:
             task.signals.failed.connect(on_error)
         if on_done is not None:
             task.signals.done.connect(on_done)
+        signals = task.signals
+        self._alive.add(signals)
+        signals.done.connect(lambda: self._alive.discard(signals))
         self._pool.start(task)
 
     def wait(self, timeout_ms: int = 5000) -> bool:

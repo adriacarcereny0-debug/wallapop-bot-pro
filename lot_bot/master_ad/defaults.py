@@ -72,9 +72,10 @@ CLIENT_MASTER_AD: dict[str, Any] = {
     ],
     "contact_whatsapp": "603710542",
     "delivery_note": "Transporte y montaje GRATUITO",
-    # El cliente no ha indicado categoría: se deja vacía hasta que la elija.
-    # (En DEMO se usa una categoría de demostración, sin guardarla aquí.)
-    "category": "",
+    # Wallapop exige una categoría para publicar. El cliente no indicó ninguna:
+    # se usa la categoría general de Wallapop para muebles de dormitorio. Se
+    # puede cambiar en «Anuncio principal».
+    "category": "Hogar y jardín",
     "subcategory": "",
     "condition": "Nuevo",
     "tags": [],

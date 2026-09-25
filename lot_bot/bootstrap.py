@@ -345,7 +345,8 @@ def create_application(
 
     app.automations.ensure_definitions()
     if start_scheduler:
-        app.automations.start()
+        # Lo único que se automatiza es la cola de publicación (≥ 60 s entre
+        # anuncios). Las tareas programadas antiguas ya no se arrancan.
         app.publish_queue.start_worker()
 
     seed_business_from_env(app)

@@ -83,6 +83,8 @@ class LoginSession:
         self._state = self.OPENING
         self._message = "Abriendo el navegador…"
         self.mode = "normal" if getattr(service, "normal_launcher", None) else "integrado"
+        #: «Abrir cuenta»: termina en cuanto el usuario cierra el navegador.
+        self.finish_when_browser_closes = False
         self.check: SessionCheck | None = None
         self._thread: threading.Thread | None = None
 
@@ -225,6 +227,9 @@ class LoginSession:
                 self._apply(result)
                 if result.ok:
                     return
+            elif not running and self.finish_when_browser_closes:
+                self._set(self.CLOSED, "Navegador cerrado.")
+                return
             elif not running and self.state == self.WAITING:
                 self._set(
                     self.BROWSER_CLOSED,
@@ -313,18 +318,13 @@ class BrowserSessionAuthMethod(AuthMethod):
     def check(self, account_ref: str) -> SessionCheck:
         return self.service.check_session(account_ref)
 
-    def open_for_user(self, account_ref: str, max_seconds: float = 1800.0) -> str:
+    def open_for_user(self, account_ref: str, max_seconds: float = 1800.0) -> LoginSession:
         """Abre el navegador de la cuenta para que el usuario haga algo a mano
-        (p. ej. completar una verificación). Vuelve cuando lo cierra."""
-        session = LoginSession(self.service, account_ref, max_seconds).start()
-        session.wait_for(
-            LoginSession.CLOSED,
-            LoginSession.ERROR,
-            LoginSession.BROWSER_CLOSED,
-            timeout=max_seconds + 5,
-        )
-        session.close()
-        return session.message
+        (p. ej. completar una verificación). No espera: vuelve enseguida y el
+        navegador sigue abierto hasta que el usuario lo cierre."""
+        session = LoginSession(self.service, account_ref, max_seconds)
+        session.finish_when_browser_closes = True
+        return session.start()
 
     def authenticate(self, account_ref: str, **context: Any) -> AuthOutcome:
         """Solo conecta con una comprobación REAL de la sesión ya hecha.

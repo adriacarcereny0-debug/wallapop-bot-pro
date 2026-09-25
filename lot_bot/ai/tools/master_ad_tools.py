@@ -98,6 +98,36 @@ def _get_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     return result
 
 
+GENERATED_IMAGE_PLACEHOLDER = "(imagen generada para cada anuncio)"
+
+_FIXES = {
+    "categoría": "pon la categoría en «Anuncio principal»",
+    "fotografía": "añade fotos en «Anuncio principal» o una clave de FLUX.2 Pro en "
+    "Configuración → IA / Imágenes para generar una por anuncio",
+}
+
+
+def _build_previews(context: ToolContext, key, refs, copies, overrides):
+    """Vistas previas contando con la imagen que se generará en cada anuncio."""
+    extra = [GENERATED_IMAGE_PLACEHOLDER] if _will_generate_images(context)[0] else None
+    return context.app.master_ads.build_previews(key, refs, copies, overrides, extra_images=extra)
+
+
+def _problems(previews) -> list[str]:
+    reasons = sorted(
+        {i.message for p in previews if not p.can_publish for i in (p.quality.errors if p.quality else [])}
+    )
+    lines = []
+    for reason in reasons:
+        fix = next((f for word, f in _FIXES.items() if word in reason.lower()), "")
+        lines.append(f"{reason}{' → ' + fix if fix else ''}")
+    for p in previews:
+        if p.missing_variables:
+            lines.append("Variables sin rellenar: " + ", ".join(p.missing_variables))
+            break
+    return lines
+
+
 def _preview_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     refs, missing = _target_accounts(context, args.get("cuentas"))
     if missing:
@@ -106,16 +136,16 @@ def _preview_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
         return fail("No hay ninguna cuenta conectada en la que publicar.")
     try:
         overrides = _normalize_changes(args.get("cambios"))
-        previews = context.app.master_ads.build_previews(
-            args.get("plantilla"), refs, args.get("copias"), overrides
-        )
+        previews = _build_previews(context, args.get("plantilla"), refs, args.get("copias"), overrides)
     except ValueError as exc:
         return fail(str(exc))
     publicables = sum(1 for p in previews if p.can_publish)
     first = previews[0] if previews else None
+    problems = _problems(previews)
     result = ok(
         f"Vista previa del anuncio principal: {len(previews)} publicación(es), "
-        f"{publicables} lista(s) para publicar. No se ha publicado nada.",
+        f"{publicables} lista(s) para publicar. No se ha publicado nada."
+        + ("\nNo se puede publicar todavía:\n" + "\n".join(f"• {p}" for p in problems) if problems else ""),
         vistas_previas=[p.to_dict() for p in previews[:10]],
         titulo=first.title if first else "",
         descripcion=first.description if first else "",
@@ -155,9 +185,14 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
     if master is None:
         return fail("No hay ningún anuncio principal configurado.")
     try:
-        previews = context.app.master_ads.build_previews(master.key, refs, copies, overrides)
+        previews = _build_previews(context, master.key, refs, copies, overrides)
     except ValueError as exc:
         return fail(str(exc))
+    if not any(p.can_publish for p in previews):
+        return fail(
+            "Todavía no se puede publicar el anuncio principal:\n"
+            + "\n".join(f"• {p}" for p in _problems(previews))
+        )
 
     if not context.confirmed:
         distribution = Counter(p.account_ref for p in previews)
@@ -228,6 +263,112 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
         ),
         data={"cola": progress.to_dict()},
     )
+
+
+_NUMBER_WORDS = {
+    "un": 1, "uno": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6,
+    "siete": 7, "ocho": 8, "nueve": 9, "diez": 10, "once": 11, "doce": 12, "quince": 15,
+    "veinte": 20, "treinta": 30, "cuarenta": 40, "cincuenta": 50, "cien": 100,
+}
+
+
+def _parse_count(text: str) -> int | None:
+    import re
+
+    match = re.search(r"\d+", text or "")
+    if match:
+        return int(match.group(0))
+    words = re.findall(r"[a-záéíóúñ]+", (text or "").lower())
+    for word in words:
+        if word in _NUMBER_WORDS:
+            return _NUMBER_WORDS[word]
+    return None
+
+
+def _usable_accounts(context: ToolContext) -> list:
+    demo = context.app.demo_mode
+    return [a for a in context.app.accounts.list_accounts() if a.is_connected and (demo or not a.is_demo)]
+
+
+def _ask(question: str, args: dict[str, Any], stage: str) -> ToolResult:
+    """Pregunta al usuario y deja la conversación esperando su respuesta."""
+    return ToolResult(
+        ok=True,
+        summary=question,
+        data={"pregunta": question},
+        focus={"awaiting": {"tool": "start_publishing", "args": {**args, "etapa": stage}}},
+    )
+
+
+def _start_publishing(context: ToolContext, args: dict[str, Any]) -> ToolResult:
+    """Flujo guiado: ¿en qué cuenta? → ¿cuántos? → plan con confirmación."""
+    accounts = _usable_accounts(context)
+    if not accounts:
+        return fail(
+            "No hay ninguna cuenta de Wallapop conectada. Conéctala en «Cuentas de Wallapop» → "
+            "«Añadir cuenta Wallapop» y vuelve a pedírmelo."
+        )
+    names = ", ".join(f"«{a.alias}»" for a in accounts)
+    answer = str(args.pop("respuesta", "") or "").strip()
+    stage = args.pop("etapa", None)
+    state = {k: v for k, v in args.items() if v not in (None, "", [])}
+
+    if stage == "cuenta" and answer:
+        lowered = answer.lower()
+        if any(w in lowered for w in ("todas", "todos", "cualquiera", "las dos", "ambas")):
+            state["cuentas"] = [a.internal_ref for a in accounts]
+        else:
+            ref = context.app.accounts.resolve_ref(answer)
+            usable = {a.internal_ref for a in accounts}
+            if ref not in usable:
+                return _ask(
+                    f"No encuentro la cuenta «{answer}». ¿En qué cuenta lo quieres? "
+                    f"Cuentas conectadas: {names} (o «todas»).",
+                    state,
+                    "cuenta",
+                )
+            state["cuentas"] = [ref]
+        # «Cuenta 2» no son 2 anuncios: solo cuenta un número seguido de «anuncios».
+        import re
+
+        many = re.search(r"(\d+)\s*anuncio", answer.lower())
+        if many and "copias" not in state:
+            state["copias"] = int(many.group(1))
+    elif stage == "copias" and answer:
+        count = _parse_count(answer)
+        if not count or count < 1 or count > 100:
+            return _ask(
+                "Dime un número entre 1 y 100. ¿Cuántos anuncios quieres subir?", state, "copias"
+            )
+        state["copias"] = count
+
+    if not state.get("cuentas"):
+        requested = state.get("cuenta")
+        if requested:
+            ref = context.app.accounts.resolve_ref(str(requested))
+            if ref in {a.internal_ref for a in accounts}:
+                state["cuentas"] = [ref]
+        text = str(state.pop("texto", "") or "").lower()
+        if not state.get("cuentas") and text:
+            # «…en la cuenta Mi tienda»: nombre de cuenta dentro de la frase.
+            named = [a for a in accounts if a.alias.lower() in text]
+            if len(named) == 1:
+                state["cuentas"] = [named[0].internal_ref]
+        if not state.get("cuentas"):
+            state.pop("cuenta", None)
+            return _ask(
+                f"¿En qué cuenta lo quieres? Cuentas conectadas: {names} (o «todas»).",
+                state,
+                "cuenta",
+            )
+    if not state.get("copias"):
+        return _ask(
+            f"¿Cuántos anuncios quieres subir? Se publicará uno cada "
+            f"{context.app.publish_queue.interval} segundos como mínimo.",
+            state,
+            "copias",
+        )
+    return _publish_master_ad(context, {"cuentas": state["cuentas"], "copias": int(state["copias"])})
 
 
 def _will_generate_images(context: ToolContext) -> tuple[bool, str]:
@@ -447,6 +588,24 @@ MASTER_AD_TOOLS: list[Tool] = [
         category=ToolCategory.LISTINGS,
         requires_confirmation=True,
         capability="create_item",
+    ),
+    Tool(
+        name="start_publishing",
+        description=(
+            "Empieza a subir anuncios del anuncio principal, uno cada 60 segundos como mínimo. "
+            "Si falta la cuenta o el número de anuncios, pregunta al usuario. Termina en el "
+            "plan de confirmación de publish_master_ad."
+        ),
+        parameters={
+            "properties": {
+                "cuenta": {"type": "string", "description": "Nombre de la cuenta, si lo ha dicho."},
+                "copias": {"type": "integer", "description": "Número de anuncios, si lo ha dicho."},
+                "texto": {"type": "string", "description": "Frase original del usuario."},
+            },
+            "required": [],
+        },
+        handler=_start_publishing,
+        category=ToolCategory.LISTINGS,
     ),
     Tool(
         name="get_publish_queue",

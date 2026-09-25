@@ -19,11 +19,11 @@ Escribe como hablarías con una persona. Ejemplos:
 |---|---|
 | Ver el anuncio de canapés | «prepara el anuncio de canapé» |
 | Publicarlo | «sube el canapé» |
+| Empezar a publicar | «empieza a subir anuncios cada 60 segundos» (te pregunta la cuenta y cuántos) |
 | Publicar varias copias | «publica 10 canapés en las cuentas 1 y 2» |
 | Ver cómo va la publicación | «¿cómo va la cola?» |
 | Pausar / seguir | «pausa la cola» / «reanuda la cola» |
 | Cambiar el precio de lo que estás viendo | «cambia el precio de este anuncio a 250 €» |
-| Ver tus anuncios | «enséñame los anuncios activos» |
 | Ver estadísticas | «estadísticas» / «¿qué anuncios tienen más favoritos?» |
 | Leer estadísticas nuevas | «actualiza las estadísticas» |
 | Saber qué funciona mejor | «¿qué habitación funciona mejor?» / «recomendaciones» |

@@ -476,7 +476,8 @@ class AccountsView(BaseView):
             f"necesites (por ejemplo, completar una verificación de Wallapop) y ciérralo "
             f"al terminar.",
         )
-        self.run_task(method.open_for_user, account.internal_ref, on_done=lambda *_: self.refresh())
+        # No ocupa ningún hilo de la interfaz: el navegador queda abierto por su cuenta.
+        method.open_for_user(account.internal_ref)
 
     def _check_connection(self) -> None:
         account = self._selected()

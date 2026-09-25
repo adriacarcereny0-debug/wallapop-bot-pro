@@ -148,6 +148,20 @@ class RuleBasedProvider(AIProvider):
         )
         explicit_template = bool(re.search(r"\bplantilla\b", normalized))
 
+        # --- 00. Empezar a subir anuncios (flujo guiado: cuenta → cuántos) ---
+        if re.search(
+            r"\b(empieza|empezar|empezamos|comienza|comenzar|inicia|iniciar|arranca|arrancar|quiero|vamos a)\b.*\b(subir|publicar)\b",
+            normalized,
+        ) or re.search(r"\bcada\s+60\s+segundos\b", normalized) or re.search(
+            r"\b(subir|sube|publicar|publica)\s+anuncios\b", normalized
+        ):
+            return call(
+                "start_publishing",
+                cuenta=accounts[0] if accounts else None,
+                copias=copies,
+                texto=text,
+            )
+
         # --- 0a. Estadísticas, análisis y recomendaciones ---
         if re.search(r"\b(recomendacion|recomendaciones|recomiendas|que me recomiendas|sugerencias)\b", normalized):
             return call("get_recommendations", cuenta=accounts[0] if accounts else None)

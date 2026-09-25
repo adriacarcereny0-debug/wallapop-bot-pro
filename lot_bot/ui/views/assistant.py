@@ -30,10 +30,10 @@ from lot_bot.ui.widgets.common import Card, ConfirmationPanel
 EXAMPLES = [
     "Prepara el anuncio de canapé",
     "Publica el anuncio de canapé",
-    "Muéstrame los anuncios de la cuenta 1",
-    "¿Qué mensajes nuevos hay?",
-    "Busca duplicados",
-    "Cambia el precio de los canapés de 135x190 a 270 €",
+    "Empieza a subir anuncios cada 60 segundos",
+    "¿Cómo va la cola?",
+    "Estadísticas",
+    "¿Qué anuncios tienen más visualizaciones?",
 ]
 
 
@@ -125,7 +125,7 @@ class AssistantView(BaseView):
         row.setSpacing(8)
         self.input = QTextEdit()
         self.input.setPlaceholderText(
-            "Escribe una orden. Por ejemplo: «Cambia el precio de los canapés de 135x190 a 269 €»"
+            "Escribe una orden. Por ejemplo: «Empieza a subir anuncios cada 60 segundos»"
         )
         self.input.setFixedHeight(76)
         row.addWidget(self.input, 1)
@@ -199,10 +199,35 @@ class AssistantView(BaseView):
             on_done=lambda: self._set_busy(False),
         )
 
+    #: Si una respuesta tarda más que esto, se libera el botón y se avisa (la
+    #: tarea sigue en segundo plano y su resultado aparecerá al terminar).
+    WATCHDOG_MS = 90_000
+
     def _set_busy(self, busy: bool) -> None:
         self.send_button.setEnabled(not busy)
         self.send_button.setText("Pensando…" if busy else "Enviar")
         self.input.setEnabled(not busy)
+        if not hasattr(self, "_watchdog"):
+            from PySide6.QtCore import QTimer
+
+            self._watchdog = QTimer(self)
+            self._watchdog.setSingleShot(True)
+            self._watchdog.timeout.connect(self._on_watchdog)
+        if busy:
+            self._watchdog.start(self.WATCHDOG_MS)
+        else:
+            self._watchdog.stop()
+
+    def _on_watchdog(self) -> None:
+        if self.send_button.isEnabled():
+            return
+        self._set_busy(False)
+        self._add_bubble(
+            "asistente",
+            "Esto está tardando más de lo normal. Sigue en segundo plano y te mostraré el "
+            "resultado cuando termine; mientras tanto puedes seguir escribiendo. Si ves que no "
+            "llega, mira «Logs y errores».",
+        )
 
     def _on_response(self, response: AgentResponse) -> None:
         for message in response.messages:

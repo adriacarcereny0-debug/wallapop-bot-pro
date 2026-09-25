@@ -25,11 +25,9 @@ from lot_bot.ui import theme
 from lot_bot.ui.views import (
     AccountsView,
     AssistantView,
-    AutomationsView,
     DashboardView,
     HistoryView,
     ImageStudioView,
-    ListingsView,
     LogsView,
     MasterAdView,
     ProductsView,
@@ -49,7 +47,6 @@ NAVIGATION = [
     # --- Lo principal ---
     ("Asistente IA", "✦", AssistantView),
     ("Cuentas de Wallapop", "◉", AccountsView),
-    ("Anuncios", "◨", ListingsView),
     ("Publicación automática", "⇪", PublishQueueView),
     ("Estadísticas", "▲", StatisticsView),
     ("Imágenes / IA", "▣", ImageStudioView),
@@ -58,7 +55,6 @@ NAVIGATION = [
     # --- Más ---
     ("Panel", "▦", DashboardView),
     ("Productos", "▤", ProductsView),
-    ("Automatizaciones", "⟳", AutomationsView),
     ("Historial", "☰", HistoryView),
     ("Logs y errores", "⚠", LogsView),
 ]
@@ -70,7 +66,9 @@ class MainWindow(QMainWindow):
     def __init__(self, app: Application) -> None:
         super().__init__()
         self.app = app
-        self.runner = TaskRunner()
+        self.runner = TaskRunner(6)
+        #: Hilos reservados para el asistente: nunca esperan a otras pantallas.
+        self.assistant_runner = TaskRunner(2)
 
         self.setWindowTitle(f"{APP_NAME} {app.version}")
         self.resize(1360, 860)
@@ -105,7 +103,8 @@ class MainWindow(QMainWindow):
         self.views: list = []
         for label, _icon, view_class in NAVIGATION:
             try:
-                view = view_class(self.app, self.runner)
+                runner = self.assistant_runner if view_class is AssistantView else self.runner
+                view = view_class(self.app, runner)
             except Exception:  # una vista rota no debe impedir abrir el programa
                 logger.exception("No se ha podido crear la pantalla '%s'", label)
                 view = _error_placeholder(label)
