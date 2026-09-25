@@ -14,10 +14,13 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +159,131 @@ class _PlaywrightPage(BrowserPage):
         self._page.screenshot(path=str(path))
 
 
+#: Opciones que Playwright añade por defecto y que REDUCEN la seguridad del
+#: navegador sin que LOT Bot las necesite. Se quitan para que el navegador
+#: funcione como uno normal. No se toca nada relacionado con la detección de
+#: automatización: el aviso «controlado por software automatizado» se mantiene.
+UNSAFE_DEFAULT_ARGS = [
+    "--disable-client-side-phishing-detection",  # protección contra phishing
+    "--disable-popup-blocking",  # bloqueo de ventanas emergentes
+    "--disable-component-update",  # actualización de componentes de seguridad
+    "--unsafely-disable-devtools-self-xss-warnings",
+]
+
+#: Nunca se pasan (ni en Windows ni en ningún otro sistema salvo que el
+#: desarrollador lo pida expresamente en Linux).
+FORBIDDEN_ARGS = {"--no-sandbox", "--disable-setuid-sandbox", "--no-zygote", "--single-process"}
+
+
+@dataclass(slots=True)
+class BrowserCandidate:
+    """Un navegador que se puede intentar abrir."""
+
+    name: str
+    channel: str | None = None
+    executable: str | None = None
+
+    def describe(self) -> str:
+        return f"{self.name} ({self.executable or self.channel or 'Chromium de Playwright'})"
+
+
+def windows_browser_paths(env: dict[str, str] | None = None) -> list[tuple[str, Path]]:
+    """Rutas habituales de Chrome y Edge en Windows."""
+    env = env if env is not None else dict(os.environ)
+    roots = [env.get("PROGRAMFILES"), env.get("PROGRAMFILES(X86)"), env.get("LOCALAPPDATA")]
+    candidates: list[tuple[str, Path]] = []
+    for name, relative in (
+        ("Google Chrome", Path("Google/Chrome/Application/chrome.exe")),
+        ("Microsoft Edge", Path("Microsoft/Edge/Application/msedge.exe")),
+    ):
+        for root in roots:
+            if root:
+                candidates.append((name, Path(root) / relative))
+    return candidates
+
+
+def find_browsers(
+    channels: list[str],
+    *,
+    platform: str | None = None,
+    env: dict[str, str] | None = None,
+    exists=lambda p: Path(p).is_file(),
+) -> list[BrowserCandidate]:
+    """Navegadores a probar, en orden. Chrome y Edge instalados primero."""
+    platform = platform or sys.platform
+    env = env if env is not None else dict(os.environ)
+    explicit = env.get("LOT_BOT_BROWSER_EXECUTABLE", "").strip()
+    if explicit:
+        return [BrowserCandidate("Navegador indicado", executable=explicit)]
+    found: list[BrowserCandidate] = []
+    if platform.startswith("win"):
+        seen: set[str] = set()
+        for name, path in windows_browser_paths(env):
+            if name not in seen and exists(path):
+                found.append(BrowserCandidate(name, executable=str(path)))
+                seen.add(name)
+    labels = {"chrome": "Google Chrome", "msedge": "Microsoft Edge"}
+    for channel in channels:
+        if channel == "chromium":
+            found.append(BrowserCandidate("Chromium de Playwright"))
+        elif labels.get(channel) not in {c.name for c in found}:
+            found.append(BrowserCandidate(labels.get(channel, channel), channel=channel))
+    return found
+
+
+def sandbox_enabled(platform: str | None = None, env: dict[str, str] | None = None) -> bool:
+    """El sandbox de Chromium SIEMPRE activado en Windows y macOS.
+
+    Solo en Linux (desarrollo o contenedores sin espacios de nombres) se
+    puede desactivar a propósito con LOT_BOT_BROWSER_SANDBOX=0.
+    """
+    platform = platform or sys.platform
+    env = env if env is not None else dict(os.environ)
+    if platform.startswith("linux") and env.get("LOT_BOT_BROWSER_SANDBOX", "").strip() == "0":
+        return False
+    return True
+
+
+def build_launch_options(
+    candidate: BrowserCandidate,
+    profile_dir: Path,
+    *,
+    visible: bool,
+    locale: str,
+    platform: str | None = None,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Opciones de `launch_persistent_context`: perfil propio y persistente,
+    ventana normal (ni invitado ni incógnito) y sandbox activado."""
+    options: dict[str, Any] = {
+        "user_data_dir": str(profile_dir),
+        "headless": not visible,
+        "locale": locale,
+        "no_viewport": True,
+        # Sin esto, Playwright añade «--no-sandbox».
+        "chromium_sandbox": sandbox_enabled(platform, env),
+        "ignore_default_args": list(UNSAFE_DEFAULT_ARGS),
+        "args": [],
+    }
+    if candidate.executable:
+        options["executable_path"] = candidate.executable
+    elif candidate.channel:
+        options["channel"] = candidate.channel
+    assert not FORBIDDEN_ARGS & set(options["args"])
+    return options
+
+
+def describe_launch(candidate: BrowserCandidate, options: dict[str, Any]) -> str:
+    """Resumen para el registro: navegador, ruta, perfil y argumentos. Sin datos
+    sensibles (el perfil es una carpeta; nunca se leen cookies ni contraseñas)."""
+    return (
+        f"navegador={candidate.name}; ejecutable={candidate.executable or '-'}; "
+        f"canal={candidate.channel or '-'}; perfil={options['user_data_dir']}; "
+        f"visible={not options['headless']}; sandbox={options['chromium_sandbox']}; "
+        f"args={options['args']}; quitados={options['ignore_default_args']}"
+    )
+
+
 class PlaywrightLauncher(BrowserLauncher):
     """Abre Chrome/Edge/Chromium con un perfil persistente por cuenta."""
 
@@ -182,33 +310,31 @@ class PlaywrightLauncher(BrowserLauncher):
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
 
+        profile_dir = Path(profile_dir)
+        profile_dir.mkdir(parents=True, exist_ok=True)
         with sync_playwright() as pw:
             context = None
             errors: list[str] = []
-            # Ruta explícita a un navegador (Chrome instalado en otra carpeta).
-            executable = os.environ.get("LOT_BOT_BROWSER_EXECUTABLE", "").strip()
-            if executable:
-                channels = ["__ruta__"]
-            for channel in channels:
+            for candidate in find_browsers(channels):
+                options = build_launch_options(
+                    candidate, profile_dir, visible=visible, locale=locale
+                )
                 try:
-                    kwargs = {
-                        "user_data_dir": str(profile_dir),
-                        "headless": not visible,
-                        "locale": locale,
-                        "no_viewport": True,
-                    }
-                    if channel == "__ruta__":
-                        kwargs["executable_path"] = executable
-                    elif channel != "chromium":
-                        kwargs["channel"] = channel
-                    context = pw.chromium.launch_persistent_context(**kwargs)
-                    logger.info("Navegador abierto (%s).", channel)
+                    context = pw.chromium.launch_persistent_context(**options)
+                    logger.info("Navegador abierto: %s", describe_launch(candidate, options))
                     break
                 except PlaywrightError as exc:
-                    errors.append(f"{channel}: {str(exc).splitlines()[0][:120]}")
+                    detail = str(exc).splitlines()[0][:300]
+                    logger.error(
+                        "No se ha podido abrir el navegador. %s; error=%s",
+                        describe_launch(candidate, options),
+                        detail,
+                    )
+                    errors.append(f"{candidate.describe()}: {detail[:120]}")
             if context is None:
                 raise BrowserUnavailable(
                     "No se ha podido abrir ningún navegador (Chrome, Edge o Chromium). "
+                    "Los detalles están en la pantalla «Logs y errores». "
                     + " | ".join(errors)
                 )
             try:

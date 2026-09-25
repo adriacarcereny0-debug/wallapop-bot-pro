@@ -487,6 +487,12 @@ class AccountsView(BaseView):
         self.check_button.setText("Comprobando…")
 
         def success(check) -> None:
+            if check.state in ("desconocido", "error"):
+                # No se sabe con seguridad: no se cambia el estado de la cuenta.
+                from lot_bot.wallapop.browser.auth import UNCONFIRMED
+
+                show_error(self, UNCONFIRMED, check.message)
+                return
             self.app.accounts.mark_session_checked(account.internal_ref, check.ok, check.message)
             self.app.audit.record(
                 "Comprobación de sesión",

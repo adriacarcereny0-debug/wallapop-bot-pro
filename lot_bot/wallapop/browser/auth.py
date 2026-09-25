@@ -37,6 +37,8 @@ from lot_bot.wallapop.browser.service import BrowserWallapopService, SessionChec
 
 logger = logging.getLogger(__name__)
 
+UNCONFIRMED = "Estado de sesión no confirmado"
+
 AUTHORIZED_USE_NOTE = (
     "Cuenta de Wallapop conectada para el uso personal autorizado del titular de "
     "LOT Bot. No es una integración oficial de Wallapop ni una autorización transferible."
@@ -163,8 +165,9 @@ class LoginSession:
                         elif result.state == "verificacion":
                             self._set(
                                 self.VERIFICATION,
-                                "Wallapop pide una verificación. Complétala tú en el navegador y "
-                                "vuelve a pulsar «Ya he iniciado sesión».",
+                                "Wallapop pide una verificación (CAPTCHA o similar). El navegador "
+                                "sigue abierto: complétala tú allí y después vuelve a pulsar "
+                                "«Ya he iniciado sesión». LOT Bot no la resuelve ni la salta.",
                             )
                         elif result.state == "sin_sesion":
                             self._set(
@@ -173,7 +176,12 @@ class LoginSession:
                                 "en el navegador y vuelve a pulsar «Ya he iniciado sesión».",
                             )
                         else:
-                            self._set(self.UNKNOWN, result.message)
+                            self._set(
+                                self.UNKNOWN,
+                                f"{UNCONFIRMED}. {result.message} La cuenta NO se conecta: "
+                                "comprueba en el navegador que has entrado en tu cuenta y "
+                                "vuelve a pulsar «Ya he iniciado sesión».",
+                            )
                 else:
                     self._set(self.CLOSED, "Tiempo agotado: se ha cerrado el navegador.")
                     return

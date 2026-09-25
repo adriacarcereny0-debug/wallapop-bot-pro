@@ -24,8 +24,10 @@ verificado: false
 navegador:
   # Siempre visible: el usuario ve lo que ocurre y puede intervenir.
   visible: true
-  # Orden de preferencia. «chrome» y «msedge» usan el navegador ya instalado
-  # en Windows; «chromium» usa el que instala Playwright.
+  # Orden de preferencia. En Windows se buscan primero Chrome y Edge
+  # instalados (rutas habituales); «chromium» usa el que instala Playwright.
+  # Siempre con perfil propio y persistente por cuenta, ventana normal (ni
+  # invitado ni incógnito) y con el sandbox de seguridad activado.
   canales: ["chrome", "msedge", "chromium"]
   idioma: "es-ES"
   tiempo_espera_ms: 20000

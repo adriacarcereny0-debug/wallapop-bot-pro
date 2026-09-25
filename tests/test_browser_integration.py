@@ -63,13 +63,13 @@ class FakePage(BrowserPage):
         visible = set(self.world.get("visible", set())) | self.ALWAYS
         if not self.world.get("logged_in"):
             visible |= {SITE.logged_out[0]}
-        elif self.url.startswith(SITE.url("subir")):
+        elif self.url.startswith(SITE.url("subir")) and not self.world.get("no_proof"):
             visible |= set(SITE.check_private[:1])
         if self.world.get("verification"):
             visible |= {SITE.verification[0]}
         if self.world.get("published"):
             visible |= set(SITE.success_texts)
-        if self.world.get("logged_in"):
+        if self.world.get("logged_in") and not self.world.get("no_proof"):
             for step in SITE.steps:
                 if step.targets and step.name not in self.world.get("missing_steps", set()):
                     visible.add(step.targets[0])

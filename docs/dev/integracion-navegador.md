@@ -131,8 +131,32 @@ Desactivados: no hay API de mensajes y leer el chat de la web sería frágil.
 * `.gitignore` bloquea además `browser_profiles/`, `Cookies`, `Login Data`,
   `storage_state*.json`, `*.har`, `*.local.yaml`.
 
-Navegador: se prueba en orden Chrome, Edge (siempre presente en Windows) y
-el Chromium de Playwright. `LOT_BOT_BROWSER_EXECUTABLE` fuerza una ruta.
+Navegador (`driver.py`):
+
+* En Windows se buscan primero Chrome y Edge instalados en sus rutas
+  habituales (`%ProgramFiles%`, `%ProgramFiles(x86)%`, `%LOCALAPPDATA%`), luego
+  los canales de Playwright y por último su Chromium.
+  `LOT_BOT_BROWSER_EXECUTABLE` fuerza una ruta.
+* Se abre con `launch_persistent_context(user_data_dir=<perfil de la cuenta>)`:
+  perfil propio y persistente, ventana normal (ni invitado ni incógnito).
+  Un perfil nuevo se ve «vacío» (sin marcadores ni extensiones): es normal, es
+  el perfil exclusivo de esa cuenta.
+* **Sandbox**: Playwright añade `--no-sandbox` salvo que se pase
+  `chromium_sandbox=True`. LOT Bot lo pasa siempre en Windows y macOS (en Linux
+  solo se puede desactivar a propósito con `LOT_BOT_BROWSER_SANDBOX=0`, para
+  contenedores de desarrollo). Nunca se añaden `--no-sandbox`,
+  `--disable-setuid-sandbox`, `--no-zygote` ni `--single-process`.
+* Se quitan de los argumentos por defecto de Playwright los que reducen la
+  seguridad sin necesidad: `--disable-client-side-phishing-detection`,
+  `--disable-popup-blocking`, `--disable-component-update` y
+  `--unsafely-disable-devtools-self-xss-warnings`. No se toca nada relacionado
+  con la detección de automatización.
+* Si el navegador no arranca, se registra navegador, ejecutable, perfil,
+  sandbox, argumentos y el error (nunca cookies, contraseñas ni tokens).
+* CAPTCHA o verificación: el flujo se detiene, el navegador sigue abierto y el
+  usuario la completa; después vuelve a pulsar «Ya he iniciado sesión». Si no se
+  puede confirmar la sesión: «Estado de sesión no confirmado» y la cuenta no se
+  conecta.
 
 ## Cola de publicación
 
