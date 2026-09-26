@@ -203,6 +203,8 @@ publicar:
         - "role=switch[name=/Activar envío/i]"
         - "role=checkbox[name=/Activar envío/i]"
         - "label:has-text('Activar envío') input[type='checkbox']"
+        # El interruptor junto al texto «Activar envío» (misma fila).
+        - "xpath=//*[normalize-space(text())='Activar envío']/ancestor::*[.//*[@role='switch' or @role='checkbox' or self::input[@type='checkbox']]][1]//*[@role='switch' or @role='checkbox' or self::input[@type='checkbox']]"
     # Ubicación del anuncio (Anuncio principal → «Ubicación»). Wallapop pone la
     # de la cuenta; si la plantilla indica otra ciudad, se cambia: se abre el
     # campo, se escribe la ciudad y se elige la primera sugerencia que la
@@ -210,13 +212,19 @@ publicar:
     ubicacion:
       opcional: true
       objetivos:
-        - "role=button[name=/Ubicación|Localización|Dónde está/i]"
-        - "role=combobox[name=/Ubicación|Localización|Código postal|Ciudad/i]"
-        - "role=textbox[name=/Ubicación|Localización|Código postal|Ciudad/i]"
-      # Campo donde se escribe la ciudad (si al pulsar se abre otro).
+        - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
+        - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
+        - "role=button[name=/Ubicación|Localización|Dónde se verán|Dónde está/i]"
+        - "input[placeholder*='dirección' i]"
+        - "input[placeholder*='ubicación' i]"
+        - "input[placeholder*='ciudad' i]"
+      # Campo donde se escribe la ciudad (si al pulsar se abre otro). NO se
+      # toca el mapa: solo se escribe la ciudad y se elige la sugerencia.
       escribir:
-        - "role=combobox[name=/Ubicación|Localización|Código postal|Ciudad|Busca/i]"
-        - "role=textbox[name=/Ubicación|Localización|Código postal|Ciudad|Busca/i]"
+        - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
+        - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
+        - "input[placeholder*='dirección' i]"
+        - "input[placeholder*='ubicación' i]"
         - "input[placeholder*='ciudad' i]"
         - "input[placeholder*='código postal' i]"
       # Botón para confirmar la ubicación elegida (si lo hay).

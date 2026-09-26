@@ -91,7 +91,8 @@ def test_publica_1_canape_lo_hace_todo_lot_bot(listo):
     assert descripcion.startswith("GRAN OFERTA LIMITADA!") and "603710542" in descripcion
     assert "Canapé + colchón 90x190 → 230€" in descripcion
     opciones = [e[1] for e in pagina.log if e[0] == "option"]
-    assert opciones == ["Estructura de camas", *CLIENT_ATTRIBUTES.values()]
+    assert opciones == ["Estructura de camas", *CLIENT_ATTRIBUTES.values(), "Barcelona"]
+    assert ("fill", FORM.location_input[0], "Barcelona") in pagina.log  # ubicación escrita
     assert any(e[0] == "files" for e in pagina.log)
     # El anuncio queda guardado en la base de datos con su URL.
     fila = next(r for r in app.stats.table() if r.account_ref == cuenta.internal_ref)

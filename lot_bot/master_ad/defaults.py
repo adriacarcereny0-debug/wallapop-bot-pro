@@ -62,7 +62,8 @@ CLIENT_MASTER_AD: dict[str, Any] = {
     "title": CLIENT_TITLE,
     # Mismos valores que CLIENT_ATTRIBUTES, en el orden en que se muestran.
     "features": list(CLIENT_ATTRIBUTES.values()),
-    "attributes": dict(CLIENT_ATTRIBUTES),
+    # «ubicacion»: ciudad que se escribe en Wallapop (editable en Anuncio principal).
+    "attributes": {**CLIENT_ATTRIBUTES, "ubicacion": "Barcelona"},
     "price": CLIENT_PRICE,
     "description": CLIENT_DESCRIPTION_PATTERN,
     "variants": [

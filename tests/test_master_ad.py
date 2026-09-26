@@ -52,6 +52,7 @@ def test_los_datos_coinciden_exactamente_con_los_del_cliente(app):
         "uso": "Dormitorio",
         "color": "Gris y Blanco",
         "material": "Madera",
+        "ubicacion": "Barcelona",  # editable en Anuncio principal
     }
     assert master.price == 11.44
     assert master.locked

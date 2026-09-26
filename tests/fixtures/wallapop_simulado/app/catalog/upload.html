@@ -7,6 +7,7 @@ label{display:block;margin-top:14px;font-weight:bold}
 input,textarea{width:100%;padding:6px;font-size:14px}
 .combo{position:relative}
 .combo ul{list-style:none;padding:0;margin:0;border:1px solid #999;background:#fff;position:absolute;z-index:5;width:100%}
+.combo ul li{padding:14px 6px}
 .combo li{padding:6px;cursor:pointer}
 .previews{display:flex;gap:8px;margin-top:8px}
 .previews img{width:90px;height:68px;object-fit:cover}
@@ -48,7 +49,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <label>Marca</label>
   <div class="combo"><button type="button" role="combobox" aria-label="Marca" data-options="IKEA|Pikolin">Marca</button></div>
   <label>Color*</label>
-  <div class="combo"><button type="button" role="combobox" aria-label="Color*" data-options="Marrón|Gris|Blanco|Negro">Marrón</button></div>
+  <div class="combo"><button type="button" role="combobox" aria-label="Color*" data-multi="1" data-options="Marrón|Beige|Gris|Blanco|Negro">Marrón</button></div>
   <label>Material*</label>
   <div class="combo"><button type="button" role="combobox" aria-label="Material*" data-options="Madera|Metal">Madera</button></div>
   <label for="title">Título*</label>
@@ -64,11 +65,11 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <h3>Opciones de envío</h3>
   <label><input type="checkbox" role="switch" id="envio" aria-label="Activar envío" checked> Activar envío</label>
   <label>Ubicación</label>
-  <button type="button" id="ubic" aria-label="Ubicación">Barcelona</button>
-  <div id="ubic-panel" hidden>
-    <input id="ubic-busca" placeholder="Busca una ciudad o código postal" aria-label="Busca tu ciudad">
-    <ul id="ubic-sug" role="listbox"></ul>
-  </div>
+  <p>¿Dónde se verán mis productos?</p>
+  <input id="ubic-busca" placeholder="Escribe una dirección" aria-label="Dirección">
+  <div id="ubic-sug"></div>
+  <span id="ubic" hidden></span>
+  <div id="mapa" style="height:60px;background:#dde" title="mapa (no se toca)"></div>
   </div>
   <p><button type="button" id="subir">Subir producto</button></p>
   </div>
@@ -155,11 +156,24 @@ document.querySelectorAll('[role=combobox]:not(#cat)').forEach(btn => {
     const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
     btn.dataset.options.split('|').forEach(o => {
       const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
-      li.addEventListener('click', () => { btn.textContent = o; ul.remove(); });
+      li.addEventListener('click', () => {
+        if (btn.dataset.multi) {
+          // Varias opciones (como Color en Wallapop): marca/desmarca y la lista
+          // SE QUEDA ABIERTA, tapando los campos de debajo.
+          const sel = new Set(btn.textContent.split(', ').filter(x => btn.dataset.options.split('|').includes(x)));
+          sel.has(o) ? sel.delete(o) : sel.add(o);
+          btn.textContent = [...sel].join(', ') || 'Color*';
+          return;
+        }
+        btn.textContent = o; ul.remove();
+      });
       ul.appendChild(li);
     });
     btn.parentElement.appendChild(ul);
   });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.combo ul').forEach(u => u.remove());
 });
 function mostrarFotos(e) {
   for (const file of e.target.files) {
@@ -188,18 +202,16 @@ if (params.get('modo') === 'boton') {
   document.getElementById('fotos').addEventListener('change', mostrarFotos);
   document.getElementById('subir-fotos').addEventListener('click', () => document.getElementById('fotos').click());
 }
-document.getElementById('ubic').addEventListener('click', () => {
-  document.getElementById('ubic-panel').hidden = false;
-});
 document.getElementById('ubic-busca').addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   const ul = document.getElementById('ubic-sug'); ul.innerHTML = '';
   ['Madrid, Madrid', 'Valencia, Valencia', 'Barcelona, Barcelona', 'Sevilla, Sevilla']
     .filter(c => q && c.toLowerCase().includes(q)).forEach(c => {
-      const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = c;
+      const li = document.createElement('div'); li.className = 'sug'; li.textContent = c;
       li.addEventListener('click', () => {
         document.getElementById('ubic').textContent = c.split(',')[0];
-        document.getElementById('ubic-panel').hidden = true;
+        document.getElementById('ubic-busca').value = c;
+        ul.innerHTML = '';
       });
       ul.appendChild(li);
     });

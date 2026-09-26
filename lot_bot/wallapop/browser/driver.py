@@ -72,6 +72,10 @@ class BrowserPage(ABC):
         """Estado de un interruptor/casilla."""
         return False
 
+    def press(self, key: str) -> None:
+        """Pulsa una tecla (p. ej. «Escape» para cerrar una lista abierta)."""
+        return None
+
     # --- Piezas para el selector de categoría (category.py) ---
     def bbox(self, target: str) -> dict | None:
         """Posición del elemento en pantalla (x, y, width, height)."""
@@ -279,9 +283,22 @@ class _PlaywrightPage(BrowserPage):
             waited += step
 
     def fill(self, target: str, text: str) -> None:
+        """Escribe `text` SUSTITUYENDO lo que hubiera (p. ej. la descripción que
+        ha generado la IA de Wallapop). No hace clic antes: si una lista
+        desplegable quedara encima del campo, el clic se bloquearía."""
         locator = self._page.locator(target).first
-        locator.click()
-        locator.fill(text)
+        locator.scroll_into_view_if_needed(timeout=5000)
+        try:
+            locator.fill(text, timeout=10000)
+        except Exception:
+            # Editores que no admiten fill: foco, seleccionar todo, borrar y escribir.
+            locator.focus(timeout=5000)
+            self._page.keyboard.press("Control+A")
+            self._page.keyboard.press("Delete")
+            self._page.keyboard.insert_text(text)
+
+    def press(self, key: str) -> None:
+        self._page.keyboard.press(key)
 
     def click(self, target: str) -> None:
         self._page.locator(target).first.click()
@@ -397,18 +414,35 @@ class _PlaywrightPage(BrowserPage):
         return found
 
     def click_suggestion(self, text: str, timeout_ms: int) -> bool:
-        pattern = re.compile(re.escape(text), re.IGNORECASE)
+        """Pulsa la primera sugerencia visible que contiene `text`: en listas
+        (role=option, li) o en <div> que empiecen por la ciudad (nunca el
+        propio campo donde se ha escrito). Se buscan las dos a la vez."""
+        contains = re.compile(re.escape(text), re.IGNORECASE)
+        starts = re.compile(rf"^\s*{re.escape(text)}\b", re.IGNORECASE)
         options = (
             self._page.locator("[role=option], [role=menuitem], li")
-            .filter(has_text=pattern)
+            .filter(has_text=contains)
             .filter(visible=True)
         )
-        try:
-            options.first.wait_for(state="visible", timeout=timeout_ms)
-            options.first.click(timeout=5000)
-            return True
-        except Exception:
-            return False
+        texts = self._page.get_by_text(starts)
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+        while True:
+            try:
+                if options.count():
+                    options.first.click(timeout=5000)
+                    return True
+                for index in range(min(texts.count(), 10)):
+                    item = texts.nth(index)
+                    tag = (item.evaluate("e => e.tagName") or "").lower()
+                    if tag in ("input", "textarea") or not item.is_visible():
+                        continue
+                    item.click(timeout=5000)
+                    return True
+            except Exception:
+                pass
+            if time.monotonic() >= deadline:
+                return False
+            self._page.wait_for_timeout(150)
 
     def mark_existing(self, texts: list[str]) -> int:
         marked = 0

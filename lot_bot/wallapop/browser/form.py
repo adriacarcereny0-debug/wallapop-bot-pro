@@ -283,6 +283,18 @@ class ListingForm:
                 return None
         candidates = [option, *[a for a in (alternatives or []) if a and a != option]]
         chosen: list[str] = []
+        # Si Wallapop (o su IA) ya lo ha puesto, NO se vuelve a pulsar: en las
+        # listas de varias opciones (Color) pulsarlo otra vez lo QUITA.
+        current_target = self._find(step, spec, wait=False)
+        if current_target is not None:
+            try:
+                current = self.page.value_of(current_target)
+            except Exception:
+                current = ""
+            already = next((c for c in candidates if contains_text(c, current)), None)
+            if already:
+                self.steps.append(f"{step} (ya estaba: {already})")
+                return already
 
         def action() -> None:
             target = self._require(step, spec)
@@ -293,6 +305,7 @@ class ListingForm:
                     self.page.click(target)  # la lista se cerró: se vuelve a abrir
                 if self.page.click_option(candidate, wait, opener=target):
                     chosen.append(candidate)
+                    self.close_open_lists()
                     return
             raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
 
@@ -300,6 +313,20 @@ class ListingForm:
         if chosen and chosen[0] != option:
             self.skipped.append(f"{step}: Wallapop no tiene «{option}»; elegido «{chosen[0]}»")
         return chosen[0] if chosen else None
+
+    #: Listas desplegables abiertas (si quedan abiertas, tapan otros campos).
+    OPEN_LISTS = ["[role=listbox]", "[role=menu]", "[role=option]"]
+
+    def close_open_lists(self) -> None:
+        """Cierra la lista que haya quedado abierta (p. ej. Color, que admite
+        varias opciones y no se cierra sola): tecla Escape, como un usuario."""
+        self.page.press("Escape")  # por si la lista no se marca como tal
+        self.page.wait(150)
+        for _ in range(2):
+            if not self.page.first_visible(self.OPEN_LISTS, 300):
+                return
+            self.page.press("Escape")
+            self.page.wait(200)
 
     def _choose_path(self, step: str, spec: FormField, path: str) -> str:
         """Categoría «A > B > Estructura de camas» con `CategoryPicker`:

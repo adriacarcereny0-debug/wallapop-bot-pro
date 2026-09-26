@@ -101,7 +101,8 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     # Orden real de Wallapop: título → Continuar → Fotos → Continuar → detalles.
     assert pasos.index("Fotos") < pasos.index("Continuar tras las fotos") < pasos.index("Categoría")
     for c in ("Estado", "Color", "Material"):
-        assert f"Característica {c}" in pasos, pasos
+        # Hecho por el bot, o ya puesto por Wallapop con el valor correcto.
+        assert any(p.startswith(f"Característica {c}") for p in pasos), pasos
     assert "Título (revisión)" in pasos and "Detalles listos" in pasos
     omitidos = resultado.data["omitidos"]
     assert any("Uso" in o for o in omitidos)  # Wallapop no tiene ese campo

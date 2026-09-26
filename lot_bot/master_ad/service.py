@@ -50,6 +50,10 @@ DEMO_CATEGORY = "Hogar y jardín"
 DEMO_IMAGE_COUNT = 3
 
 #: Campos que el usuario puede editar en la plantilla.
+#: Datos del Anuncio principal guardados en «attributes» que NO son
+#: características del producto.
+NON_FEATURE_ATTRIBUTES = {"ubicacion", "activo"}
+
 EDITABLE_FIELDS = {
     "name",
     "title",
@@ -200,6 +204,9 @@ class MasterAdService:
                 session.add(row)
                 session.flush()
                 logger.info("Anuncio principal creado: %s", row.name)
+            elif "ubicacion" not in (row.attributes or {}):
+                # Campo nuevo: se añade UNA vez (si el usuario lo vacía, se respeta).
+                row.attributes = {**(row.attributes or {}), "ubicacion": "Barcelona"}
             return self._to_view(row)
 
     # ------------------------------------------------------------------
@@ -304,7 +311,15 @@ class MasterAdService:
             if row is None:
                 raise ValueError("No existe el anuncio principal.")
             if "attributes" in changes and "features" not in changes:
-                changes = {**changes, "features": list((changes["attributes"] or {}).values())}
+                # Características = estado, uso, color, material (no la
+                # ubicación ni «anuncio activo»).
+                changes = {
+                    **changes,
+                    "features": [
+                        v for k, v in (changes["attributes"] or {}).items()
+                        if k not in NON_FEATURE_ATTRIBUTES and v
+                    ],
+                }
             before = {name: getattr(row, name) for name in changes}
             for name, value in changes.items():
                 if name == "price" and value is not None:
