@@ -15,7 +15,11 @@ input,textarea{width:100%;padding:6px;font-size:14px}
 </style></head>
 <body>
 <p class="banner">PÁGINA DE PRUEBA LOCAL que imita el formulario de Wallapop. No es Wallapop.</p>
-<a href="/app/profile">Tu perfil</a>
+<header><a href="/app/profile">Tu perfil</a>
+  <!-- Trampa: el menú de la cabecera sirve para BUSCAR, no para elegir la categoría. -->
+  <button type="button" onclick="location.href='/buscar-categorias'">Categorías</button>
+</header>
+<main>
 <div id="captcha" hidden><iframe title="captcha simulado" src="about:blank" width="200" height="40"></iframe>
   <p>Verifica que eres humano (simulado)</p>
   <button type="button" onclick="document.getElementById('captcha').hidden=true">He completado la verificación</button></div>
@@ -23,6 +27,8 @@ input,textarea{width:100%;padding:6px;font-size:14px}
 <form id="f" onsubmit="return false">
   <label for="summary">Resumen del producto</label>
   <input id="summary" name="summary">
+  <p id="paso1"><button type="button" id="continuar" onclick="document.getElementById('paso2').hidden=false;this.parentElement.hidden=true">Continuar</button></p>
+  <div id="paso2" hidden>
   <label>Categoría</label>
   <div class="combo"><button type="button" role="combobox" aria-label="Categoría" data-options="Hogar y jardín|Moda|Electrónica">Elige</button></div>
   <label>Estado</label>
@@ -41,7 +47,9 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <input type="file" id="fotos" accept="image/*" multiple style="display:none">
   <div class="previews" id="previews"></div>
   <p><button type="button" id="subir">Subir producto</button></p>
+  </div>
 </form>
+</main>
 <script>
 const params = new URLSearchParams(location.search);
 if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {

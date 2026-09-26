@@ -70,7 +70,7 @@ sesion:
   comprobacion:
     url: subir
     url_debe_contener: "/app/"
-    espera_ms: 4000
+    espera_ms: 1500
     # Elementos que prueban que se ve la página privada.
     privada:
       - "input[name='summary']"
@@ -116,37 +116,47 @@ publicar:
         - "input[name='summary']"
         - "#summary"
         - "role=textbox[name=/Resumen del producto|Título/i]"
+    # «Continuar» del formulario por pasos de Wallapop (tras el título, etc.).
+    # Solo dentro del formulario: NUNCA el menú «Categorías» de la cabecera,
+    # que sirve para BUSCAR productos, no para elegir la categoría del tuyo.
+    continuar:
+      objetivos:
+        - "main >> role=button[name=/^Continuar$/i]"
+        - "form >> role=button[name=/^Continuar$/i]"
+        - "role=button[name=/^Continuar$/i]"
     categoria:
       objetivos:
-        - "role=combobox[name=/Categoría/i]"
-        - "role=button[name=/Categoría/i]"
-        - "text=/^Categoría$/i"
+        - "form >> role=combobox[name=/^Categoría(?!s)/i]"
+        - "main >> role=combobox[name=/^Categoría(?!s)/i]"
+        - "form >> role=button[name=/^Categoría(?!s)/i]"
+        - "main >> role=button[name=/^Categoría(?!s)/i]"
     subcategoria:
       opcional: true
       objetivos:
-        - "role=combobox[name=/Subcategoría/i]"
-        - "role=button[name=/Subcategoría/i]"
+        - "form >> role=combobox[name=/^Subcategoría/i]"
+        - "main >> role=combobox[name=/^Subcategoría/i]"
+        - "main >> role=button[name=/^Subcategoría/i]"
     caracteristicas:
       estado:
         opcional: true
         objetivos:
-          - "role=combobox[name=/Estado/i]"
-          - "role=button[name=/Estado/i]"
+          - "main >> role=combobox[name=/^(Estado)/i]"
+          - "main >> role=button[name=/^(Estado)/i]"
       uso:
         opcional: true
         objetivos:
-          - "role=combobox[name=/Uso|Estancia|Habitación/i]"
-          - "role=button[name=/Uso|Estancia|Habitación/i]"
+          - "main >> role=combobox[name=/^(Uso|Estancia|Habitación)/i]"
+          - "main >> role=button[name=/^(Uso|Estancia|Habitación)/i]"
       color:
         opcional: true
         objetivos:
-          - "role=combobox[name=/Color/i]"
-          - "role=button[name=/Color/i]"
+          - "main >> role=combobox[name=/^(Color)/i]"
+          - "main >> role=button[name=/^(Color)/i]"
       material:
         opcional: true
         objetivos:
-          - "role=combobox[name=/Material/i]"
-          - "role=button[name=/Material/i]"
+          - "main >> role=combobox[name=/^(Material)/i]"
+          - "main >> role=button[name=/^(Material)/i]"
     descripcion:
       objetivos:
         - "textarea[name='description']"
@@ -174,8 +184,8 @@ publicar:
     publicar:
       objetivos:
         - "role=button[name=/^Subir producto$/i]"
-        - "role=button[name=/^Publicar/i]"
-        - "button[type='submit']"
+        - "main >> role=button[name=/^Publicar/i]"
+        - "main >> button[type='submit']"
     # Mensajes de error de Wallapop durante la publicación.
     errores:
       - "text=/ha ocurrido un error|algo ha ido mal|no se ha podido publicar/i"

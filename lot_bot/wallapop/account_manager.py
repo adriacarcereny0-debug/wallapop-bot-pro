@@ -480,14 +480,33 @@ class AccountManager:
                 account.status = AccountStatus.ERROR
                 account.status_detail = detail[:500]
 
+    def restore_expired_accounts(self) -> int:
+        """Las cuentas marcadas como «caducadas» por versiones anteriores
+        vuelven a estar conectadas (si tienen su sesión guardada)."""
+        restored = 0
+        with self._db.session_scope() as session:
+            for account in session.scalars(
+                select(Account).where(Account.status == AccountStatus.EXPIRED)
+            ).all():
+                if account.credential_enc:
+                    account.status = AccountStatus.CONNECTED
+                    account.status_detail = None
+                    restored += 1
+        return restored
+
     def _mark_expired(self, internal_ref: str, detail: str = "") -> None:
+        """Las cuentas NO caducan nunca en LOT Bot.
+
+        Una cuenta conectada sigue conectada hasta que el usuario la elimina o
+        la desconecta. Si Wallapop pide volver a entrar, se avisa (y la
+        publicación espera a que el usuario inicie sesión en la misma
+        ventana), pero la cuenta no se marca como caducada.
+        """
+        logger.info("Aviso de sesión para %s (la cuenta sigue conectada): %s", internal_ref, detail)
         with self._db.session_scope() as session:
             account = self._find(session, internal_ref)
-            if account is not None:
-                account.status = AccountStatus.EXPIRED
-                account.status_detail = (
-                    detail or "La sesión ha caducado. Vuelve a autenticar la cuenta."
-                )[:500]
+            if account is not None and account.status != AccountStatus.CONNECTED:
+                account.status_detail = (detail or "")[:500] or account.status_detail
 
     def ensure_demo_accounts(self, demo_refs: list[tuple[str, str]]) -> list[AccountInfo]:
         """Crea las cuentas de demostracion si no existen."""

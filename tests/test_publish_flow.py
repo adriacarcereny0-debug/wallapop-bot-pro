@@ -159,22 +159,51 @@ def test_ventana_de_la_cuenta_abierta_pide_cerrarla_y_continua(listo):
     assert intentos[0] == intentos[1]  # mismo perfil, el de la cuenta
 
 
-def test_sesion_caducada_pausa_y_tras_reconectar_continua_sola(listo):
+def test_si_wallapop_pide_entrar_de_nuevo_la_cuenta_no_caduca(listo):
+    from lot_bot.database.models import AccountStatus
+
     app, world, cuenta = listo
     world["logged_in"] = False
     publicar_uno(app)
     cola = app.publish_queue
-    cola.run_until_idle()
+    hilo = en_segundo_plano(cola.run_until_idle)
+    assert esperar(lambda: cola.progress().status == "paused")
     progreso = cola.progress()
-    assert progreso.status == "paused" and "Sesión caducada" in progreso.pause_reason
-    assert progreso.published == 0
-    # El usuario pulsa «Reconectar» e inicia sesión; se comprueba de verdad.
-    world["logged_in"] = True
-    app.accounts.mark_session_checked(cuenta.internal_ref, True, "ok")
-    assert cola.progress().status == "running"  # sin pulsar nada más
-    cola.run_until_idle()
+    assert "volver a iniciar sesión" in progreso.pause_reason
+    assert "Sesión caducada" not in progreso.pause_reason
+    assert app.accounts.get_account(cuenta.internal_ref).status is AccountStatus.CONNECTED
+    assert app.wallapop.pool.is_open(cuenta.internal_ref)  # misma ventana abierta
+    world["logged_in"] = True  # el usuario entra en esa misma ventana
+    cola.resume(progreso.job_id)  # «Continuar»
+    hilo.join(10)
     assert cola.progress().published == 1
     assert app.wallapop.pool.open_count == {cuenta.internal_ref: 1}  # mismo navegador
+    assert app.accounts.get_account(cuenta.internal_ref).status is AccountStatus.CONNECTED
+
+
+def test_comprobaciones_fallidas_nunca_desconectan_la_cuenta(listo):
+    from lot_bot.database.models import AccountStatus
+
+    app, _, cuenta = listo
+    for _ in range(5):
+        app.accounts.mark_session_checked(cuenta.internal_ref, False, "no se pudo comprobar")
+        app.accounts.mark_session_invalid(cuenta.internal_ref, "pestaña cerrada")
+    assert app.accounts.get_account(cuenta.internal_ref).status is AccountStatus.CONNECTED
+    app.accounts.remove_account(cuenta.internal_ref)  # solo así deja de funcionar
+    assert app.accounts.get_account(cuenta.internal_ref) is None
+
+
+def test_cerrar_la_ventana_no_rompe_nada_se_reabre_el_mismo_perfil(listo):
+    app, world, cuenta = listo
+    publicar_uno(app)
+    app.publish_queue.run_until_idle()
+    assert app.publish_queue.progress().published == 1
+    world["pages"][0].closed = True  # el usuario cierra la ventana
+    publicar_uno(app)
+    app.publish_queue.run_until_idle()
+    assert app.publish_queue.progress().published == 1  # la nueva cola: 1 de 1
+    launcher = app.wallapop.launcher
+    assert len(launcher.opened) == 2 and launcher.opened[0] == launcher.opened[1]
 
 
 def test_varios_anuncios_reutilizan_el_mismo_perfil_y_esperan_60_s(listo):

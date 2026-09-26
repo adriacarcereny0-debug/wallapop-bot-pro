@@ -283,6 +283,8 @@ def create_application(
     events = get_event_bus()
     audit = AuditService(db)
     accounts = AccountManager(db)
+    # En LOT Bot las cuentas no caducan: se deshace el estado «caducada» antiguo.
+    accounts.restore_expired_accounts()
 
     backend = build_backend(settings, accounts, load_integration_mode(db))
     accounts.set_auth_method(backend.auth_method)

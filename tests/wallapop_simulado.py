@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parent / "fixtures" / "wallapop_simulado"
 class SimulatedWallapop:
     def __init__(self) -> None:
         self.published: list[dict] = []
+        self.visited: list[str] = []
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -34,6 +35,7 @@ class SimulatedWallapop:
 
             def do_GET(self):
                 path = self.path.split("?", 1)[0]
+                server.visited.append(path)
                 if path == "/app/catalog/upload":
                     self._send(200, (ROOT / "app/catalog/upload.html").read_bytes())
                 elif path.startswith("/item/"):

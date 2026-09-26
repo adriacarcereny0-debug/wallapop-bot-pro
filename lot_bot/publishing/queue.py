@@ -80,6 +80,7 @@ PAUSING_ERRORS = {
 #: Errores que no se arreglan reintentando.
 NON_RETRYABLE = {"CALIDAD_INSUFICIENTE", "DUPLICATE", "RESULTADO_NO_CONFIRMADO"}
 UNCONFIRMED_CODE = "RESULTADO_NO_CONFIRMADO"
+RELOGIN_CODE = "INICIAR_SESION"
 #: Máximo que se espera a que el usuario complete una verificación y pulse
 #: «Continuar» antes de dejar la cola en pausa.
 USER_GATE_TIMEOUT_S = 1800.0
@@ -611,7 +612,7 @@ class PublishQueue:
                     )
                     .order_by(PublishTask.position)
                 ).all()
-                # Las cuentas cuya sesión ha caducado esperan; las demás siguen.
+                # Las cuentas no conectadas (p. ej. desconectadas por el usuario) esperan.
                 task = next((t for t in pending if self._account_usable(t.account_ref)), None)
                 blocked = sorted({t.account_ref for t in pending}) if pending and task is None else []
                 if blocked:
@@ -632,8 +633,8 @@ class PublishQueue:
                 names = ", ".join(aliases.get(r, r) for r in blocked)
                 self.pause(
                     job_id,
-                    f"Sesión caducada: {names}. Pulsa «Reconectar» en Cuentas e inicia sesión "
-                    "en la ventana que se abre; al comprobarse la sesión la cola continúa sola.",
+                    f"Estas cuentas no están conectadas en LOT Bot: {names}. Conéctalas en "
+                    "Cuentas; al comprobarse la sesión la cola continúa sola.",
                 )
                 return True
             if job_done:
@@ -856,7 +857,7 @@ class PublishQueue:
                         PublishTask.job_id == job.id,
                         PublishTask.account_ref == account_ref,
                         PublishTask.status == PublishTaskStatus.PENDING,
-                        PublishTask.error_code == "SESION_CADUCADA",
+                        PublishTask.error_code == RELOGIN_CODE,
                     )
                 ).first()
                 if waiting is not None:
@@ -873,25 +874,29 @@ class PublishQueue:
         return info is not None and info.status == AccountStatus.CONNECTED
 
     def _session_expired(self, task_id: int, job_id: int, attempts: int, message: str) -> None:
-        """La sesión de UNA cuenta ha caducado: sus anuncios esperan a que el
-        usuario la reconecte; los de las demás cuentas siguen publicándose."""
+        """Wallapop pide volver a iniciar sesión en una cuenta.
+
+        La cuenta NO se marca como caducada (en LOT Bot las cuentas solo dejan
+        de funcionar si el usuario las elimina). El anuncio vuelve a la cola y
+        la cola se pausa hasta que el usuario entre y pulse «Continuar» (o
+        «Reconectar», que la reanuda sola)."""
         with self._db.session_scope() as session:
             task = session.get(PublishTask, task_id)
             task.attempts = max(0, attempts - 1)  # no cuenta como intento fallido
             task.error = message[:1000]
-            task.error_code = "SESION_CADUCADA"
+            task.error_code = RELOGIN_CODE
             task.status = PublishTaskStatus.PENDING
             ref, title = task.account_ref, task.title
-        self._app.accounts.mark_session_invalid(
-            ref, "La sesión de Wallapop ha caducado. Pulsa «Reconectar»."
-        )
         self._audit.record_error(
-            "Sesión de Wallapop caducada: se detienen los anuncios de esta cuenta",
+            "Wallapop pide iniciar sesión de nuevo (la cuenta sigue conectada)",
             error=message,
             account_ref=ref,
             target=title,
         )
-        self._notify(job_id)
+        aliases = {a.internal_ref: a.alias for a in self._app.accounts.list_accounts()}
+        if "Continuar" not in message:
+            message += " Inicia sesión en la ventana de la cuenta y pulsa «Continuar»."
+        self.pause(job_id, f"{aliases.get(ref, ref)}: {message}")
 
     def _notify(self, job_id: int) -> None:
         for listener in list(self.listeners):

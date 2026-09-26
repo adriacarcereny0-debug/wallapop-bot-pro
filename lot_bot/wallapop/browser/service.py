@@ -51,6 +51,13 @@ from lot_bot.wallapop.service import WallapopService
 
 logger = logging.getLogger(__name__)
 
+#: Wallapop pide volver a entrar. La cuenta sigue conectada en LOT Bot.
+RELOGIN_MESSAGE = (
+    "Wallapop pide volver a iniciar sesión en esta cuenta. Inicia sesión en la ventana "
+    "del navegador que está abierta y pulsa «Continuar»: la publicación sigue sola. "
+    "(La cuenta no se desconecta: solo se elimina si tú la eliminas.)"
+)
+
 
 @dataclass(slots=True)
 class SessionCheck:
@@ -330,13 +337,26 @@ class BrowserWallapopService(WallapopService):
                 # en la MISMA página, sin recargarla.
                 form.guard("Comprobar sesión")
                 check = self.verify_session(page, navigate=False)
+            if not check.ok and check.state in ("desconocido", "error"):
+                # Carga lenta o pestaña cerrada: no es una sesión caducada.
+                page.wait(1500)
+                check = self.verify_session(page)
+            while not check.ok and self.user_gate is not None:
+                # La cuenta NO se da por caducada: se deja la MISMA ventana en
+                # la portada para que el usuario vuelva a entrar y se sigue.
+                form.save_error_context("sesion", check.message)
+                try:
+                    page.goto(self.site.url("inicio"))
+                except Exception:
+                    pass
+                if not self.user_gate(account_ref, RELOGIN_MESSAGE):
+                    break
+                check = self.verify_session(page)
             if not check.ok:
                 form.save_error_context("sesion", check.message)
                 raise AuthenticationError(
-                    f"Sesión de navegador no válida: {check.message}",
-                    user_message="Sesión caducada: la sesión de Wallapop de esta cuenta ya no es "
-                    "válida. Pulsa «Reconectar» en Cuentas, inicia sesión en la ventana que se abre "
-                    "y la publicación continuará.",
+                    f"Sesión de navegador no confirmada: {check.message}",
+                    user_message=RELOGIN_MESSAGE,
                 )
             form.steps.append("Comprobar sesión")
             return form.run()

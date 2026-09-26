@@ -198,12 +198,35 @@ class ListingForm:
                     text = found
                 raise self._fail(step, f"Wallapop muestra un error: {text}")
 
+    #: Espera corta antes de probar con «Continuar» (formulario por pasos).
+    QUICK_MS = 1500
+
     def _find(self, step: str, spec: FormField, *, wait: bool = True) -> str | None:
-        target = self.page.first_visible(spec.targets, self.timeout if wait else 0)
-        if target is None:
+        """Busca el campo. Si no está en la pantalla actual del formulario y
+        hay un botón «Continuar» del propio formulario, lo pulsa y lo vuelve a
+        buscar (Wallapop pide los datos en varias pantallas)."""
+        target = self.page.first_visible(spec.targets, min(self.timeout, self.QUICK_MS) if wait else 0)
+        if target is None and wait:
             self.guard(step)  # ¿apareció una verificación mientras esperábamos?
+            if self.continue_if_present(f"Continuar (antes de {step})", wait_ms=0):
+                target = self.page.first_visible(spec.targets, self.timeout)
+            else:
+                target = self.page.first_visible(spec.targets, self.timeout)
+        if target is None:
+            self.guard(step)
             target = self.page.first_visible(spec.targets, 0)
         return target
+
+    def continue_if_present(self, step: str = "Continuar", *, wait_ms: int = 2000) -> bool:
+        """Pulsa el «Continuar» DEL FORMULARIO si aparece (nunca menús de la web)."""
+        spec = self.form.next_button
+        if not spec.targets:
+            return False
+        target = self.page.first_visible(spec.targets, wait_ms)
+        if target is None:
+            return False
+        self._do(step, lambda: self.page.click(target))
+        return True
 
     def _require(self, step: str, spec: FormField) -> str:
         target = self._find(step, spec)
@@ -238,7 +261,7 @@ class ListingForm:
             return False
         if spec.optional and self._find(step, spec, wait=False) is None:
             # Un campo opcional puede tardar un poco en aparecer tras elegir la categoría.
-            if self.page.first_visible(spec.targets, min(self.timeout, 3000)) is None:
+            if self.page.first_visible(spec.targets, min(self.timeout, self.QUICK_MS)) is None:
                 self.skipped.append(f"{step} (el formulario no tiene este campo)")
                 return False
 
@@ -271,6 +294,9 @@ class ListingForm:
 
     def fill_title(self) -> None:
         self._type("Título", self.form.title, self.data.title)
+        # Tras el título Wallapop muestra «Continuar»: se pulsa ahí, no se va
+        # al menú «Categorías» de arriba (ese es el buscador de la web).
+        self.continue_if_present("Continuar tras el título")
 
     def select_category(self) -> None:
         if not self.data.category:
@@ -330,7 +356,7 @@ class ListingForm:
             if time.monotonic() > deadline:
                 shot = self.save_error_context(step, f"Fotos cargadas {loaded} de {len(images)}")
                 raise ImageUploadError(f"cargadas {max(loaded, 0)} de {len(images)}", shot)
-            self.page.wait(500)
+            self.page.wait(200)
 
     # ------------------------------------------------------------------
     # Comprobación antes de publicar
@@ -401,7 +427,7 @@ class ListingForm:
             if time.monotonic() > deadline:
                 self.save_error_context("confirmacion", "Wallapop no ha confirmado la publicación")
                 return ""
-            self.page.wait(500)
+            self.page.wait(300)
 
     def get_published_listing_url(self) -> str | None:
         pattern = self.site.item_url_regex

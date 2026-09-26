@@ -70,32 +70,76 @@ class _AccountWorker:
                 item[1].set_exception(exc)
 
     def _run(self) -> None:
+        """Abre el perfil y atiende operaciones. Si el usuario cierra la
+        ventana o la pestaña, se vuelve a abrir el MISMO perfil (con su
+        sesión) en la siguiente operación: cerrar la ventana no desconecta."""
         try:
-            first = self._jobs.get()
-            if first is _STOP:
-                return
-            try:
-                with self._launcher.open(self._profile, **self._options) as page:
-                    self.opened = True
-                    item = first
-                    while item is not _STOP:
-                        fn, future = item
-                        if future.set_running_or_notify_cancel():
+            item = self._jobs.get()
+            reopen = 0
+            while item is not _STOP:
+                reopen += 1
+                if reopen > 3:
+                    exc = RuntimeError("No se ha podido mantener abierta la ventana del navegador.")
+                    item[1].set_exception(exc)
+                    self._fail_pending(exc)
+                    return
+                try:
+                    with self._launcher.open(self._profile, **self._options) as page:
+                        self.opened = True
+                        while item is not _STOP:
+                            if not page.is_alive():
+                                logger.info("Ventana de %s cerrada; se reabre su perfil.", self.ref)
+                                break  # reabrir y ejecutar este mismo trabajo
+                            fn, future = item
+                            reopen = 0
+                            if future.set_running_or_notify_cancel():
+                                try:
+                                    future.set_result(fn(page))
+                                except BaseException as exc:
+                                    first_time = not isinstance(future, _Retry)
+                                    if first_time and not page.is_alive() and not future.done():
+                                        logger.info(
+                                            "La ventana de %s se cerró durante la operación; "
+                                            "se reabre y se repite una vez.",
+                                            self.ref,
+                                        )
+                                        item = (fn, _Retry(future))
+                                        break
+                                    future.set_exception(exc)
                             try:
-                                future.set_result(fn(page))
-                            except BaseException as exc:  # se entrega al que espera
-                                future.set_exception(exc)
-                        try:
-                            item = self._jobs.get(timeout=self._idle)
-                        except queue.Empty:
-                            logger.info("Navegador de %s cerrado por inactividad.", self.ref)
-                            break
-            except BaseException as exc:  # no se pudo abrir el navegador
-                if not first[1].done():
-                    first[1].set_exception(exc)
-                self._fail_pending(exc)
+                                item = self._jobs.get(timeout=self._idle)
+                            except queue.Empty:
+                                logger.info("Navegador de %s cerrado por inactividad.", self.ref)
+                                return
+                except BaseException as exc:  # no se pudo abrir el navegador
+                    if item is not _STOP:
+                        future = item[1]
+                        target = future.inner if isinstance(future, _Retry) else future
+                        if not target.done():
+                            target.set_exception(exc)
+                    self._fail_pending(exc)
+                    return
         finally:
             self._on_exit(self.ref, self)
+
+
+class _Retry:
+    """Envuelve el Future de un trabajo que se repite tras reabrir la ventana."""
+
+    def __init__(self, inner: Future) -> None:
+        self.inner = inner
+
+    def set_running_or_notify_cancel(self) -> bool:
+        return True
+
+    def set_result(self, value) -> None:
+        self.inner.set_result(value)
+
+    def set_exception(self, exc) -> None:
+        self.inner.set_exception(exc)
+
+    def done(self) -> bool:
+        return self.inner.done()
 
 
 class BrowserSessionPool:

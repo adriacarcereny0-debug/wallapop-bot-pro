@@ -277,3 +277,25 @@ fallo y se muestra tal cual.
   (Pillow: hasta 2048 px, nitidez y contraste), sin IA.
 * Cada imagen guarda su escena (habitación, luz, ángulo, estilo) y su imagen de
   partida; una edición idéntica a la original se descarta.
+
+## Las cuentas no caducan
+
+Una cuenta conectada sigue conectada hasta que el usuario la desconecta o la
+elimina. Ninguna comprobación fallida, pestaña cerrada ni aviso de Wallapop
+la marca como caducada (`AccountManager._mark_expired` solo registra el aviso;
+`restore_expired_accounts` deshace el estado «caducada» de versiones
+anteriores). La sesión vive en el perfil persistente de la cuenta:
+
+* Si el usuario cierra la ventana, `BrowserSessionPool` reabre el MISMO perfil
+  en la siguiente operación (y repite una vez la que estaba en curso).
+* Si Wallapop pide entrar de nuevo, la publicación se detiene en esa misma
+  ventana, el usuario inicia sesión ahí y pulsa «Continuar»; sigue sola.
+
+## Formulario por pantallas
+
+Tras el título, `ListingForm` pulsa el «Continuar» DEL FORMULARIO
+(`publicar.formulario.continuar`). Si un campo no está en la pantalla actual,
+prueba primero con «Continuar». Los selectores de categoría y características
+van limitados a `main`/`form` y a nombres que empiezan por «Categoría» (no
+«Categorías»): el menú «Categorías» de la cabecera es el buscador de la web y
+nunca se pulsa.

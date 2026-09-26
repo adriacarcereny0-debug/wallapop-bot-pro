@@ -63,6 +63,10 @@ class BrowserPage(ABC):
         """Texto visible de la página (para leer estadísticas)."""
         return ""
 
+    def is_alive(self) -> bool:
+        """False si el usuario ha cerrado la ventana o la pestaña."""
+        return True
+
     def value_of(self, target: str) -> str:
         """Lo que contiene un campo (input/textarea) o el texto de un elemento.
 
@@ -193,23 +197,31 @@ class _PlaywrightPage(BrowserPage):
         self._page.locator(target).first.click()
 
     def click_option(self, text: str, timeout_ms: int) -> bool:
+        """Elige una opción de la lista desplegable abierta, en una sola espera."""
         pattern = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
-        for role in ("option", "menuitem", "listitem", "button", "link"):
-            locator = self._page.get_by_role(role, name=pattern)
-            try:
-                locator.first.wait_for(state="visible", timeout=min(timeout_ms, 3000))
-                locator.first.click()
-                return True
-            except Exception:
-                continue
+        options = self._page.locator(
+            "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
+        ).filter(has_text=pattern)
         try:
-            self._page.get_by_text(pattern).first.click(timeout=timeout_ms)
+            options.first.wait_for(state="visible", timeout=timeout_ms)
+            options.first.click()
+            return True
+        except Exception:
+            pass
+        try:
+            self._page.get_by_text(pattern).first.click(timeout=min(timeout_ms, 3000))
             return True
         except Exception:
             return False
 
     def set_files(self, target: str, paths: list[str]) -> None:
         self._page.locator(target).first.set_input_files(paths)
+
+    def is_alive(self) -> bool:
+        try:
+            return not self._page.is_closed() and bool(self._page.context.pages)
+        except Exception:
+            return False
 
     def value_of(self, target: str) -> str:
         locator = self._page.locator(target).first

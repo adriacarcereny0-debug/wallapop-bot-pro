@@ -84,6 +84,9 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     assert resultado.item_id == "canape-canape-701"
     assert resultado.data["url"] == f"{web.base}/item/canape-canape-701"
     assert web.published == [{"titulo": CLIENT_TITLE, "precio": "11,44", "fotos": 1}]
+    # Pulsa «Continuar» tras el título y NUNCA el menú «Categorías» de la cabecera.
+    assert "Continuar tras el título" in resultado.data["pasos"]
+    assert "/buscar-categorias" not in web.visited
     # Mismo perfil persistente en la segunda publicación (no se vuelve a abrir).
     assert service.create_item("cuenta-1", borrador(tmp_path)).success
     assert service.pool.open_count == {"cuenta-1": 1}

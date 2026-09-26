@@ -54,8 +54,8 @@ class AuthenticationError(WallapopError):
     """Token ausente, caducado o rechazado."""
 
     user_message = (
-        "La cuenta no está autorizada o la sesión ha caducado. "
-        "Vuelve a conectar la cuenta desde la pantalla Cuentas Wallapop."
+        "Wallapop pide volver a iniciar sesión en esta cuenta. Inicia sesión en su "
+        "ventana del navegador y pulsa «Continuar» (la cuenta sigue conectada)."
     )
 
 

@@ -66,6 +66,7 @@ class ListingFormConfig:
     photo_rejected: list[str] = field(default_factory=list)
     photo_wait_ms: int = 45000
     submit: FormField = field(default_factory=FormField)
+    next_button: FormField = field(default_factory=FormField)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -93,6 +94,7 @@ class ListingFormConfig:
             photo_rejected=[str(x) for x in (photos.get("rechazada") or [])],
             photo_wait_ms=int(photos.get("espera_ms", 45000)),
             submit=FormField.from_dict(data.get("publicar")),
+            next_button=FormField.from_dict(data.get("continuar")),
             errors=[str(x) for x in (data.get("errores") or [])],
         )
 

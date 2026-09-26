@@ -226,15 +226,15 @@ def test_los_anuncios_siguen_aislados_por_cuenta(app_with_data):
 # ---------------------------------------------------------------------------
 # 3. Sesión caducada y desconexión
 # ---------------------------------------------------------------------------
-def test_una_sesion_caducada_sin_renovacion_obliga_a_reautenticar(manager):
+def test_una_credencial_caducada_no_desconecta_la_cuenta(manager):
     manager.add_account("Cuenta 1", internal_ref="c1")
     manager.connect("c1", expires_at=datetime.now(UTC) - timedelta(minutes=1))
 
     with pytest.raises(AuthenticationError) as error:
         manager.get_credential("c1")
     assert "caducado" in error.value.detail.lower()
-    assert manager.get_account("c1").status is AccountStatus.EXPIRED
-    assert manager.get_account("c1").needs_reauthentication
+    # Las cuentas no caducan en LOT Bot: siguen conectadas hasta que el usuario las elimina.
+    assert manager.get_account("c1").status is AccountStatus.CONNECTED
 
 
 def test_una_sesion_caducada_renovable_se_renueva_sola(database):
@@ -347,3 +347,14 @@ def test_la_barra_de_estado_distingue_demo_de_real(app):
     assert "MODO DEMO" in ventana.status_label.text()
     assert ventana.brand_sub.text() == "MODO DEMO"
     ventana.close()
+
+
+def test_cuentas_caducadas_de_versiones_anteriores_vuelven_a_estar_conectadas(manager, database):
+    from lot_bot.database.models import Account
+
+    manager.add_account("Cuenta 1", internal_ref="c1")
+    manager.connect("c1")
+    with database.session_scope() as session:
+        session.query(Account).filter_by(internal_ref="c1").one().status = AccountStatus.EXPIRED
+    assert manager.restore_expired_accounts() == 1
+    assert manager.get_account("c1").status is AccountStatus.CONNECTED

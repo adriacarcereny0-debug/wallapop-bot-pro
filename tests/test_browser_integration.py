@@ -94,6 +94,11 @@ class FakePage(BrowserPage):
                 url = SITE.url("inicio")  # Wallapop saca de la zona privada
         self.url = url
 
+    closed = False
+
+    def is_alive(self) -> bool:
+        return not self.closed and not self.world.get("closed")
+
     def current_url(self) -> str:
         if self.world.get("closed"):
             raise RuntimeError("navegador cerrado")
@@ -316,7 +321,7 @@ def test_sin_sesion_no_se_publica(profiles, tmp_path):
     service, _ = make_service(profiles, {"logged_in": False}, tmp_path)
     with pytest.raises(AuthenticationError) as info:
         service.create_item("acc-1", draft(tmp_path))
-    assert "Sesión caducada" in info.value.user_message
+    assert "volver a iniciar sesión" in info.value.user_message
 
 
 def test_cuenta_no_conectada_no_abre_el_navegador(profiles, tmp_path):

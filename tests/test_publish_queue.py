@@ -330,7 +330,7 @@ def test_en_modo_real_las_cuentas_demo_no_publican(app):
         app.backend.demo = True
 
 
-def test_sesion_caducada_detiene_solo_esa_cuenta(app, monkeypatch):
+def test_si_wallapop_pide_entrar_la_cola_espera_y_la_cuenta_no_caduca(app, monkeypatch):
     from lot_bot.database.models import AccountStatus
     from lot_bot.wallapop.errors import AuthenticationError
 
@@ -352,11 +352,12 @@ def test_sesion_caducada_detiene_solo_esa_cuenta(app, monkeypatch):
     por_cuenta = {}
     for t in progress.tasks:
         por_cuenta.setdefault(t["cuenta_ref"], []).append(t["estado"])
-    assert por_cuenta[cuenta_a] == ["published", "published"]  # A sigue publicando
+    assert por_cuenta[cuenta_a][0] == "published"
     assert por_cuenta[cuenta_b] == ["pending", "pending"]  # B espera
     assert progress.failed == 0
-    assert progress.status == "paused" and "Reconectar" in progress.pause_reason
-    assert app.accounts.get_account(cuenta_b).status == AccountStatus.EXPIRED
+    assert progress.status == "paused" and "Continuar" in progress.pause_reason
+    # La cuenta NO caduca: solo deja de funcionar si el usuario la elimina.
+    assert app.accounts.get_account(cuenta_b).status == AccountStatus.CONNECTED
 
     # El usuario reconecta B y reanuda: se reutiliza su sesión y termina.
     caducada["b"] = False
