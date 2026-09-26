@@ -54,7 +54,7 @@ SETTINGS_KEY = "publicacion"
 DEFAULT_PUBLISH_SETTINGS: dict[str, Any] = {
     "minimum_publish_interval_seconds": MINIMUM_PUBLISH_INTERVAL_SECONDS,
     "generate_images": True,
-    "automatic_retries": 1,
+    "automatic_retries": 0,  # «una vez» es una vez: sin reintentos automáticos
 }
 
 #: Errores que requieren al usuario: se pausa la cola, sin reintentos.
@@ -75,10 +75,17 @@ PAUSING_ERRORS = {
     "BrowserStepError",
     "BrowserUnavailable",
     "PublishCancelledError",
+    "WindowClosedError",
     "RESULTADO_NO_CONFIRMADO",
 }
 #: Errores que no se arreglan reintentando.
-NON_RETRYABLE = {"CALIDAD_INSUFICIENTE", "DUPLICATE", "RESULTADO_NO_CONFIRMADO"}
+NON_RETRYABLE = {
+    "CALIDAD_INSUFICIENTE",
+    "DUPLICATE",
+    "RESULTADO_NO_CONFIRMADO",
+    "WindowClosedError",
+    "PublishCancelledError",
+}
 UNCONFIRMED_CODE = "RESULTADO_NO_CONFIRMADO"
 RELOGIN_CODE = "INICIAR_SESION"
 #: Máximo que se espera a que el usuario complete una verificación y pulse

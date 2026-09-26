@@ -210,3 +210,14 @@ class ImageUploadError(WallapopError):
 
 class PublishCancelledError(WallapopError):
     user_message = "Publicación cancelada por el usuario."
+
+
+class WindowClosedError(PublishCancelledError):
+    """El usuario cerró la ventana del navegador durante la publicación.
+
+    No se reintenta ni se abre otra ventana: se detiene."""
+
+    user_message = (
+        "Has cerrado la ventana del navegador: la publicación se ha detenido y NO se "
+        "vuelve a intentar. Si quieres, pulsa «Continuar» o pide otra publicación."
+    )

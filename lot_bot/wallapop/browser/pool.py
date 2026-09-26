@@ -96,15 +96,16 @@ class _AccountWorker:
                                 try:
                                     future.set_result(fn(page))
                                 except BaseException as exc:
-                                    first_time = not isinstance(future, _Retry)
-                                    if first_time and not page.is_alive() and not future.done():
-                                        logger.info(
-                                            "La ventana de %s se cerró durante la operación; "
-                                            "se reabre y se repite una vez.",
-                                            self.ref,
-                                        )
-                                        item = (fn, _Retry(future))
-                                        break
+                                    if not page.is_alive():
+                                        # El usuario ha cerrado la ventana: se para
+                                        # aquí. No se reabre ni se repite nada.
+                                        from lot_bot.wallapop.errors import WindowClosedError
+
+                                        logger.info("Ventana de %s cerrada por el usuario: se detiene.", self.ref)
+                                        closed = WindowClosedError(str(exc)[:200])
+                                        future.set_exception(closed)
+                                        self._fail_pending(closed)
+                                        return
                                     future.set_exception(exc)
                             try:
                                 item = self._jobs.get(timeout=self._idle)

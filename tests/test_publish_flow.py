@@ -249,3 +249,27 @@ def test_una_version_nueva_de_la_plantilla_no_pisa_tus_cambios(app):
         master_service.CLIENT_MASTER_AD = original
     assert vista.price == 15  # tu cambio se respeta
     assert vista.delivery_note == "Montaje incluido"  # lo que no tocaste se actualiza
+
+
+def test_si_cierras_la_ventana_no_se_abre_otra_ni_se_reintenta(listo):
+    from tests.test_browser_integration import FakePage
+
+    app, world, _ = listo
+    original = FakePage.fill
+
+    def cierra(self, target, text):
+        self.closed = True  # el usuario cierra la pestaña a mitad
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    FakePage.fill = cierra
+    try:
+        publicar_uno(app)
+        app.publish_queue.run_until_idle()
+    finally:
+        FakePage.fill = original
+    progreso = app.publish_queue.progress()
+    assert progreso.published == 0
+    assert progreso.tasks[0]["estado"] == "failed"
+    assert progreso.tasks[0]["codigo_error"] == "WindowClosedError"
+    assert len(app.wallapop.launcher.opened) == 1  # una sola ventana, nunca otra
+    assert progreso.status == "paused"

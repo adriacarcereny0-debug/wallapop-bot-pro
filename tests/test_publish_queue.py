@@ -153,6 +153,7 @@ def test_error_de_publicacion_se_registra_y_se_reintenta_una_vez(app, monkeypatc
 
     monkeypatch.setattr(service, "create_item", falla_una_vez)
     queue = app.publish_queue
+    queue.save_settings(automatic_retries=1)  # activado a propósito
     job = queue.enqueue_master(None, refs(app, 1), copies=1, generate_images=False)
     queue.run_once()
     task = queue.progress(job).tasks[0]
@@ -175,6 +176,7 @@ def test_si_falla_el_reintento_queda_fallido_y_la_cola_se_pausa(app, monkeypatch
         lambda ref, draft: (_ for _ in ()).throw(ValidationRejectedError("no")),
     )
     queue = app.publish_queue
+    queue.save_settings(automatic_retries=1)  # activado a propósito
     job = queue.enqueue_master(None, refs(app), copies=3, generate_images=False)
     queue.run_until_idle()
     progress = queue.progress(job)

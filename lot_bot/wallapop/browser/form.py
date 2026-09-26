@@ -294,14 +294,25 @@ class ListingForm:
         parts = [p.strip() for p in path.split(">") if p.strip()]
         leaf = parts[-1]
 
+        def selected(target: str) -> bool:
+            try:
+                return normalize(leaf) in normalize(self.page.value_of(target))
+            except Exception:
+                return True  # no se puede leer: lo comprueba verify_form
+
         def action() -> None:
             target = self._require(step, spec)
             self.page.click(target)
-            if self.page.click_option(leaf, min(self.timeout, 4000)):
+            if self.page.click_option(leaf, min(self.timeout, 4000)) and selected(target):
                 return
+            # No estaba entre las sugeridas (o no quedó puesta): ruta completa.
+            if not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
+                self.page.click(target)
             for part in parts:
                 if not self.page.click_option(part, self.timeout):
                     raise self._fail(step, f"No aparece «{part}» en la lista de categorías.")
+            if not selected(target):
+                raise self._fail(step, f"La categoría no ha quedado como «{leaf}».")
 
         self._do(step, action)
         return leaf

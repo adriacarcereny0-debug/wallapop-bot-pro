@@ -133,6 +133,8 @@ publicar:
         - "main >> role=button[name=/^Categoría(?!s)/i]"
         - "role=combobox[name=/^Categoría(?!s)/i]"
         - "role=button[name=/^Categoría(?!s)/i]"
+        - "[placeholder^='Categoría' i]"
+        - "text=/^Categoría y subcategoría$/i"
     subcategoria:
       opcional: true
       objetivos:

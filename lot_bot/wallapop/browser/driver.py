@@ -216,24 +216,35 @@ class _PlaywrightPage(BrowserPage):
         CONTIENE un texto exactamente igual, no la que coincide entera.
         """
         exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
-        options = self._page.locator(
-            "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
-        ).filter(has=self._page.get_by_text(exact))
-        exact_self = self._page.locator(
-            "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
-        ).filter(has_text=exact)
-        candidates = options.or_(exact_self)
+        roles = "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
+        options = (
+            self._page.locator(roles)
+            .filter(has=self._page.get_by_text(exact))
+            .or_(self._page.locator(roles).filter(has_text=exact))
+            .filter(visible=True)
+        )
         try:
-            candidates.first.wait_for(state="visible", timeout=timeout_ms)
-            candidates.first.click()
+            options.first.wait_for(state="visible", timeout=timeout_ms)
+            options.first.scroll_into_view_if_needed(timeout=2000)
+            options.first.click(timeout=5000)
             return True
         except Exception:
             pass
+        # Listas hechas con <div>: el texto visible, pero nunca el propio
+        # desplegable que ya muestra ese valor (p. ej. «Material: Madera»).
+        texts = self._page.get_by_text(exact).filter(visible=True)
         try:
-            self._page.get_by_text(exact).first.click(timeout=min(timeout_ms, 500))
-            return True
+            for index in range(min(texts.count(), 10)):
+                item = texts.nth(index)
+                opener = item.evaluate(
+                    "e => !!e.closest('[role=combobox],[aria-haspopup],[aria-expanded]')"
+                )
+                if not opener:
+                    item.click(timeout=5000)
+                    return True
         except Exception:
-            return False
+            pass
+        return False
 
     def set_files(self, target: str, paths: list[str]) -> None:
         # Funciona aunque el campo esté oculto (no hace falta que se vea).
