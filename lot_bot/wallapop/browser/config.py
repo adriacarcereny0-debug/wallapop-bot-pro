@@ -68,6 +68,11 @@ class ListingFormConfig:
     photo_wait_ms: int = 45000
     submit: FormField = field(default_factory=FormField)
     next_button: FormField = field(default_factory=FormField)
+    final_title: FormField = field(default_factory=FormField)
+    shipping: FormField = field(default_factory=FormField)
+    shipping_enabled: bool = False
+    #: {característica: {valor de la plantilla: [alternativas en Wallapop]}}
+    equivalents: dict[str, dict[str, list[str]]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     @property
@@ -97,6 +102,13 @@ class ListingFormConfig:
             photo_wait_ms=int(photos.get("espera_ms", 45000)),
             submit=FormField.from_dict(data.get("publicar")),
             next_button=FormField.from_dict(data.get("continuar")),
+            final_title=FormField.from_dict(data.get("titulo_revision")),
+            shipping=FormField.from_dict(data.get("envio")),
+            shipping_enabled=bool((data.get("envio") or {}).get("activado", False)),
+            equivalents={
+                str(k): {str(a): [str(x) for x in (b or [])] for a, b in (v or {}).items()}
+                for k, v in (data.get("equivalencias") or {}).items()
+            },
             errors=[str(x) for x in (data.get("errores") or [])],
         )
 

@@ -195,11 +195,16 @@ class MasterAdService:
                 session.flush()
                 logger.info("Anuncio principal creado: %s", row.name)
             elif (row.original or {}) != CLIENT_MASTER_AD:
-                # El cliente ha dado una nueva versión de la plantilla única:
-                # se aplica una vez (las fotografías se conservan).
+                # Nueva versión de la plantilla del programa: solo se actualizan
+                # los campos que el usuario NO ha cambiado en LOT Bot. Lo que
+                # él edita (precio, título...) se respeta siempre.
+                previous = row.original or {}
                 for name, value in copy.deepcopy(CLIENT_MASTER_AD).items():
-                    if name in EDITABLE_FIELDS:
-                        setattr(row, name, value)
+                    if name not in EDITABLE_FIELDS:
+                        continue
+                    if name in previous and getattr(row, name) != previous[name]:
+                        continue  # editado por el usuario
+                    setattr(row, name, value)
                 row.original = copy.deepcopy(CLIENT_MASTER_AD)
                 session.flush()
                 logger.info("Plantilla única del anuncio principal actualizada a la versión del cliente.")

@@ -69,7 +69,7 @@ def borrador(tmp_path) -> ItemDraft:
         title=CLIENT_TITLE,
         description=DESCRIPCION,
         price=11.44,
-        category="Hogar y jardín",
+        category="Muebles y organización > Camas y accesorios > Estructura de camas",
         condition="Nuevo",
         attributes=dict(CLIENT_ATTRIBUTES),
         image_paths=[str(foto)],
@@ -83,14 +83,26 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     assert resultado.data["confirmado"]
     assert resultado.item_id == "canape-canape-701"
     assert resultado.data["url"] == f"{web.base}/item/canape-canape-701"
-    assert web.published == [{"titulo": CLIENT_TITLE, "precio": "11,44", "fotos": 1}]
+    publicado = web.published[0]
+    # Wallapop había puesto su título/descripción de IA y el envío activado:
+    # el bot los sustituye por los de la plantilla y apaga el envío.
+    assert publicado["titulo"] == CLIENT_TITLE
+    assert publicado["descripcion"] == DESCRIPCION
+    assert publicado["precio"] == "11,44"
+    assert publicado["categoria"] == "Estructura de camas"
+    assert publicado["envio"] is False
+    assert publicado["fotos"] == 1
     # Pulsa «Continuar» tras el título y NUNCA el menú «Categorías» de la cabecera.
     pasos = resultado.data["pasos"]
     assert "Continuar tras el título" in pasos
     # Orden real de Wallapop: título → Continuar → Fotos → Continuar → detalles.
     assert pasos.index("Fotos") < pasos.index("Continuar tras las fotos") < pasos.index("Categoría")
-    for c in ("Estado", "Uso", "Color", "Material"):
+    for c in ("Estado", "Color", "Material"):
         assert f"Característica {c}" in pasos, pasos
+    assert "Título (revisión)" in pasos and "Envío desactivado" in pasos
+    omitidos = resultado.data["omitidos"]
+    assert any("Uso" in o for o in omitidos)  # Wallapop no tiene ese campo
+    assert any("elegido «Gris»" in o for o in omitidos)  # no hay «Gris y Blanco»
     assert "/buscar-categorias" not in web.visited
     # Mismo perfil persistente en la segunda publicación (no se vuelve a abrir).
     assert service.create_item("cuenta-1", borrador(tmp_path)).success

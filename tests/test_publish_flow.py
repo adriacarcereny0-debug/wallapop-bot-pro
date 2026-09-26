@@ -90,7 +90,7 @@ def test_publica_1_canape_lo_hace_todo_lot_bot(listo):
     assert descripcion.startswith("GRAN OFERTA LIMITADA!") and "603710542" in descripcion
     assert "Canapé + colchón 90x190 → 230€" in descripcion
     opciones = [e[1] for e in pagina.log if e[0] == "option"]
-    assert opciones == ["Hogar y jardín", *CLIENT_ATTRIBUTES.values()]
+    assert opciones == ["Estructura de camas", *CLIENT_ATTRIBUTES.values()]
     assert any(e[0] == "files" for e in pagina.log)
     # El anuncio queda guardado en la base de datos con su URL.
     fila = next(r for r in app.stats.table() if r.account_ref == cuenta.internal_ref)
@@ -218,3 +218,34 @@ def test_varios_anuncios_reutilizan_el_mismo_perfil_y_esperan_60_s(listo):
     assert app.wallapop.pool.open_count == {cuenta.internal_ref: 1}
     assert len(world["pages"]) == 1  # un único navegador / página para toda la cola
     assert cola.clock.now() - inicio >= 120  # 3 anuncios → al menos 2 esperas de 60 s
+
+
+def test_lo_que_cambias_en_el_anuncio_principal_es_lo_que_se_sube(listo):
+    """Cambias el precio en LOT Bot (chat o pantalla) → Wallapop recibe ese precio."""
+    app, world, _ = listo
+    r = app.agent.ask("Cambia el precio del anuncio principal a 15 euros")
+    assert r.needs_confirmation
+    app.agent.confirm(r.pending.token)
+    assert app.master_ads.get(None).price == 15
+    publicar_uno(app)
+    app.publish_queue.run_until_idle()
+    assert app.publish_queue.progress().published == 1
+    pagina = world["pages"][0]
+    escritos = {e[1]: e[2] for e in pagina.log if e[0] == "fill"}
+    assert escritos[FORM.price.targets[0]] == "15"
+
+
+def test_una_version_nueva_de_la_plantilla_no_pisa_tus_cambios(app):
+    from lot_bot.master_ad import service as master_service
+
+    master = app.master_ads.get(None)
+    app.master_ads.update(master.key, {"price": 15}, confirmed=True)
+    nueva = dict(master_service.CLIENT_MASTER_AD, delivery_note="Montaje incluido")
+    original = master_service.CLIENT_MASTER_AD
+    master_service.CLIENT_MASTER_AD = nueva
+    try:
+        vista = app.master_ads.ensure_default()
+    finally:
+        master_service.CLIENT_MASTER_AD = original
+    assert vista.price == 15  # tu cambio se respeta
+    assert vista.delivery_note == "Montaje incluido"  # lo que no tocaste se actualiza

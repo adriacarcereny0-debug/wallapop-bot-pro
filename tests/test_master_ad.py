@@ -305,7 +305,7 @@ def test_en_modo_real_sin_fotos_no_se_publica(app):
     assert not vista.can_publish
     assert {i.field for i in vista.quality.errors} == {"fotografias"}
     # La categoría viene puesta (Wallapop la exige) y se puede cambiar.
-    assert vista.category == "Hogar y jardín"
+    assert vista.category.endswith("Estructura de camas")
 
 
 def test_en_modo_real_sin_categoria_no_se_publica(app):

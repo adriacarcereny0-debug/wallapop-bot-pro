@@ -200,7 +200,7 @@ class ListingForm:
                 raise self._fail(step, f"Wallapop muestra un error: {text}")
 
     #: Espera corta antes de probar con «Continuar» (formulario por pasos).
-    QUICK_MS = 1500
+    QUICK_MS = 1000
 
     def _find(self, step: str, spec: FormField, *, wait: bool = True) -> str | None:
         """Busca el campo. Si no está en la pantalla actual del formulario y
@@ -255,25 +255,56 @@ class ListingForm:
 
         self._do(step, action)
 
-    def _choose(self, step: str, spec: FormField, option: str) -> bool:
-        """Abre un desplegable y elige la opción. False si el campo (opcional) no existe."""
+    def _choose(
+        self, step: str, spec: FormField, option: str, alternatives: list[str] | None = None
+    ) -> str | None:
+        """Abre un desplegable y elige la opción (o la primera equivalencia
+        que exista). Devuelve lo elegido, o None si el campo opcional no está."""
         if not option:
             self.skipped.append(f"{step} (sin valor en la plantilla)")
-            return False
+            return None
         if spec.optional and self._find(step, spec, wait=False) is None:
             # Un campo opcional puede tardar un poco en aparecer tras elegir la categoría.
             if self.page.first_visible(spec.targets, min(self.timeout, self.QUICK_MS)) is None:
                 self.skipped.append(f"{step} (el formulario no tiene este campo)")
-                return False
+                return None
+        candidates = [option, *[a for a in (alternatives or []) if a and a != option]]
+        chosen: list[str] = []
 
         def action() -> None:
             target = self._require(step, spec)
             self.page.click(target)
-            if not self.page.click_option(option, self.timeout):
-                raise self._fail(step, f"No aparece la opción «{option}».")
+            for index, candidate in enumerate(candidates):
+                wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
+                if index and not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
+                    self.page.click(target)  # la lista se cerró: se vuelve a abrir
+                if self.page.click_option(candidate, wait):
+                    chosen.append(candidate)
+                    return
+            raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
 
         self._do(step, action)
-        return True
+        if chosen and chosen[0] != option:
+            self.skipped.append(f"{step}: Wallapop no tiene «{option}»; elegido «{chosen[0]}»")
+        return chosen[0] if chosen else None
+
+    def _choose_path(self, step: str, spec: FormField, path: str) -> str:
+        """Categoría tipo «A > B > Estructura de camas»: primero se busca la
+        última parte (Wallapop la suele sugerir); si no está, se recorre la ruta."""
+        parts = [p.strip() for p in path.split(">") if p.strip()]
+        leaf = parts[-1]
+
+        def action() -> None:
+            target = self._require(step, spec)
+            self.page.click(target)
+            if self.page.click_option(leaf, min(self.timeout, 4000)):
+                return
+            for part in parts:
+                if not self.page.click_option(part, self.timeout):
+                    raise self._fail(step, f"No aparece «{part}» en la lista de categorías.")
+
+        self._do(step, action)
+        return leaf
 
     # ------------------------------------------------------------------
     # Pasos
@@ -302,7 +333,7 @@ class ListingForm:
     def select_category(self) -> None:
         if not self.data.category:
             raise self._fail("Categoría", "La plantilla no tiene categoría.")
-        self._choose("Categoría", self.form.category, self.data.category)
+        self.category_chosen = self._choose_path("Categoría", self.form.category, self.data.category)
         if self.data.subcategory:
             self._choose("Subcategoría", self.form.subcategory, self.data.subcategory)
 
@@ -316,8 +347,38 @@ class ListingForm:
             if spec is None or not spec.targets:
                 self.skipped.append(f"{label} (sin selectores en el YAML)")
                 continue
-            if self._choose(label, spec, value):
-                self.attributes_filled[key] = value
+            alternatives = (self.form.equivalents.get(key) or {}).get(value) or []
+            chosen = self._choose(label, spec, value, alternatives)
+            if chosen:
+                self.attributes_filled[key] = chosen
+
+    def fill_final_title(self) -> None:
+        """En «Revisa la información» Wallapop cambia el título con su IA: se
+        vuelve a poner el de la plantilla."""
+        spec = self.form.final_title
+        if not spec.targets:
+            return
+        if self.page.first_visible(spec.targets, min(self.timeout, 4000)) is None:
+            self.skipped.append("Título en «Revisa la información» (no aparece)")
+            return
+        self._type("Título (revisión)", spec, self.data.title)
+
+    def set_shipping(self) -> None:
+        """Deja «Activar envío» como indica el YAML (apagado: sin envíos)."""
+        spec = self.form.shipping
+        if not spec.targets:
+            return
+        target = self.page.first_visible(spec.targets, min(self.timeout, 3000))
+        if target is None:
+            self.skipped.append("Envío (no aparece el interruptor)")
+            return
+        want = self.form.shipping_enabled
+        if self.page.is_checked(target) != want:
+            self._do("Envío " + ("activado" if want else "desactivado"), lambda: self.page.click(target))
+        else:
+            self.steps.append("Envío " + ("activado" if want else "desactivado"))
+        if self.page.is_checked(target) != want:
+            raise self._fail("Envío", "No se ha podido dejar el envío como se indica.")
 
     def fill_description(self) -> None:
         self._type("Descripción", self.form.description, self.data.description)
@@ -432,7 +493,9 @@ class ListingForm:
 
     def form_problems(self) -> dict[str, str]:
         problems: dict[str, str] = {}
-        title = self._read(self.form.title)
+        title = self._read(self.form.final_title) if self.form.final_title.targets else None
+        if title is None:
+            title = self._read(self.form.title)
         if title is None or normalize(title) != normalize(self.data.title):
             problems["Título"] = f"se esperaba «{self.data.title}», hay «{title}»"
         description = self._read(self.form.description)
@@ -444,8 +507,9 @@ class ListingForm:
             expected = f"{self.data.price:.2f}".replace(".", ",")
             problems["Precio"] = f"se esperaba {expected} €, hay «{price}»"
         category = self._read(self.form.category)
-        if category is not None and normalize(self.data.category) not in normalize(category):
-            problems["Categoría"] = f"se esperaba «{self.data.category}», hay «{category}»"
+        leaf = getattr(self, "category_chosen", None) or self.data.category.split(">")[-1].strip()
+        if category is not None and normalize(leaf) not in normalize(category):
+            problems["Categoría"] = f"se esperaba «{leaf}», hay «{category}»"
         for key, expected in self.attributes_filled.items():
             spec = self.form.attributes[key]
             current = self._read(spec)
@@ -514,8 +578,10 @@ class ListingForm:
         self.continue_if_present("Continuar tras las fotos")
         self.select_category()
         self.fill_attributes()
+        self.fill_final_title()
         self.fill_description()
         self.fill_price()
+        self.set_shipping()
         self.verify_form()
         self.submit_listing()
         signal = self.wait_for_publish_confirmation()

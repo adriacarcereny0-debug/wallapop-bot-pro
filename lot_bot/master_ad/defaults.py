@@ -72,10 +72,11 @@ CLIENT_MASTER_AD: dict[str, Any] = {
     ],
     "contact_whatsapp": "603710542",
     "delivery_note": "Transporte y montaje GRATUITO",
-    # Wallapop exige una categoría para publicar. El cliente no indicó ninguna:
-    # se usa la categoría general de Wallapop para muebles de dormitorio. Se
-    # puede cambiar en «Anuncio principal».
-    "category": "Hogar y jardín",
+    # Categoría de Wallapop (la que el cliente elige en el formulario):
+    # «Estructura de camas», dentro de Muebles y organización > Camas y
+    # accesorios. El bot elige la última parte; si no aparece entre las
+    # sugeridas, recorre la ruta completa.
+    "category": "Muebles y organización > Camas y accesorios > Estructura de camas",
     "subcategory": "",
     "condition": "Nuevo",
     "tags": [],

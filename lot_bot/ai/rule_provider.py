@@ -146,7 +146,9 @@ class RuleBasedProvider(AIProvider):
         mentions_master = bool(term == "canape") or bool(
             re.search(r"\b(anuncio principal|plantilla)\b", normalized)
         )
-        explicit_template = bool(re.search(r"\bplantilla\b", normalized))
+        explicit_template = bool(
+            re.search(r"\b(plantilla|anuncio principal|anuncio maestro)\b", normalized)
+        )
 
         # --- 00. Empezar a subir anuncios (flujo guiado: cuenta → cuántos) ---
         if re.search(

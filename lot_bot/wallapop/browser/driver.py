@@ -67,6 +67,10 @@ class BrowserPage(ABC):
         """False si el usuario ha cerrado la ventana o la pestaña."""
         return True
 
+    def is_checked(self, target: str) -> bool:
+        """Estado de un interruptor/casilla."""
+        return False
+
     def attached(self, target: str) -> int:
         """Elementos que EXISTEN en la página, aunque estén ocultos."""
         return self.count(target)
@@ -205,19 +209,28 @@ class _PlaywrightPage(BrowserPage):
         self._page.locator(target).first.click()
 
     def click_option(self, text: str, timeout_ms: int) -> bool:
-        """Elige una opción de la lista desplegable abierta, en una sola espera."""
-        pattern = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
+        """Elige una opción de la lista desplegable abierta, en una sola espera.
+
+        La opción puede llevar una segunda línea («Estructura de camas» +
+        «Camas y accesorios > Muebles y organización»): se busca la opción que
+        CONTIENE un texto exactamente igual, no la que coincide entera.
+        """
+        exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
         options = self._page.locator(
             "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
-        ).filter(has_text=pattern)
+        ).filter(has=self._page.get_by_text(exact))
+        exact_self = self._page.locator(
+            "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
+        ).filter(has_text=exact)
+        candidates = options.or_(exact_self)
         try:
-            options.first.wait_for(state="visible", timeout=timeout_ms)
-            options.first.click()
+            candidates.first.wait_for(state="visible", timeout=timeout_ms)
+            candidates.first.click()
             return True
         except Exception:
             pass
         try:
-            self._page.get_by_text(pattern).first.click(timeout=min(timeout_ms, 3000))
+            self._page.get_by_text(exact).first.click(timeout=min(timeout_ms, 500))
             return True
         except Exception:
             return False
@@ -231,6 +244,13 @@ class _PlaywrightPage(BrowserPage):
             return not self._page.is_closed() and bool(self._page.context.pages)
         except Exception:
             return False
+
+    def is_checked(self, target: str) -> bool:
+        locator = self._page.locator(target).first
+        try:
+            return locator.is_checked()
+        except Exception:
+            return (locator.get_attribute("aria-checked") or "").lower() == "true"
 
     def attached(self, target: str) -> int:
         try:

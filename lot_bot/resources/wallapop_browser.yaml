@@ -169,6 +169,25 @@ publicar:
           - "main >> role=button[name=/^(Material)/i]"
           - "role=combobox[name=/^(Material)/i]"
           - "role=button[name=/^(Material)/i]"
+    # Pantalla «Revisa la información»: Wallapop rellena el título con su IA
+    # («Canapé de madera con almacenaje»); se vuelve a poner el de la plantilla.
+    titulo_revision:
+      objetivos:
+        - "role=textbox[name=/^Título/i]"
+        - "input[name='title']"
+    # Interruptor «Activar envío». activado: false → sin envíos (la
+    # descripción ya explica la entrega). Si está activado, se apaga.
+    envio:
+      activado: false
+      objetivos:
+        - "role=switch[name=/Activar envío/i]"
+        - "role=checkbox[name=/Activar envío/i]"
+        - "label:has-text('Activar envío') input[type='checkbox']"
+    # Si Wallapop no tiene el valor exacto de la plantilla, se prueban estas
+    # alternativas en orden (se indica en el resultado cuál se eligió).
+    equivalencias:
+      color:
+        "Gris y Blanco": ["Gris", "Blanco"]
     descripcion:
       objetivos:
         - "textarea[name='description']"

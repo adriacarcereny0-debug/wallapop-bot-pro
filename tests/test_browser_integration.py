@@ -409,12 +409,21 @@ def test_si_un_campo_no_aparece_se_indica_el_paso_y_se_guarda_captura(profiles, 
 
 
 def test_si_no_existe_una_opcion_no_se_publica(profiles, tmp_path):
-    world = {"logged_in": True, "missing_options": {"Gris y Blanco"}}
+    world = {"logged_in": True, "missing_options": {"Madera"}}
     service, _ = make_service(profiles, world, tmp_path)
     with pytest.raises(BrowserStepError) as info:
         service.create_item("acc-1", draft(tmp_path))
-    assert info.value.step == "Característica Color"
+    assert info.value.step == "Característica Material"
     assert world.get("submits") is None
+
+
+def test_color_sin_valor_exacto_usa_la_equivalencia_y_lo_dice(profiles, tmp_path):
+    world = {"logged_in": True, "missing_options": {"Gris y Blanco"}}
+    service, launcher = make_service(profiles, world, tmp_path)
+    result = service.create_item("acc-1", draft(tmp_path))
+    assert result.success
+    assert ("option", "Gris") in launcher.pages[0].log
+    assert any("elegido «Gris»" in o for o in result.data["omitidos"])
 
 
 def test_campo_opcional_que_no_existe_se_omite_y_se_informa(profiles, tmp_path):
