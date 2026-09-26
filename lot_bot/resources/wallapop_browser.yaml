@@ -119,44 +119,56 @@ publicar:
     # «Continuar» del formulario por pasos de Wallapop (tras el título, etc.).
     # Solo dentro del formulario: NUNCA el menú «Categorías» de la cabecera,
     # que sirve para BUSCAR productos, no para elegir la categoría del tuyo.
+    # Solo botones ACTIVOS: el «Continuar» de una sección ya hecha (o el de
+    # Fotos antes de subir una foto) está desactivado y nunca se pulsa.
     continuar:
       objetivos:
-        - "main >> role=button[name=/^Continuar$/i]"
-        - "form >> role=button[name=/^Continuar$/i]"
-        - "role=button[name=/^Continuar$/i]"
+        - "button:enabled:text-is('Continuar')"
+        - "role=button[name=/^Continuar$/i][disabled=false]"
     categoria:
       objetivos:
         - "form >> role=combobox[name=/^Categoría(?!s)/i]"
         - "main >> role=combobox[name=/^Categoría(?!s)/i]"
         - "form >> role=button[name=/^Categoría(?!s)/i]"
         - "main >> role=button[name=/^Categoría(?!s)/i]"
+        - "role=combobox[name=/^Categoría(?!s)/i]"
+        - "role=button[name=/^Categoría(?!s)/i]"
     subcategoria:
       opcional: true
       objetivos:
         - "form >> role=combobox[name=/^Subcategoría/i]"
         - "main >> role=combobox[name=/^Subcategoría/i]"
         - "main >> role=button[name=/^Subcategoría/i]"
+        - "role=combobox[name=/^Subcategoría/i]"
     caracteristicas:
       estado:
         opcional: true
         objetivos:
           - "main >> role=combobox[name=/^(Estado)/i]"
           - "main >> role=button[name=/^(Estado)/i]"
+          - "role=combobox[name=/^(Estado)/i]"
+          - "role=button[name=/^(Estado)/i]"
       uso:
         opcional: true
         objetivos:
           - "main >> role=combobox[name=/^(Uso|Estancia|Habitación)/i]"
           - "main >> role=button[name=/^(Uso|Estancia|Habitación)/i]"
+          - "role=combobox[name=/^(Uso|Estancia|Habitación)/i]"
+          - "role=button[name=/^(Uso|Estancia|Habitación)/i]"
       color:
         opcional: true
         objetivos:
           - "main >> role=combobox[name=/^(Color)/i]"
           - "main >> role=button[name=/^(Color)/i]"
+          - "role=combobox[name=/^(Color)/i]"
+          - "role=button[name=/^(Color)/i]"
       material:
         opcional: true
         objetivos:
           - "main >> role=combobox[name=/^(Material)/i]"
           - "main >> role=button[name=/^(Material)/i]"
+          - "role=combobox[name=/^(Material)/i]"
+          - "role=button[name=/^(Material)/i]"
     descripcion:
       objetivos:
         - "textarea[name='description']"
@@ -178,12 +190,16 @@ publicar:
         - "main input[type='file']"
         - "form input[type='file']"
         - "input[type='file'][accept*='image']:not(header *):not(nav *)"
+        - "input[type='file']:not(header *):not(nav *)"
       # Si el campo no existe hasta pulsar un botón, se pulsa este botón y se
       # entrega la foto en la ventana de «Abrir archivo» (sin que se vea).
       boton:
+        - "role=button[name=/^Subir fotos$/i]"
+        - "text=/^Subir fotos$/i"
         - "main >> role=button[name=/(sube|subir|añade|añadir|elige).*(foto|imagen)/i]"
         - "main >> text=/(sube|subir|añade|añadir|elige).*(foto|imagen)/i"
         - "main >> role=button[name=/^(foto|fotos|imágenes)$/i]"
+        - "role=button[name=/^(sube|subir|añade|añadir|elige).{0,12}(fotos?|imágenes?)$/i]"
       # Miniaturas que aparecen cuando Wallapop HA CARGADO cada foto.
       miniaturas:
         - "[data-testid*='image-preview']"
@@ -191,6 +207,10 @@ publicar:
         - "[class*='image-preview'] img"
         - "main img[src^='blob:']"
         - "main img[src^='data:image']"
+        - "img[src^='blob:']:not(header *)"
+        - "img[src^='data:image']:not(header *)"
+        - "[class*='thumbnail' i] img"
+        - "[class*='preview' i] img"
       # Mensajes de foto rechazada.
       rechazada:
         - "text=/imagen no válida|formato no (?:válido|soportado)|no se ha podido subir la (?:foto|imagen)/i"
@@ -200,6 +220,7 @@ publicar:
         - "role=button[name=/^Subir producto$/i]"
         - "main >> role=button[name=/^Publicar/i]"
         - "main >> button[type='submit']"
+        - "role=button[name=/^(Subir producto|Publicar)/i][disabled=false]"
     # Mensajes de error de Wallapop durante la publicación.
     errores:
       - "text=/ha ocurrido un error|algo ha ido mal|no se ha podido publicar/i"

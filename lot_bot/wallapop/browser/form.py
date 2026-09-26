@@ -506,12 +506,16 @@ class ListingForm:
     def run(self) -> PublishReport:
         self.open_create_listing()
         self.choose_listing_type()
+        # Orden real de Wallapop: Resumen → Continuar → Fotos → Continuar →
+        # categoría y detalles. El «Continuar» de Fotos está desactivado hasta
+        # que hay una foto cargada.
         self.fill_title()
+        self.upload_photos()
+        self.continue_if_present("Continuar tras las fotos")
         self.select_category()
         self.fill_attributes()
         self.fill_description()
         self.fill_price()
-        self.upload_photos()
         self.verify_form()
         self.submit_listing()
         signal = self.wait_for_publish_confirmation()

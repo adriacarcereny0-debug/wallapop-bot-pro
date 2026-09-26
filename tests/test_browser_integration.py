@@ -297,9 +297,9 @@ def test_publicar_rellena_el_formulario_y_devuelve_la_url(profiles, tmp_path):
         assert ("option", opcion) in log
     # Todos los pasos, en orden, hechos por LOT Bot (no por el usuario).
     assert result.data["pasos"] == [
-        "Comprobar sesión", "Abrir crear anuncio", "Tipo de anuncio", "Título", "Categoría",
-        "Característica Estado", "Característica Uso", "Característica Color",
-        "Característica Material", "Descripción", "Precio", "Fotos", "Comprobar formulario",
+        "Comprobar sesión", "Abrir crear anuncio", "Tipo de anuncio", "Título", "Fotos",
+        "Categoría", "Característica Estado", "Característica Uso", "Característica Color",
+        "Característica Material", "Descripción", "Precio", "Comprobar formulario",
         "Publicar", "Confirmación de Wallapop",
     ]
 

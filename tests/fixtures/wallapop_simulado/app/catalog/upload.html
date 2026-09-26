@@ -22,7 +22,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <input type="file" id="buscar-foto" accept="image/*" style="display:none"
          onchange="location.href='/buscar-por-foto'">
 </header>
-<main>
+<div id='contenido'>
 <div id="captcha" hidden><iframe title="captcha simulado" src="about:blank" width="200" height="40"></iframe>
   <p>Verifica que eres humano (simulado)</p>
   <button type="button" onclick="document.getElementById('captcha').hidden=true">He completado la verificación</button></div>
@@ -30,7 +30,15 @@ input,textarea{width:100%;padding:6px;font-size:14px}
 <form id="f" onsubmit="return false">
   <label for="summary">Resumen del producto</label>
   <input id="summary" name="summary">
-  <p id="paso1"><button type="button" id="continuar" onclick="document.getElementById('paso2').hidden=false;this.parentElement.hidden=true">Continuar</button></p>
+  <p><button type="button" id="continuar" onclick="document.getElementById('seccion-fotos').hidden=false;this.disabled=true">Continuar</button></p>
+  <section id="seccion-fotos" hidden>
+    <h3>Fotos</h3>
+    <button type="button" id="subir-fotos">Subir fotos</button> Arrastra tus fotos aquí
+    <input type="file" id="fotos" accept="image/jpeg,image/png,image/webp" multiple style="display:none">
+    <button type="button" id="boton-fotos" hidden>Sube tus fotos</button>
+    <div class="previews" id="previews"></div>
+    <p><button type="button" id="continuar-fotos" disabled onclick="document.getElementById('paso2').hidden=false;this.disabled=true">Continuar</button></p>
+  </section>
   <div id="paso2" hidden>
   <label>Categoría</label>
   <div class="combo"><button type="button" role="combobox" aria-label="Categoría" data-options="Hogar y jardín|Moda|Electrónica">Elige</button></div>
@@ -46,14 +54,10 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <textarea id="description" name="description" rows="5"></textarea>
   <label for="sale_price">Precio</label>
   <input id="sale_price" name="sale_price">
-  <label>Fotos</label>
-  <input type="file" id="fotos" accept="image/*" multiple style="display:none">
-  <button type="button" id="boton-fotos" hidden>Sube tus fotos</button>
-  <div class="previews" id="previews"></div>
   <p><button type="button" id="subir">Subir producto</button></p>
   </div>
 </form>
-</main>
+</div>
 <script>
 const params = new URLSearchParams(location.search);
 if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {
@@ -78,12 +82,14 @@ function mostrarFotos(e) {
       d.setAttribute('data-testid','image-preview');
       const img = document.createElement('img'); img.src = URL.createObjectURL(file);
       d.appendChild(img); document.getElementById('previews').appendChild(d);
+      document.getElementById('continuar-fotos').disabled = false;
     }, 400);
   }
 }
 if (params.get('modo') === 'boton') {
   // Como algunas webs: el campo de archivos no existe hasta pulsar el botón.
   document.getElementById('fotos').remove();
+  document.getElementById('subir-fotos').remove();
   const boton = document.getElementById('boton-fotos');
   boton.hidden = false;
   boton.addEventListener('click', () => {
@@ -94,6 +100,7 @@ if (params.get('modo') === 'boton') {
   });
 } else {
   document.getElementById('fotos').addEventListener('change', mostrarFotos);
+  document.getElementById('subir-fotos').addEventListener('click', () => document.getElementById('fotos').click());
 }
 document.getElementById('subir').addEventListener('click', () => {
   const data = {
