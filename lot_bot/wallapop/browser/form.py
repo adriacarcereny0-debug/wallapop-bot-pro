@@ -278,7 +278,7 @@ class ListingForm:
                 wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
                 if index and not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
                     self.page.click(target)  # la lista se cerró: se vuelve a abrir
-                if self.page.click_option(candidate, wait):
+                if self.page.click_option(candidate, wait, opener=target):
                     chosen.append(candidate)
                     return
             raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
@@ -303,13 +303,13 @@ class ListingForm:
         def action() -> None:
             target = self._require(step, spec)
             self.page.click(target)
-            if self.page.click_option(leaf, min(self.timeout, 4000)) and selected(target):
+            if self.page.click_option(leaf, min(self.timeout, 4000), opener=target) and selected(target):
                 return
             # No estaba entre las sugeridas (o no quedó puesta): ruta completa.
             if not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
                 self.page.click(target)
             for part in parts:
-                if not self.page.click_option(part, self.timeout):
+                if not self.page.click_option(part, self.timeout, opener=target):
                     raise self._fail(step, f"No aparece «{part}» en la lista de categorías.")
             if not selected(target):
                 raise self._fail(step, f"La categoría no ha quedado como «{leaf}».")

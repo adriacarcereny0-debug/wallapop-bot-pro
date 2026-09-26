@@ -15,6 +15,7 @@ import logging
 import os
 import re
 import sys
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -47,7 +48,7 @@ class BrowserPage(ABC):
     def click(self, target: str) -> None: ...
 
     @abstractmethod
-    def click_option(self, text: str, timeout_ms: int) -> bool:
+    def click_option(self, text: str, timeout_ms: int, opener: str | None = None) -> bool:
         """Pulsa una opción visible con ese texto exacto (listas desplegables)."""
 
     @abstractmethod
@@ -118,6 +119,15 @@ class BrowserLauncher(ABC):
 def safe_url(url: str) -> str:
     """URL sin parámetros ni fragmento (pueden llevar tokens)."""
     return re.split(r"[?#]", url or "", maxsplit=1)[0]
+
+
+def _inside(box: dict, outer: dict) -> bool:
+    """¿El centro de `box` cae dentro de `outer`? (coordenadas de pantalla)"""
+    cx, cy = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+    return (
+        outer["x"] <= cx <= outer["x"] + outer["width"]
+        and outer["y"] <= cy <= outer["y"] + outer["height"]
+    )
 
 
 class _PlaywrightPage(BrowserPage):
@@ -208,43 +218,45 @@ class _PlaywrightPage(BrowserPage):
     def click(self, target: str) -> None:
         self._page.locator(target).first.click()
 
-    def click_option(self, text: str, timeout_ms: int) -> bool:
-        """Elige una opción de la lista desplegable abierta, en una sola espera.
+    def click_option(self, text: str, timeout_ms: int, opener: str | None = None) -> bool:
+        """Pulsa la opción visible cuyo texto es EXACTAMENTE `text`.
 
-        La opción puede llevar una segunda línea («Estructura de camas» +
-        «Camas y accesorios > Muebles y organización»): se busca la opción que
-        CONTIENE un texto exactamente igual, no la que coincide entera.
+        Vale para listas de cualquier tipo (role=option, <li>, <div>…), también
+        cuando cada opción tiene una segunda línea («Estructura de camas» +
+        «Camas y accesorios > …») o cuando la lista está DENTRO del propio
+        componente del desplegable (como en Wallapop). Solo se descarta el
+        botón `opener` que abre la lista (que puede mostrar ya ese valor).
         """
         exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
-        roles = "[role=option], [role=menuitem], [role=menuitemradio], [role=radio], li, label"
-        options = (
-            self._page.locator(roles)
-            .filter(has=self._page.get_by_text(exact))
-            .or_(self._page.locator(roles).filter(has_text=exact))
-            .filter(visible=True)
-        )
-        try:
-            options.first.wait_for(state="visible", timeout=timeout_ms)
-            options.first.scroll_into_view_if_needed(timeout=2000)
-            options.first.click(timeout=5000)
-            return True
-        except Exception:
-            pass
-        # Listas hechas con <div>: el texto visible, pero nunca el propio
-        # desplegable que ya muestra ese valor (p. ej. «Material: Madera»).
-        texts = self._page.get_by_text(exact).filter(visible=True)
-        try:
-            for index in range(min(texts.count(), 10)):
+        texts = self._page.get_by_text(exact)
+        opener_box = None
+        if opener:
+            try:
+                opener_box = self._page.locator(opener).first.bounding_box()
+            except Exception:
+                opener_box = None
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+        while True:
+            try:
+                count = min(texts.count(), 15)
+            except Exception:
+                count = 0
+            for index in range(count):
                 item = texts.nth(index)
-                opener = item.evaluate(
-                    "e => !!e.closest('[role=combobox],[aria-haspopup],[aria-expanded]')"
-                )
-                if not opener:
+                try:
+                    if not item.is_visible():
+                        continue
+                    box = item.bounding_box()
+                    if opener_box and box and _inside(box, opener_box):
+                        continue  # es el propio desplegable, no una opción
+                    item.scroll_into_view_if_needed(timeout=2000)
                     item.click(timeout=5000)
                     return True
-        except Exception:
-            pass
-        return False
+                except Exception:
+                    continue
+            if time.monotonic() >= deadline:
+                return False
+            self._page.wait_for_timeout(150)
 
     def set_files(self, target: str, paths: list[str]) -> None:
         # Funciona aunque el campo esté oculto (no hace falta que se vea).

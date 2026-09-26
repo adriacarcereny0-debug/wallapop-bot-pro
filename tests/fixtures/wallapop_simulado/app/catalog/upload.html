@@ -41,7 +41,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   </section>
   <div id="paso2" hidden>
   <p>No te preocupes, te ayudaremos con algunas sugerencias cuando abras el desplegable</p>
-  <div class="combo"><button type="button" role="combobox" aria-label="Categoría y subcategoría" id="cat">Categoría y subcategoría</button></div>
+  <div class="combo" style="margin-top:220px"><button type="button" role="combobox" aria-label="Categoría y subcategoría" id="cat">Categoría y subcategoría</button></div>
   <div id="revision" hidden>
   <p><b>Revisa la información</b> Hemos rellenado algunos detalles por ti.</p>
   <label>Marca</label>
@@ -75,13 +75,18 @@ if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {
 document.getElementById('cat').addEventListener('click', () => {
   document.querySelectorAll('.combo ul').forEach(u => u.remove());
   const btn = document.getElementById('cat');
-  const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
-  ul.innerHTML = '<li><b>Categorías sugeridas</b></li>' +
-    '<li role="option"><span>Colchones</span><small>Camas y accesorios &gt; Muebles y organización</small></li>' +
-    '<li role="option"><span>Estructura de camas</span><small>Camas y accesorios &gt; Muebles y organización</small></li>' +
-    '<li><b>Todas las categorías</b></li><li role="option"><span>Motos</span></li>';
-  ul.querySelectorAll('[role=option]').forEach(li => li.addEventListener('click', () => {
+  // Como Wallapop: la lista está DENTRO del componente del desplegable
+  // (aria-expanded) y las opciones son <div> sin rol, con una segunda línea.
+  btn.parentElement.setAttribute('aria-expanded', 'true');
+  const ul = document.createElement('div'); ul.className = 'lista';
+  ul.style.cssText = 'position:absolute;bottom:40px;background:#fff;border:1px solid #999;width:100%';
+  ul.innerHTML = '<div><b>Categorías sugeridas</b></div>' +
+    '<div class="opt"><div><span>Colchones</span></div><small>Camas y accesorios &gt; Muebles y organización</small></div>' +
+    '<div class="opt"><div><span>Estructura de camas</span></div><small>Camas y accesorios &gt; Muebles y organización</small></div>' +
+    '<div><b>Todas las categorías</b></div><div class="opt"><span>Motos</span></div>';
+  ul.querySelectorAll('.opt').forEach(li => li.addEventListener('click', () => {
     btn.textContent = li.querySelector('span').textContent; ul.remove();
+    btn.parentElement.removeAttribute('aria-expanded');
     document.getElementById('revision').hidden = false;
   }));
   btn.parentElement.appendChild(ul);

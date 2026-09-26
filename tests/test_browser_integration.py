@@ -140,7 +140,7 @@ class FakePage(BrowserPage):
             self.world["submits"] = self.world.get("submits", 0) + 1
         self._open = target
 
-    def click_option(self, text, timeout_ms):
+    def click_option(self, text, timeout_ms, opener=None):
         self.log.append(("option", text))
         if text in self.world.get("missing_options", set()):
             return False
