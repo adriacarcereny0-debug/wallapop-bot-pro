@@ -60,7 +60,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
 - Estructura robusta.
 - Diseño moderno y funcional.</textarea>
   <label>Estado*</label>
-  <div class="combo"><button type="button" role="combobox" aria-label="Estado*" data-options="Nuevo|Como nuevo|En buen estado">Estado*</button></div>
+  <div class="combo"><button type="button" role="combobox" aria-label="Estado*" data-prerender="1" data-options="Nuevo|Como nuevo|En buen estado">Estado*</button></div>
   <div id="sugerencias"><b>Sugerencias inteligentes</b>
     <span class="chip">Marrón</span> <span class="chip">Madera</span> <span class="chip">Nuevo</span></div>
   <label for="sale_price">Precio*</label>
@@ -159,9 +159,22 @@ catTrigger.addEventListener('click', () => {
   if (CAT_MODE === 'lento') setTimeout(() => renderCats(ul, btn, []), 900);
   else renderCats(ul, btn, []);
 });
-document.querySelectorAll('[role=combobox]:not(#cat)').forEach(btn => {
+// Como Wallapop: el Estado tiene sus opciones YA en la página (ocultas) antes
+// de abrir la lista; al pulsar solo se muestran.
+document.querySelectorAll('[data-prerender]').forEach(btn => {
+  const ul = document.createElement('ul'); ul.className = 'pre'; ul.style.display = 'none';
+  ul.setAttribute('role', 'listbox');
+  btn.dataset.options.split('|').forEach(o => {
+    const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = o;
+    li.addEventListener('click', ev => { ev.stopPropagation(); btn.textContent = o; ul.style.display = 'none'; });
+    ul.appendChild(li);
+  });
+  btn.parentElement.appendChild(ul);
+  btn.addEventListener('click', ev => { ev.stopPropagation(); ul.style.display = 'block'; });
+});
+document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.combo ul').forEach(u => u.remove());
+    document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
     btn.dataset.antes = btn.textContent;
     const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
     btn.dataset.options.split('|').forEach(o => {
@@ -185,7 +198,8 @@ document.querySelectorAll('[role=combobox]:not(#cat)').forEach(btn => {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Como Wallapop: Escape CANCELA lo elegido en la lista abierta.
-  document.querySelectorAll('.combo ul').forEach(u => {
+  document.querySelectorAll('.combo ul.pre').forEach(u => u.style.display = 'none');
+  document.querySelectorAll('.combo ul:not(.pre)').forEach(u => {
     const b = u.parentElement.querySelector('[role=combobox]');
     if (b && b.dataset.antes !== undefined) b.textContent = b.dataset.antes;
     u.remove();
@@ -193,7 +207,9 @@ document.addEventListener('keydown', e => {
 });
 // Clic fuera: cierra la lista y CONSERVA lo elegido.
 document.addEventListener('click', e => {
-  if (!e.target.closest('.combo')) document.querySelectorAll('.combo ul').forEach(u => u.remove());
+  if (e.target.closest('.combo')) return;
+  document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
+  document.querySelectorAll('.combo ul.pre').forEach(u => u.style.display = 'none');
 });
 function mostrarFotos(e) {
   for (const file of e.target.files) {

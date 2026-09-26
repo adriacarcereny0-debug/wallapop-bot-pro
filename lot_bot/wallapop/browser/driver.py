@@ -507,7 +507,14 @@ class _PlaywrightPage(BrowserPage):
                 continue
             for index in range(count):
                 try:
-                    locator.nth(index).evaluate("e => e.setAttribute('data-lotbot-previo', '1')")
+                    item = locator.nth(index)
+                    # Solo lo que SE VE antes de abrir (enlaces, «Sugerencias
+                    # inteligentes»). Las opciones que la web tiene cargadas pero
+                    # ocultas hasta abrir la lista NO se marcan: son las que hay
+                    # que pulsar (marcarlas bloqueaba «Estado: Nuevo»).
+                    if not item.is_visible():
+                        continue
+                    item.evaluate("e => e.setAttribute('data-lotbot-previo', '1')")
                     marked += 1
                 except Exception:
                     continue
