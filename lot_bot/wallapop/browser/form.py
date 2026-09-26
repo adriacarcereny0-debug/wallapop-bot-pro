@@ -42,7 +42,7 @@ from lot_bot.wallapop.browser.category import (
     debug_enabled,
 )
 from lot_bot.wallapop.browser.config import ATTRIBUTE_KEYS, BrowserSiteConfig, FormField
-from lot_bot.wallapop.browser.driver import BrowserPage, safe_url
+from lot_bot.wallapop.browser.driver import BrowserPage, contains_text, safe_url, same_text
 from lot_bot.wallapop.errors import (
     BrowserStepError,
     FormMismatchError,
@@ -303,6 +303,12 @@ class ListingForm:
         """Categoría «A > B > Estructura de camas» con `CategoryPicker`:
         abre, recorre los niveles y VERIFICA que la final ha quedado puesta."""
         parts = [p.strip() for p in path.split(">") if p.strip()]
+        if len(parts) == 1:  # solo el nombre final: ruta completa si se conoce
+            known = next(
+                (v for k, v in self.form.category_paths.items() if same_text(parts[0], k)), None
+            )
+            if known:
+                parts = [p.strip() for p in known.split(">") if p.strip()]
         picker = CategoryPicker(
             self.page,
             opener_targets=spec.targets,
@@ -531,12 +537,12 @@ class ListingForm:
             problems["Precio"] = f"se esperaba {expected} €, hay «{price}»"
         category = self._read(self.form.category)
         leaf = getattr(self, "category_chosen", None) or self.data.category.split(">")[-1].strip()
-        if category is not None and normalize(leaf) not in normalize(category):
+        if category is not None and not contains_text(leaf, category):
             problems["Categoría"] = f"se esperaba «{leaf}», hay «{category}»"
         for key, expected in self.attributes_filled.items():
             spec = self.form.attributes[key]
             current = self._read(spec)
-            if current is None or normalize(expected) not in normalize(current):
+            if current is None or not contains_text(expected, current):
                 problems[ATTRIBUTE_LABELS.get(key, key)] = f"se esperaba «{expected}», hay «{current}»"
         thumbs = self.form.photo_thumbnails
         loaded = self._thumb_count(thumbs) - self._photos_before if thumbs else 0

@@ -336,7 +336,11 @@ class SettingsView(BaseView):
         form.addRow("Intervalo mínimo entre publicaciones", self.publish_interval)
         self.publish_images = QComboBox()
         self.publish_images.addItem(
-            "Mis fotos (las que subes en «Anuncio principal» → «Fotografías…»)", False
+            "Mis fotos marcadas, todas en cada anuncio («Anuncio principal» → «Fotografías…»)",
+            False,
+        )
+        self.publish_images.addItem(
+            "Mis fotos marcadas, UNA distinta en cada anuncio (van rotando)", "rotar"
         )
         self.publish_images.addItem(
             "Generar una foto distinta por anuncio con FLUX.2 Pro (necesita clave)", True
@@ -455,7 +459,12 @@ class SettingsView(BaseView):
         self.integration_mode.setCurrentIndex(max(index, 0))
         queue_settings = self.app.publish_queue.settings()
         self.publish_interval.setValue(queue_settings["minimum_publish_interval_seconds"])
-        self.publish_images.setCurrentIndex(1 if queue_settings["generate_images"] else 0)
+        if queue_settings["generate_images"]:
+            self.publish_images.setCurrentIndex(self.publish_images.findData(True))
+        elif queue_settings.get("rotate_photos"):
+            self.publish_images.setCurrentIndex(self.publish_images.findData("rotar"))
+        else:
+            self.publish_images.setCurrentIndex(0)
         from lot_bot.wallapop.browser.config import local_config_path
 
         self.selectors_label.setText(
@@ -605,7 +614,8 @@ class SettingsView(BaseView):
         try:
             self.app.publish_queue.save_settings(
                 minimum_publish_interval_seconds=self.publish_interval.value(),
-                generate_images=bool(self.publish_images.currentData()),
+                generate_images=self.publish_images.currentData() is True,
+                rotate_photos=self.publish_images.currentData() == "rotar",
             )
             if mode != (self.app.integration_mode or "demo"):
                 self.app.set_integration_mode(mode)

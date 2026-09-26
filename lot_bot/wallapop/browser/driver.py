@@ -160,6 +160,39 @@ def _inside(box: dict, outer: dict) -> bool:
     )
 
 
+_ACCENTS = {"a": "aáàä", "e": "eéèë", "i": "iíìï", "o": "oóòö", "u": "uúùü", "n": "nñ"}
+
+
+def _plain(text: str) -> str:
+    import unicodedata
+
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text) if unicodedata.category(c) != "Mn"
+    ).casefold()
+
+
+def tolerant_pattern(text: str) -> re.Pattern:
+    """Texto EXACTO, pero sin importar mayúsculas, tildes ni el plural de cada
+    palabra: «Estructuras de camas» encuentra «Estructura de camas»."""
+    words = []
+    for word in _plain(text).split():
+        stem = word[:-2] if word.endswith("es") and len(word) > 4 else word
+        stem = stem[:-1] if stem.endswith("s") and len(stem) > 3 else stem
+        chars = "".join(f"[{_ACCENTS[c]}]" if c in _ACCENTS else re.escape(c) for c in stem)
+        words.append(chars + "(?:e?s)?")
+    return re.compile(r"^\s*" + r"\s+".join(words) + r"\s*$", re.IGNORECASE)
+
+
+def same_text(a: str, b: str) -> bool:
+    return bool(tolerant_pattern(a).match(" ".join((b or "").split())))
+
+
+def contains_text(needle: str, haystack: str) -> bool:
+    """¿`haystack` contiene `needle` (con la misma tolerancia)?"""
+    pattern = tolerant_pattern(needle).pattern.strip("^$").replace(r"^\s*", "").replace(r"\s*$", "")
+    return bool(re.search(pattern, _plain(" ".join((haystack or "").split())), re.IGNORECASE))
+
+
 class _PlaywrightPage(BrowserPage):
     MAX_EVENTS = 15
 
@@ -257,7 +290,7 @@ class _PlaywrightPage(BrowserPage):
         componente del desplegable (como en Wallapop). Solo se descarta el
         botón `opener` que abre la lista (que puede mostrar ya ese valor).
         """
-        exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
+        exact = tolerant_pattern(text)
         texts = self._page.get_by_text(exact)
         opener_box = None
         if opener:
@@ -299,7 +332,7 @@ class _PlaywrightPage(BrowserPage):
             return False
 
     def _text_locator(self, text: str, within: str | None):
-        exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
+        exact = tolerant_pattern(text)
         root = self._page.locator(within).first if within else self._page
         return root.get_by_text(exact)
 

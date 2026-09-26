@@ -40,6 +40,8 @@ class ImageAdapter:
     set_primary: Callable[[int], None]
     #: Aviso opcional (p. ej. imágenes de demostración).
     note: str = ""
+    #: Marcar/desmarcar una foto para usarla al publicar (None = no se ofrece).
+    set_enabled: Callable[[int, bool], None] | None = None
 
 
 class ImagesDialog(QDialog):
@@ -54,7 +56,8 @@ class ImagesDialog(QDialog):
 
         hint = QLabel(
             "La primera fotografía es la principal. Formatos admitidos: JPG, JPEG, PNG y "
-            "WEBP. Las fotos repetidas se descartan solas."
+            "WEBP. Las fotos repetidas se descartan solas. Solo se suben a Wallapop las marcadas "
+            "con ✓ (botón «Usar / no usar al publicar»)."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {theme.TEXT_MUTED};")
@@ -88,6 +91,13 @@ class ImagesDialog(QDialog):
         self.primary_button = QPushButton("Marcar como principal")
         self.primary_button.clicked.connect(self._primary)
         row.addWidget(self.primary_button)
+        self.use_button = QPushButton("Usar / no usar al publicar")
+        self.use_button.setToolTip(
+            "Solo se suben a Wallapop las fotos marcadas con ✓. Las demás se guardan."
+        )
+        self.use_button.clicked.connect(self._toggle_use)
+        self.use_button.setVisible(adapter.set_enabled is not None)
+        row.addWidget(self.use_button)
         row.addStretch(1)
         self.remove_button = QPushButton("Quitar")
         self.remove_button.setObjectName("Danger")
@@ -109,6 +119,8 @@ class ImagesDialog(QDialog):
             label = f"{index + 1}. {image.get('original_name') or path.name}"
             if image.get("is_primary"):
                 label = "★ " + label
+            if self.adapter.set_enabled is not None:
+                label = ("✓ " if image.get("enabled", True) else "✗ no se usa · ") + label
             if image.get("source") == "demo":
                 label += " (DEMO)"
             if pixmap.isNull():
@@ -131,7 +143,16 @@ class ImagesDialog(QDialog):
         self.left_button.setEnabled(has and index > 0)
         self.right_button.setEnabled(has and index < count - 1)
         self.primary_button.setEnabled(has)
+        self.use_button.setEnabled(has)
         self.remove_button.setEnabled(has)
+
+    def _toggle_use(self) -> None:
+        index = self._selected()
+        if index is None or self.adapter.set_enabled is None:
+            return
+        current = self.adapter.list_images()[index].get("enabled", True)
+        self.adapter.set_enabled(index, not current)
+        self.refresh(select=index)
 
     # ------------------------------------------------------------------
     def _add(self) -> None:
@@ -272,4 +293,5 @@ def master_adapter(app, key: str) -> ImageAdapter:
         move=lambda index, delta: service.move_image(key, index, delta),
         set_primary=lambda index: service.set_primary_image(key, index),
         note=note,
+        set_enabled=lambda index, on: service.set_image_enabled(key, index, on),
     )

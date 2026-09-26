@@ -233,3 +233,17 @@ def test_navegador_real_si_wallapop_no_acepta_la_categoria_no_sigue(servicio):
     assert web.published == []  # no se ha seguido rellenando ni publicado
     contexto = next((tmp_path / "logs" / "navegador").glob("*Categor*.json")).read_text(encoding="utf-8")
     assert "Estructura de camas" in contexto and "html_panel" in contexto
+
+
+@pytest.mark.parametrize("modo", ["", "?cat=arbol", "?cat=dentro"])
+def test_navegador_real_categoria_escrita_en_plural_como_en_tu_plantilla(servicio, modo):
+    """Tu log: la plantilla decía «Estructuras de camas» (un solo nivel) y
+    Wallapop muestra «Estructura de camas». Ahora se encuentra igual."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += modo
+    datos = borrador(tmp_path)
+    datos.category = "Estructuras de camas"
+    # Sin sugeridas (?cat=arbol) la ruta completa sale de «rutas» del YAML.
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    assert web.published[0]["categoria"] == "Estructura de camas"

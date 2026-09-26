@@ -142,6 +142,11 @@ publicar:
         - "role=listbox"
         - "role=tree"
         - "div:has(:text-is('Categorías sugeridas')):has(:text-is('Todas las categorías'))"
+      # Ruta completa de las categorías conocidas, por si la plantilla solo
+      # dice el nombre final y Wallapop no la muestra entre las sugeridas.
+      rutas:
+        "Estructura de camas": "Muebles y organización > Camas y accesorios > Estructura de camas"
+        "Colchones": "Muebles y organización > Camas y accesorios > Colchones"
       # Dónde se ve la categoría elegida (opcional; si no, el propio campo).
       seleccionada:
         - "role=combobox[name=/^Categoría(?!s)/i]"

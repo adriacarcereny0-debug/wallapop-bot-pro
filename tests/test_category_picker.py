@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from lot_bot.wallapop.browser.category import CategoryPicker, CategorySelectionError
-from lot_bot.wallapop.browser.driver import BrowserPage
+from lot_bot.wallapop.browser.driver import BrowserPage, same_text
 
 OPENER = "role=combobox[name=/^Categoría/i]"
 PANEL = "role=listbox"
@@ -80,7 +80,7 @@ class CategoryPage(BrowserPage):
             found.append({"index": len(found), "visible": True, "enabled": True,
                           "box": {"x": 0, "y": 900, "width": 100, "height": 20}})
         for option in self._options():
-            if option == text:
+            if same_text(text, option):
                 found.append({"index": len(found), "visible": True, "enabled": True,
                               "box": {"x": 0, "y": 100 + len(found) * 30, "width": 300, "height": 25}})
         if not self.open and self.field == text:  # la categoría ya puesta en el campo
@@ -95,6 +95,7 @@ class CategoryPage(BrowserPage):
         if self.cfg.get("ignore"):
             return
         node = self._node()
+        text = next((k for k in [*node, "Colchones", "Estructura de camas"] if same_text(text, k)), text)
         if text in node and node[text]:  # rama: baja un nivel
             self.level.append(text)
             return
@@ -257,3 +258,12 @@ def test_sin_selector_de_panel_se_detecta_la_lista_por_sus_opciones():
     page = CategoryPage(stays_open=True)
     with pytest.raises(CategorySelectionError):
         CategoryPicker(page, [OPENER], [], timeout_ms=400).select(PATH)
+
+
+@pytest.mark.parametrize("escrita", ["Estructuras de camas", "estructura de camas", "ESTRUCTURA DE CAMA"])
+def test_categoria_escrita_con_plural_o_mayusculas_se_encuentra(escrita):
+    """El fallo real: la plantilla decía «Estructuras de camas» (plural) y
+    Wallapop la llama «Estructura de camas»."""
+    page = CategoryPage()
+    assert picker(page).select([escrita]) == escrita
+    assert page.field == "Estructura de camas" and not page.open

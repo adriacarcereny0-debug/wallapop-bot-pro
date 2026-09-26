@@ -54,6 +54,9 @@ SETTINGS_KEY = "publicacion"
 DEFAULT_PUBLISH_SETTINGS: dict[str, Any] = {
     "minimum_publish_interval_seconds": MINIMUM_PUBLISH_INTERVAL_SECONDS,
     "generate_images": True,
+    # Mis fotos: False = todas las marcadas en cada anuncio; True = una
+    # distinta en cada anuncio, rotando entre las marcadas.
+    "rotate_photos": False,
     "automatic_retries": 0,  # «una vez» es una vez: sin reintentos automáticos
 }
 
@@ -685,12 +688,16 @@ class PublishQueue:
             service = getattr(self._app, "wallapop", None)
             if service is not None and hasattr(service, "user_gate"):
                 service.user_gate = self._user_gate
+            only_images = None
+            if not image_path and self.settings().get("rotate_photos"):
+                only_images = self._next_rotating_photo(payload.get("master_key"))
             try:
                 outcome = self._app.master_ads.publish_single(
                     payload.get("master_key"),
                     ref,
                     payload.get("overrides") or {},
                     extra_images=[image_path] if image_path else None,
+                    only_images=only_images,
                     meta={"imagen": payload.get("imagen") or {"origen": "plantilla"}},
                     confirmed=True,
                     actor=actor,
@@ -758,6 +765,23 @@ class PublishQueue:
             detail=f"{result.provider}; intento {result.attempts}; {result.path.name}",
         )
         return str(result.path)
+
+    def _next_rotating_photo(self, master_key: str | None) -> list[str] | None:
+        """La siguiente foto marcada, en orden y volviendo a empezar. El turno
+        se guarda: sigue rotando entre colas y reinicios."""
+        master = self._app.master_ads.get(master_key)
+        photos = [i["path"] for i in self._app.master_ads.effective_images(master)] if master else []
+        if not photos:
+            return None
+        turn = int(self.settings().get("rotation_next", 0) or 0)
+        merged = {**self.settings(), "rotation_next": (turn + 1) % len(photos)}
+        with self._db.session_scope() as session:  # sin auditoría: es solo el turno
+            row = session.get(Setting, SETTINGS_KEY)
+            if row is None:
+                session.add(Setting(key=SETTINGS_KEY, value=merged))
+            else:
+                row.value = merged
+        return [photos[turn % len(photos)]]
 
     def _preferred_rooms(self) -> list[str]:
         """Habitaciones que mejor han funcionado (si hay datos suficientes)."""

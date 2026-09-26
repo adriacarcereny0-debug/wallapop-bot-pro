@@ -460,8 +460,20 @@ class MasterAdService:
     # ------------------------------------------------------------------
     # Publicación
     # ------------------------------------------------------------------
+    def set_image_enabled(self, key: str | None, index: int, enabled: bool) -> MasterAdView:
+        """Marca si una foto se usa al publicar (las no marcadas se guardan
+        pero no se suben)."""
+        view = self.get(key)
+        images = list(view.images)
+        if 0 <= index < len(images):
+            images[index]["enabled"] = bool(enabled)
+        return self._save_images(view.key, images)
+
     def effective_images(self, view: MasterAdView) -> list[dict[str, Any]]:
-        real = [i for i in view.images if i.get("source") != "demo"]
+        """Fotos que se suben: las del usuario MARCADAS para usar."""
+        real = [
+            i for i in view.images if i.get("source") != "demo" and i.get("enabled", True)
+        ]
         if real:
             return real
         return self.demo_images() if self.demo_mode else []
@@ -520,11 +532,18 @@ class MasterAdService:
         overrides: dict[str, Any] | None = None,
         *,
         extra_images: list[str] | None = None,
+        only_images: list[str] | None = None,
     ) -> list[ListingPreview]:
         view = self.get(key)
         if view is None:
             raise ValueError("No existe el anuncio principal.")
         data = self.render(view, overrides)
+        if only_images:
+            # Rotación: SOLO la foto elegida para este anuncio.
+            data["images"] = [
+                {"path": p, "is_primary": i == 0, "source": "rotacion"}
+                for i, p in enumerate(only_images)
+            ]
         if extra_images:
             # La imagen generada para este anuncio va la primera (portada).
             data["images"] = [
@@ -608,6 +627,7 @@ class MasterAdService:
         overrides: dict[str, Any] | None = None,
         *,
         extra_images: list[str] | None = None,
+        only_images: list[str] | None = None,
         meta: dict[str, Any] | None = None,
         confirmed: bool,
         actor: str = "usuario",
@@ -620,7 +640,8 @@ class MasterAdService:
         if view is None:
             raise ValueError("No existe el anuncio principal.")
         previews = self.build_previews(
-            view.key, [account_ref], None, overrides, extra_images=extra_images
+            view.key, [account_ref], None, overrides, extra_images=extra_images,
+            only_images=only_images,
         )
         data = self.render(view, overrides)
         clean_overrides = {

@@ -70,6 +70,7 @@ class ListingFormConfig:
     next_button: FormField = field(default_factory=FormField)
     category_panel: list[str] = field(default_factory=list)
     category_selected: list[str] = field(default_factory=list)
+    category_paths: dict[str, str] = field(default_factory=dict)
     final_title: FormField = field(default_factory=FormField)
     shipping: FormField = field(default_factory=FormField)
     shipping_enabled: bool = False
@@ -105,6 +106,9 @@ class ListingFormConfig:
             submit=FormField.from_dict(data.get("publicar")),
             next_button=FormField.from_dict(data.get("continuar")),
             category_panel=[str(x) for x in ((data.get("categoria") or {}).get("panel") or [])],
+            category_paths={
+                str(k): str(v) for k, v in ((data.get("categoria") or {}).get("rutas") or {}).items()
+            },
             category_selected=[
                 str(x) for x in ((data.get("categoria") or {}).get("seleccionada") or [])
             ],

@@ -28,7 +28,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from lot_bot.wallapop.browser.driver import BrowserPage
+from lot_bot.wallapop.browser.driver import BrowserPage, contains_text
 
 logger = logging.getLogger(__name__)
 
@@ -146,7 +146,7 @@ class CategoryPicker:
         campo; o, si el campo cambia de forma al elegir, en la página)."""
         if self._panel() is not None:
             return False
-        if _norm(leaf) in _norm(self._field_text(opener)):
+        if contains_text(leaf, self._field_text(opener)):
             return not self._panel_open()
         # El campo puede cambiar de forma al elegir: se acepta el texto de la
         # categoría SOLO si está donde estaba el campo (no en otra parte).
@@ -207,7 +207,7 @@ class CategoryPicker:
         opener_box = self.page.bbox(opener)  # ANTES de abrir la lista
         self._opener_box = opener_box
         self._log("campo", selector=opener, caja=opener_box)
-        if _norm(leaf) in _norm(self._field_text(opener)) and self._panel() is None:
+        if contains_text(leaf, self._field_text(opener)) and self._panel() is None:
             self._log("ya_seleccionada", categoria=leaf)
             return leaf
 
