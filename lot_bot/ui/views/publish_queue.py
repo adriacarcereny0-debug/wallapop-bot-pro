@@ -23,6 +23,7 @@ STATUS_LABELS = {
     "waiting": "⏳ En espera",
     "publishing": "⏳ Publicando",
     "published": "✓ Publicado",
+    "unconfirmed": "? Resultado no confirmado",
     "failed": "✗ Fallido",
     "cancelled": "— Cancelado",
 }
@@ -34,6 +35,7 @@ JOB_LABELS = {
     "cancelled": "Cancelada",
 }
 STATUS_COLORS = {
+    "unconfirmed": theme.WARNING,
     "published": theme.SUCCESS,
     "failed": theme.DANGER,
     "cancelled": theme.TEXT_MUTED,
@@ -69,7 +71,7 @@ class PublishQueueView(BaseView):
         self.pause_button = QPushButton("Pausar")
         self.pause_button.clicked.connect(self._pause)
         controls.addWidget(self.pause_button)
-        self.resume_button = QPushButton("Reanudar")
+        self.resume_button = QPushButton("Continuar")
         self.resume_button.clicked.connect(self._resume)
         controls.addWidget(self.resume_button)
         self.cancel_button = QPushButton("Cancelar cola")

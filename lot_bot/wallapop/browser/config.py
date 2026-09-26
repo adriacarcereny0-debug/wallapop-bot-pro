@@ -30,15 +30,71 @@ def local_config_path() -> Path:
 
 
 @dataclass(slots=True)
-class Step:
-    name: str
-    action: str
+class FormField:
+    """Un campo del formulario de Wallapop (selectores en el YAML)."""
+
     targets: list[str] = field(default_factory=list)
-    value: str = ""
-    option: str = ""
-    url: str = ""
+    readback: list[str] = field(default_factory=list)
     optional: bool = False
-    optional_if_empty: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> FormField:
+        data = data or {}
+        return cls(
+            targets=[str(t) for t in (data.get("objetivos") or [])],
+            readback=[str(t) for t in (data.get("lectura") or [])],
+            optional=bool(data.get("opcional", False)),
+        )
+
+
+#: Características del anuncio, en el orden en que se rellenan.
+ATTRIBUTE_KEYS = ("estado", "uso", "color", "material")
+
+
+@dataclass(slots=True)
+class ListingFormConfig:
+    open_url: str = "subir"
+    listing_type: FormField = field(default_factory=FormField)
+    title: FormField = field(default_factory=FormField)
+    category: FormField = field(default_factory=FormField)
+    subcategory: FormField = field(default_factory=FormField)
+    attributes: dict[str, FormField] = field(default_factory=dict)
+    description: FormField = field(default_factory=FormField)
+    price: FormField = field(default_factory=FormField)
+    photos: FormField = field(default_factory=FormField)
+    photo_thumbnails: list[str] = field(default_factory=list)
+    photo_rejected: list[str] = field(default_factory=list)
+    photo_wait_ms: int = 45000
+    submit: FormField = field(default_factory=FormField)
+    errors: list[str] = field(default_factory=list)
+
+    @property
+    def defined(self) -> bool:
+        return bool(self.title.targets and self.submit.targets)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> ListingFormConfig:
+        data = data or {}
+        photos = data.get("fotos") or {}
+        attributes = data.get("caracteristicas") or {}
+        return cls(
+            open_url=str((data.get("abrir") or {}).get("url", "subir")),
+            listing_type=FormField.from_dict(data.get("tipo_anuncio")),
+            title=FormField.from_dict(data.get("titulo")),
+            category=FormField.from_dict(data.get("categoria")),
+            subcategory=FormField.from_dict(data.get("subcategoria")),
+            attributes={
+                str(k): FormField.from_dict(v) for k, v in attributes.items() if isinstance(v, dict)
+            },
+            description=FormField.from_dict(data.get("descripcion")),
+            price=FormField.from_dict(data.get("precio")),
+            photos=FormField.from_dict(photos),
+            photo_thumbnails=[str(x) for x in (photos.get("miniaturas") or [])],
+            photo_rejected=[str(x) for x in (photos.get("rechazada") or [])],
+            photo_wait_ms=int(photos.get("espera_ms", 45000)),
+            submit=FormField.from_dict(data.get("publicar")),
+            errors=[str(x) for x in (data.get("errores") or [])],
+        )
 
 
 @dataclass(slots=True)
@@ -54,7 +110,7 @@ class BrowserSiteConfig:
     verification: list[str]
     user_name: list[str]
     price_format: str
-    steps: list[Step]
+    form: ListingFormConfig
     success_url_regex: str
     success_texts: list[str]
     success_timeout_ms: int
@@ -83,19 +139,6 @@ class BrowserSiteConfig:
         publish = data.get("publicar") or {}
         success = publish.get("exito") or {}
         check = session.get("comprobacion") or {}
-        steps = [
-            Step(
-                name=str(s.get("nombre", "")),
-                action=str(s.get("accion", "")),
-                targets=[str(t) for t in (s.get("objetivos") or [])],
-                value=str(s.get("valor", "")),
-                option=str(s.get("opcion", "")),
-                url=str(s.get("url", "")),
-                optional=bool(s.get("opcional", False)),
-                optional_if_empty=bool(s.get("opcional_si_vacio", False)),
-            )
-            for s in (publish.get("pasos") or [])
-        ]
         return cls(
             verified=bool(data.get("verificado", False)),
             visible=bool(nav.get("visible", True)),
@@ -108,7 +151,7 @@ class BrowserSiteConfig:
             verification=[str(x) for x in (session.get("verificacion") or [])],
             user_name=[str(x) for x in (session.get("nombre_usuario") or [])],
             price_format=str(publish.get("formato_precio", "coma")),
-            steps=steps,
+            form=ListingFormConfig.from_dict(publish.get("formulario")),
             success_url_regex=str(success.get("url_regex", "")),
             success_texts=[str(x) for x in (success.get("textos") or [])],
             success_timeout_ms=int(success.get("tiempo_espera_ms", 60000)),

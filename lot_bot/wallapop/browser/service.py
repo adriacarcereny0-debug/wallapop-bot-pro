@@ -19,13 +19,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from lot_bot.wallapop.browser.config import BrowserSiteConfig, Step, load_site_config
+from lot_bot.wallapop.browser.config import ATTRIBUTE_KEYS, BrowserSiteConfig, load_site_config
 from lot_bot.wallapop.browser.driver import (
     BrowserLauncher,
     BrowserPage,
     BrowserUnavailable,
     PlaywrightLauncher,
 )
+from lot_bot.wallapop.browser.form import ListingData, ListingForm, PublishReport, UserGate
 from lot_bot.wallapop.browser.pool import BrowserSessionPool
 from lot_bot.wallapop.browser.profiles import BrowserProfileStore
 from lot_bot.wallapop.capabilities import Capability
@@ -41,9 +42,9 @@ from lot_bot.wallapop.dto import (
 )
 from lot_bot.wallapop.errors import (
     AuthenticationError,
-    BrowserStepError,
     ConfigurationError,
     NotAvailableWithCurrentAPIError,
+    ProfileInUseError,
     VerificationRequiredError,
 )
 from lot_bot.wallapop.service import WallapopService
@@ -107,6 +108,9 @@ class BrowserWallapopService(WallapopService):
         #: Chrome/Edge normal (sin automatización) para que el usuario inicie
         #: sesión a mano. None = se usa el navegador integrado.
         self.normal_launcher = normal_launcher
+        #: gate(cuenta, mensaje) -> bool: espera a que el usuario pulse
+        #: «Continuar» (verificaciones, ventana abierta). La pone la cola.
+        self.user_gate: UserGate | None = None
 
     # ------------------------------------------------------------------
     def capabilities(self) -> set[Capability]:
@@ -128,7 +132,9 @@ class BrowserWallapopService(WallapopService):
             "locale": self.site.locale,
         }
 
-    def _in_browser(self, account_ref: str, fn, *, require_connected: bool = True):
+    def _in_browser(
+        self, account_ref: str, fn, *, require_connected: bool = True, timeout: float | None = None
+    ):
         """Ejecuta `fn(page)` en el navegador persistente de la cuenta."""
         if require_connected and not self._is_connected(account_ref):
             raise AuthenticationError(
@@ -140,6 +146,7 @@ class BrowserWallapopService(WallapopService):
             account_ref,
             self.profiles.profile_dir(account_ref),
             fn,
+            timeout=timeout,
             **self._browser_options(),
         )
 
@@ -167,7 +174,7 @@ class BrowserWallapopService(WallapopService):
             return "sin_sesion"
         return "iniciada"
 
-    def verify_session(self, page: BrowserPage) -> SessionCheck:
+    def verify_session(self, page: BrowserPage, *, navigate: bool = True) -> SessionCheck:
         """Comprobación REAL de que hay una sesión iniciada.
 
         Abre una página privada y exige, a la vez: que Wallapop no redirija
@@ -177,11 +184,14 @@ class BrowserWallapopService(WallapopService):
         site = self.site
         if site.verification and page.first_visible(site.verification, 0):
             return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")
-        try:
-            page.goto(site.url(site.check_url))
-        except Exception as exc:
-            return SessionCheck(False, "error", f"No se ha podido abrir Wallapop ({type(exc).__name__}).")
-        page.wait(site.check_wait_ms)
+        if navigate:
+            try:
+                page.goto(site.url(site.check_url))
+            except Exception as exc:
+                return SessionCheck(
+                    False, "error", f"No se ha podido abrir Wallapop ({type(exc).__name__})."
+                )
+            page.wait(site.check_wait_ms)
         if site.verification and page.first_visible(site.verification, 0):
             logger.info("Verificación de Wallapop. Diagnóstico: %s", page.diagnostics())
             return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")
@@ -254,149 +264,116 @@ class BrowserWallapopService(WallapopService):
     # ------------------------------------------------------------------
     # Publicar
     # ------------------------------------------------------------------
-    def _values(self, draft: ItemDraft) -> dict[str, str]:
-        attributes = draft.attributes or {}
-        return {
-            "titulo": draft.title,
-            "descripcion": draft.description,
-            "precio": format_price(float(draft.price), self.site.price_format),
-            "categoria": draft.category or "",
-            "subcategoria": str(attributes.get("subcategoria") or ""),
-            "estado": draft.condition or "",
-            "color": str(attributes.get("color") or ""),
-            "material": str(attributes.get("material") or ""),
-        }
+    #: Código del resultado cuando se pulsó «Publicar» pero Wallapop no lo confirmó.
+    UNCONFIRMED_CODE = "RESULTADO_NO_CONFIRMADO"
+    #: Tiempo máximo de una publicación, contando la espera a que el usuario
+    #: complete una verificación.
+    PUBLISH_TIMEOUT_S = 3600.0
 
-    @staticmethod
-    def _render(template: str, values: dict[str, str]) -> str:
-        return re.sub(r"\{(\w+)\}", lambda m: values.get(m.group(1), ""), template)
+    def listing_data(self, draft: ItemDraft) -> ListingData:
+        """Datos EXACTOS de la plantilla: no se inventa ni se cambia nada."""
+        attributes = {
+            key: str(value)
+            for key, value in (draft.attributes or {}).items()
+            if key in ATTRIBUTE_KEYS and value
+        }
+        if draft.condition and "estado" not in attributes:
+            attributes["estado"] = draft.condition
+        return ListingData(
+            title=draft.title,
+            description=draft.description,
+            price=float(draft.price),
+            price_text=format_price(float(draft.price), self.site.price_format),
+            category=draft.category or "",
+            subcategory=str((draft.attributes or {}).get("subcategoria") or ""),
+            attributes=attributes,
+            images=[str(Path(p)) for p in draft.image_paths if Path(p).is_file()],
+        )
 
     def _screenshot(self, page: BrowserPage, account_ref: str, step: str) -> str | None:
         if self._shots is None:
             return None
         slug = re.sub(r"\W+", "_", step)
-        name = f"{datetime.now():%Y%m%d-%H%M%S}-{account_ref}-{slug}.png"
-        path = self._shots / name
+        path = self._shots / f"{datetime.now():%Y%m%d-%H%M%S}-{account_ref}-{slug}.png"
         try:
             page.screenshot(path)
             return str(path)
         except Exception:
             return None
 
-    def _guard_verification(self, page: BrowserPage, account_ref: str, step: str) -> None:
-        if self.site.verification and page.first_visible(self.site.verification, 0):
-            self._screenshot(page, account_ref, f"verificacion-{step}")
-            raise VerificationRequiredError(f"Verificación en el paso «{step}».")
-
-    def _run_step(
-        self, page: BrowserPage, step: Step, values: dict[str, str], images: list[str], ref: str
-    ) -> None:
-        timeout = self.site.timeout_ms
-        self._guard_verification(page, ref, step.name)
-        if step.action == "ir":
-            page.goto(self.site.url(step.url))
-            return
-
-        value = self._render(step.value, values)
-        option = self._render(step.option, values)
-        if step.optional_if_empty and (
-            (step.action == "elegir" and not option) or (step.action == "escribir" and not value)
-        ):
-            return
-        if step.action == "subir_archivos" and not images:
-            return
-
-        target = page.first_visible(step.targets, 0 if step.optional else timeout)
-        if target is None and step.action == "subir_archivos":
-            # Los <input type=file> suelen estar ocultos: se usa el primero.
-            target = step.targets[0] if step.targets else None
-        if target is None:
-            if step.optional:
-                return
-            self._guard_verification(page, ref, step.name)
-            shot = self._screenshot(page, ref, step.name)
-            raise BrowserStepError(step.name, f"No aparece ningún elemento de: {step.targets}", shot)
-
-        try:
-            if step.action == "escribir":
-                page.fill(target, value)
-            elif step.action == "pulsar":
-                page.click(target)
-            elif step.action == "subir_archivos":
-                page.set_files(target, images)
-            elif step.action == "elegir":
-                page.click(target)
-                if not page.click_option(option, timeout):
-                    if step.optional:
-                        return
-                    raise BrowserStepError(step.name, f"No aparece la opción «{option}».")
-            else:
-                raise BrowserStepError(step.name, f"Acción desconocida «{step.action}».")
-        except (BrowserStepError, VerificationRequiredError):
-            raise
-        except Exception as exc:
-            if step.optional:
-                return
-            shot = self._screenshot(page, ref, step.name)
-            raise BrowserStepError(step.name, type(exc).__name__, shot) from exc
-
-    def _wait_success(self, page: BrowserPage, ref: str) -> str | None:
-        """Espera la confirmación de Wallapop; devuelve la URL del anuncio si la hay."""
-        deadline = time.monotonic() + self.site.success_timeout_ms / 1000
-        url_regex = re.compile(self.site.success_url_regex) if self.site.success_url_regex else None
-        while time.monotonic() < deadline:
-            self._guard_verification(page, ref, "confirmación")
-            current = page.current_url()
-            if url_regex and url_regex.search(current):
-                break
-            if self.site.success_texts and page.first_visible(self.site.success_texts, 0):
-                break
-            page.wait(500)
-        else:
-            shot = self._screenshot(page, ref, "confirmacion")
-            raise BrowserStepError(
-                "Confirmación de publicación",
-                "Wallapop no ha mostrado la confirmación a tiempo.",
-                shot,
-            )
-        if self.site.item_url_regex:
-            if re.search(self.site.item_url_regex, page.current_url()):
-                return re.search(self.site.item_url_regex, page.current_url()).group(0)
-            links = page.links_matching(self.site.item_url_regex)
-            if links:
-                return links[0]
-        return None
-
     def create_item(self, account_ref: str, draft: ItemDraft) -> OperationResult:
-        if not self.site.steps:
-            raise ConfigurationError("wallapop_browser.yaml no define los pasos de publicación.")
-        values = self._values(draft)
-        images = [str(Path(p)) for p in draft.image_paths if Path(p).is_file()]
+        """Publica un anuncio COMPLETO en el navegador de la cuenta.
 
-        def publish(page: BrowserPage) -> str | None:
+        Abre (o reutiliza) el perfil persistente de ESA cuenta, comprueba la
+        sesión y rellena el formulario entero con `ListingForm`. Solo devuelve
+        éxito si Wallapop confirma la publicación.
+        """
+        if not self.site.form.defined:
+            raise ConfigurationError("wallapop_browser.yaml no define el formulario de publicación.")
+        data = self.listing_data(draft)
+        profile_dir = self.profiles.profile_dir(account_ref)
+
+        def publish(page: BrowserPage) -> PublishReport:
+            form = ListingForm(
+                page,
+                self.site,
+                data,
+                account_ref=account_ref,
+                profile_dir=profile_dir,
+                shots_dir=self._shots,
+                gate=self.user_gate,
+            )
+            form.guard("Comprobar sesión")
             check = self.verify_session(page)
             if check.state == "verificacion":
-                raise VerificationRequiredError("Verificación al abrir Wallapop.")
+                # El usuario completa la verificación; se vuelve a comprobar
+                # en la MISMA página, sin recargarla.
+                form.guard("Comprobar sesión")
+                check = self.verify_session(page, navigate=False)
             if not check.ok:
+                form.save_error_context("sesion", check.message)
                 raise AuthenticationError(
                     f"Sesión de navegador no válida: {check.message}",
-                    user_message="La sesión de Wallapop de esta cuenta ha caducado o no se ha "
-                    "podido comprobar. Vuelve a conectarla en Cuentas → «Reconectar».",
+                    user_message="Sesión caducada: la sesión de Wallapop de esta cuenta ya no es "
+                    "válida. Pulsa «Reconectar» en Cuentas, inicia sesión en la ventana que se abre "
+                    "y la publicación continuará.",
                 )
-            for step in self.site.steps:
-                self._run_step(page, step, values, images, account_ref)
-            return self._wait_success(page, account_ref)
+            form.steps.append("Comprobar sesión")
+            return form.run()
 
-        url = self._in_browser(account_ref, publish)
-        item_id = None
-        if url:
-            item_id = url.rstrip("/").rsplit("/", 1)[-1]
+        while True:
+            try:
+                report = self._in_browser(account_ref, publish, timeout=self.PUBLISH_TIMEOUT_S)
+                break
+            except ProfileInUseError:
+                # La ventana normal de la cuenta sigue abierta: hay que cerrarla.
+                if self.user_gate is None or not self.user_gate(
+                    account_ref, ProfileInUseError.user_message
+                ):
+                    raise
+
+        detail = {
+            "url": report.url,
+            "id_confirmado": bool(report.item_id),
+            "confirmado": report.confirmed,
+            "pasos": report.steps,
+            "omitidos": report.skipped,
+        }
+        if not report.confirmed:
+            return OperationResult(
+                success=False,
+                message="Resultado no confirmado: se pulsó «Publicar» pero Wallapop no ha "
+                "confirmado la publicación. Revisa la cuenta en Wallapop antes de reintentar "
+                "(podría estar publicado). Captura en logs/navegador.",
+                item_id=None,
+                data={**detail, "codigo": self.UNCONFIRMED_CODE},
+            )
         return OperationResult(
             success=True,
-            message="Publicado en Wallapop desde el navegador."
-            + ("" if url else " Wallapop no ha mostrado la dirección del anuncio."),
-            item_id=item_id or f"navegador-{int(time.time())}",
-            data={"url": url, "id_confirmado": bool(url)},
+            message="Publicado en Wallapop y confirmado."
+            + ("" if report.url else " Wallapop no ha mostrado la dirección del anuncio."),
+            item_id=report.item_id or f"navegador-{int(time.time())}",
+            data=detail,
         )
 
     # ------------------------------------------------------------------

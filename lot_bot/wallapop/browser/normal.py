@@ -75,7 +75,9 @@ def browser_version(executable: str, *, platform: str | None = None) -> str:
 
 
 def profile_in_use(profile_dir: Path) -> bool:
-    return any((Path(profile_dir) / name).exists() or (Path(profile_dir) / name).is_symlink() for name in LOCK_FILES)
+    from lot_bot.wallapop.browser.profiles import profile_locked
+
+    return profile_locked(profile_dir)
 
 
 @dataclass(slots=True)
@@ -119,6 +121,21 @@ class NormalBrowserLauncher:
         self._channels = channels or ["chrome", "msedge"]
         self._popen = popen
 
+    def candidate_for(self, profile_dir: Path) -> BrowserCandidate | None:
+        """Si el perfil ya se creó con un navegador, se usa ese mismo."""
+        from lot_bot.wallapop.browser.profiles import read_browser_marker
+
+        marker = read_browser_marker(profile_dir)
+        if marker:
+            for candidate in find_browsers(self._channels):
+                if (
+                    candidate.name == marker
+                    and candidate.executable
+                    and Path(candidate.executable).is_file()
+                ):
+                    return candidate
+        return self.candidate()
+
     def candidate(self) -> BrowserCandidate | None:
         """Primer navegador con ruta conocida (necesaria para lanzarlo así)."""
         for candidate in find_browsers(self._channels):
@@ -130,7 +147,7 @@ class NormalBrowserLauncher:
         return self.candidate() is not None
 
     def launch(self, profile_dir: Path, url: str) -> NormalBrowserProcess:
-        candidate = self.candidate()
+        candidate = self.candidate_for(profile_dir)
         if candidate is None:
             raise FileNotFoundError("No se ha encontrado Chrome ni Edge instalados.")
         profile_dir = Path(profile_dir)
@@ -154,6 +171,9 @@ class NormalBrowserLauncher:
                 exc,
             )
             raise
+        from lot_bot.wallapop.browser.profiles import write_browser_marker
+
+        write_browser_marker(profile_dir, candidate.name)
         opened = NormalBrowserProcess(process, candidate, profile_dir, args, version)
         logger.info("Navegador normal abierto para iniciar sesión: %s", opened.describe())
         return opened

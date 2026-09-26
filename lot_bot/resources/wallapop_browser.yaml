@@ -88,91 +88,99 @@ estadisticas:
   visualizaciones: "(\\d[\\d.]*)\\s*(?:visualizaciones|visitas|vistas)"
   favoritos: "(\\d[\\d.]*)\\s*(?:favoritos|me gusta)"
 
+# -----------------------------------------------------------------------------
+# PUBLICAR. LOT Bot hace TODO el formulario con estos métodos, en este orden:
+#   open_create_listing → tipo de anuncio → fill_title → select_category →
+#   fill_attributes → fill_description → fill_price → upload_photos →
+#   comprobar el formulario → submit_listing → wait_for_publish_confirmation →
+#   get_published_listing_url
+# Cada campo: «objetivos» (dónde escribir/pulsar; se usa el primero visible) y,
+# opcionalmente, «lectura» (dónde leer lo que ha quedado, para COMPROBAR antes
+# de publicar; si no se indica, se lee en el mismo objetivo).
+# «opcional: true» → si el campo no existe en el formulario se omite y se
+# avisa; si existe y no se puede rellenar, NO se publica.
+# SIN VERIFICAR contra la web real (ver «verificado» arriba).
+# -----------------------------------------------------------------------------
 publicar:
   formato_precio: "coma"   # «coma» → 11,44   ·   «punto» → 11.44
-  pasos:
-    - nombre: "Abrir el formulario de subida"
-      accion: ir
+  formulario:
+    abrir:
       url: subir
-    - nombre: "Elegir tipo de anuncio"
-      accion: pulsar
+    tipo_anuncio:
       opcional: true
       objetivos:
         - "role=button[name=/Algo que ya no necesito/i]"
         - "text=/Algo que ya no necesito/i"
-    - nombre: "Título"
-      accion: escribir
-      valor: "{titulo}"
+    titulo:
       objetivos:
         - "input[name='summary']"
         - "#summary"
         - "role=textbox[name=/Resumen del producto|Título/i]"
-    - nombre: "Categoría"
-      accion: elegir
-      opcion: "{categoria}"
-      opcional_si_vacio: true
+    categoria:
       objetivos:
         - "role=combobox[name=/Categoría/i]"
         - "role=button[name=/Categoría/i]"
         - "text=/^Categoría$/i"
-    - nombre: "Subcategoría"
-      accion: elegir
-      opcion: "{subcategoria}"
+    subcategoria:
       opcional: true
-      opcional_si_vacio: true
       objetivos:
         - "role=combobox[name=/Subcategoría/i]"
         - "role=button[name=/Subcategoría/i]"
-    - nombre: "Fotografías"
-      accion: subir_archivos
-      objetivos:
-        - "input[type='file']"
-    - nombre: "Descripción"
-      accion: escribir
-      valor: "{descripcion}"
+    caracteristicas:
+      estado:
+        opcional: true
+        objetivos:
+          - "role=combobox[name=/Estado/i]"
+          - "role=button[name=/Estado/i]"
+      uso:
+        opcional: true
+        objetivos:
+          - "role=combobox[name=/Uso|Estancia|Habitación/i]"
+          - "role=button[name=/Uso|Estancia|Habitación/i]"
+      color:
+        opcional: true
+        objetivos:
+          - "role=combobox[name=/Color/i]"
+          - "role=button[name=/Color/i]"
+      material:
+        opcional: true
+        objetivos:
+          - "role=combobox[name=/Material/i]"
+          - "role=button[name=/Material/i]"
+    descripcion:
       objetivos:
         - "textarea[name='description']"
         - "#description"
         - "role=textbox[name=/Descripción/i]"
-    - nombre: "Precio"
-      accion: escribir
-      valor: "{precio}"
+    precio:
       objetivos:
         - "input[name='sale_price']"
         - "#sale_price"
         - "role=spinbutton[name=/Precio/i]"
         - "role=textbox[name=/Precio/i]"
-    - nombre: "Estado del producto"
-      accion: elegir
-      opcion: "{estado}"
-      opcional: true
-      opcional_si_vacio: true
+    fotos:
+      # Los <input type=file> suelen estar ocultos: se usa el primero.
       objetivos:
-        - "role=combobox[name=/Estado/i]"
-        - "role=button[name=/Estado/i]"
-    - nombre: "Color"
-      accion: elegir
-      opcion: "{color}"
-      opcional: true
-      opcional_si_vacio: true
-      objetivos:
-        - "role=combobox[name=/Color/i]"
-        - "role=button[name=/Color/i]"
-    - nombre: "Material"
-      accion: elegir
-      opcion: "{material}"
-      opcional: true
-      opcional_si_vacio: true
-      objetivos:
-        - "role=combobox[name=/Material/i]"
-        - "role=button[name=/Material/i]"
-    - nombre: "Publicar"
-      accion: pulsar
+        - "input[type='file']"
+      # Miniaturas que aparecen cuando Wallapop HA CARGADO cada foto.
+      miniaturas:
+        - "[data-testid*='image-preview']"
+        - "[class*='ImagePreview'] img"
+        - "[class*='image-preview'] img"
+      # Mensajes de foto rechazada.
+      rechazada:
+        - "text=/imagen no válida|formato no (?:válido|soportado)|no se ha podido subir la (?:foto|imagen)/i"
+      espera_ms: 45000
+    publicar:
       objetivos:
         - "role=button[name=/^Subir producto$/i]"
         - "role=button[name=/^Publicar/i]"
         - "button[type='submit']"
-  # Cómo se sabe que ha terminado bien.
+    # Mensajes de error de Wallapop durante la publicación.
+    errores:
+      - "text=/ha ocurrido un error|algo ha ido mal|no se ha podido publicar/i"
+  # Cómo se sabe que ha terminado bien. Sin esto NO se da por publicado:
+  # el resultado queda como «Resultado no confirmado».
   exito:
     url_regex: "/item/|/app/catalog/published"
     textos:

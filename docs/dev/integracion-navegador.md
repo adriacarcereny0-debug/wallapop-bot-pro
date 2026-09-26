@@ -35,7 +35,7 @@ Chat «Publica 10 canapés» ─► publish_master_ad (plan + confirmación)
    └─ DemoImageGenerator (DEMO)          WallapopService
                                           ├─ MockWallapopService (DEMO)
                                           └─ BrowserWallapopService
-                                               │  pasos de wallapop_browser.yaml
+                                               │  ListingForm (form.py) + wallapop_browser.yaml
                                                ▼
                                      Playwright ─► Chrome/Edge (perfil por cuenta)
 ```
@@ -46,6 +46,7 @@ Chat «Publica 10 canapés» ─► publish_master_ad (plan + confirmación)
 | Conexión de cuentas (inicio de sesión del usuario) | `lot_bot/wallapop/browser/auth.py` |
 | Perfiles aislados por cuenta | `lot_bot/wallapop/browser/profiles.py` |
 | Control del navegador (Playwright) | `lot_bot/wallapop/browser/driver.py` |
+| Flujo completo de publicación (un método por paso) | `lot_bot/wallapop/browser/form.py` |
 | **Selectores y pasos de la web (único sitio)** | `lot_bot/resources/wallapop_browser.yaml` |
 | Cola de publicación | `lot_bot/publishing/queue.py` |
 | Cliente FLUX.2 Pro | `lot_bot/images/generation/flux.py` |
@@ -69,13 +70,61 @@ podido comprobar con una sesión real** (`verificado: false`). La primera vez:
    `verificado: true`. No hay que recompilar.
 
 Cada objetivo admite varias alternativas (CSS, `text=`, `role=...`); se usa
-la primera visible. Acciones: `ir`, `pulsar`, `escribir`, `elegir`,
-`subir_archivos`. Valores: `{titulo}`, `{descripcion}`, `{precio}`,
-`{categoria}`, `{subcategoria}`, `{estado}`.
+la primera visible. Los campos están en `publicar.formulario`: `tipo_anuncio`,
+`titulo`, `categoria`, `subcategoria`, `caracteristicas` (`estado`, `uso`,
+`color`, `material`), `descripcion`, `precio`, `fotos` (con `miniaturas` y
+`rechazada`), `publicar` y `errores`. `lectura` (opcional) indica dónde releer
+un campo para la comprobación previa.
 
-El controlador real se ha probado contra una página local que imita el
-formulario (rellenar, elegir categoría, subir la foto a un `input` oculto,
-detectar la confirmación y extraer la URL del anuncio).
+## Publicación automática completa
+
+`ListingForm.run()` (en `form.py`) hace TODO el formulario; el usuario solo
+confirma en LOT Bot:
+
+1. `verify_session` en el perfil persistente de la cuenta (el mismo de su hilo
+   en `BrowserSessionPool`, reutilizado entre anuncios).
+2. `open_create_listing` → `choose_listing_type` → `fill_title` →
+   `select_category` → `fill_attributes` → `fill_description` → `fill_price` →
+   `upload_photos` (espera la miniatura; si no aparece o se rechaza, no sigue).
+3. `verify_form`: relee título, precio, descripción, categoría,
+   características, fotos y el perfil de la cuenta. Si algo no coincide
+   (`FormMismatchError`) NO se pulsa «Publicar».
+4. `submit_listing` → `wait_for_publish_confirmation` →
+   `get_published_listing_url`. Sin confirmación de Wallapop el anuncio queda
+   como **Resultado no confirmado** (estado `unconfirmed`), no se reintenta
+   solo y la cola se pausa.
+
+CAPTCHA/verificación: `ListingForm.guard` guarda captura, pausa la cola con
+«Wallapop requiere una verificación. Complétala en el navegador y pulsa
+Continuar.» y espera en el mismo paso con el navegador abierto; al pulsar
+«Continuar» sigue desde ahí. Nunca se toca la verificación.
+
+Cada error guarda `<fecha>-<cuenta>-<paso>.png` y `.json` (paso, URL sin
+parámetros, pasos hechos, diagnóstico; nunca cookies ni tokens) en
+`<datos>/logs/navegador/`.
+
+### Por qué antes solo se abría la ventana
+
+`PlaywrightLauncher.open` lanzaba Chrome con la carpeta de perfil de la
+cuenta aunque el Chrome NORMAL de esa cuenta (abierto con «Abrir cuenta» o
+durante el inicio de sesión) siguiera abierto. Chrome no admite dos procesos
+con el mismo perfil: entrega la orden a la ventana existente —que muestra la
+cuenta de Wallapop— y el proceso lanzado por Playwright termina. LOT Bot se
+quedaba sin página que controlar, probaba el siguiente navegador (Edge) con el
+perfil de Chrome, sin sesión, y el formulario nunca se rellenaba. Ahora:
+
+* `profile_locked` (en `profiles.py`) detecta el perfil en uso ANTES de
+  lanzar nada → `ProfileInUseError`: la cola pide cerrar esa ventana y pulsar
+  «Continuar», y sigue.
+* Cada perfil recuerda con qué navegador se creó (`lotbot-navegador.txt`) y
+  solo se abre con ese.
+* Si Wallapop no confirma, ya no se da por publicado.
+
+### Prueba manual
+
+`python scripts/prueba_publicar_canape.py --simulado` (web local que imita
+Wallapop) o `--cuenta "<alias>"` (Wallapop de verdad; publica). Siempre con
+el navegador visible.
 
 ## Conexión de cuentas (comprobación real)
 

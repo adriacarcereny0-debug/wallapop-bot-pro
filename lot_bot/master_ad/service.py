@@ -692,6 +692,25 @@ class MasterAdService:
                 error_code=type(exc).__name__,
             )
 
+        if not result.success:
+            # Se pulsó «Publicar» pero Wallapop no lo ha confirmado: NO se
+            # registra como publicado.
+            code = (result.data or {}).get("codigo") or "ERROR"
+            self._audit.record_error(
+                "Publicación del anuncio principal: resultado no confirmado",
+                error=result.message,
+                account_ref=preview.account_ref,
+                target=view.name,
+                actor=actor,
+            )
+            return PublishOutcome(
+                product_sku=preview.product_sku,
+                account_ref=preview.account_ref,
+                success=False,
+                message=result.message,
+                error_code=code,
+            )
+
         if result.item_id:
             self._listings.register_published(
                 preview.account_ref,

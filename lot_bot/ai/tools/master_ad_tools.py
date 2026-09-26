@@ -416,6 +416,13 @@ def _queue_status(context: ToolContext, args: dict[str, Any]) -> ToolResult:
     for task in progress.tasks:
         if task["estado"] == "failed":
             lines.append(f"Error en el anuncio {task['posicion']} ({task['cuenta']}): {task['error']}")
+        elif task["estado"] == "unconfirmed":
+            lines.append(
+                f"Resultado no confirmado en el anuncio {task['posicion']} ({task['cuenta']}): "
+                "revisa en Wallapop si se publicó antes de reintentar."
+            )
+        elif task["estado"] == "published" and task.get("url"):
+            lines.append(f"Publicado {task['posicion']} ({task['cuenta']}): {task['url']}")
     return ToolResult(ok=True, summary="\n".join(lines), data={"cola": progress.to_dict()})
 
 

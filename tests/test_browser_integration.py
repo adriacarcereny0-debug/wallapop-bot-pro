@@ -6,6 +6,7 @@ imita las páginas según lo que declara `wallapop_browser.yaml`.
 
 from __future__ import annotations
 
+import json
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -32,10 +33,38 @@ from lot_bot.wallapop.errors import (
 SITE = load_site_config(Path(__file__).resolve().parents[1] / "lot_bot/resources/wallapop_browser.yaml")
 
 
+FORM = SITE.form
+
+
+def form_fields() -> dict[str, object]:
+    """Campos del formulario por nombre (como en wallapop_browser.yaml)."""
+    fields = {
+        "tipo_anuncio": FORM.listing_type,
+        "titulo": FORM.title,
+        "categoria": FORM.category,
+        "subcategoria": FORM.subcategory,
+        "descripcion": FORM.description,
+        "precio": FORM.price,
+        "fotos": FORM.photos,
+        "publicar": FORM.submit,
+    }
+    fields.update(FORM.attributes)
+    return fields
+
+
 class FakePage(BrowserPage):
     """Imita la web: sin sesión, la zona privada redirige a la portada y se ve
     el botón de acceso. Hay un enlace a /app/chat SIEMPRE visible (también sin
-    sesión): es lo que provocaba el falso «conectada» del fallo original."""
+    sesión): es lo que provocaba el falso «conectada» del fallo original.
+
+    Con sesión, el formulario de subida guarda lo que se escribe y se elige,
+    muestra una miniatura por foto cargada y, al pulsar «Publicar», va a la
+    página del anuncio (world["item_url"]).
+
+    Opciones de `world`: missing (campos que no aparecen), missing_options,
+    reject_image, no_thumbs, no_confirm, tamper (campo → valor distinto del
+    escrito), verification, verification_at (paso donde aparece).
+    """
 
     ALWAYS = {"a[href*='/app/chat']"}
 
@@ -43,11 +72,24 @@ class FakePage(BrowserPage):
         self.world = world
         self.url = ""
         self.log: list[tuple] = []
+        self.values: dict[str, str] = {}
+        self.thumbs = 0
+        self._open: str | None = None
+        self.world.setdefault("pages", []).append(self)
+
+    # --- ayuda --------------------------------------------------------
+    def _field_of(self, target):
+        for name, spec in form_fields().items():
+            if spec.targets and target == spec.targets[0]:
+                return name
+        return None
 
     def goto(self, url: str) -> None:
         self.log.append(("goto", url))
         if url == SITE.url("subir"):
             self.world["published"] = False
+            self.values.clear()
+            self.thumbs = 0
             if not self.world.get("logged_in"):
                 url = SITE.url("inicio")  # Wallapop saca de la zona privada
         self.url = url
@@ -65,14 +107,17 @@ class FakePage(BrowserPage):
             visible |= {SITE.logged_out[0]}
         elif self.url.startswith(SITE.url("subir")) and not self.world.get("no_proof"):
             visible |= set(SITE.check_private[:1])
+            if not self.world.get("published"):
+                missing = self.world.get("missing", set())
+                for name, spec in form_fields().items():
+                    if spec.targets and name not in missing:
+                        visible.add(spec.targets[0])
         if self.world.get("verification"):
             visible |= {SITE.verification[0]}
-        if self.world.get("published"):
+        if self.world.get("reject_image") and self.thumbs == 0 and self.world.get("files_sent"):
+            visible |= set(FORM.photo_rejected[:1])
+        if self.world.get("published") and not self.world.get("no_confirm"):
             visible |= set(SITE.success_texts)
-        if self.world.get("logged_in") and not self.world.get("no_proof"):
-            for step in SITE.steps:
-                if step.targets and step.name not in self.world.get("missing_steps", set()):
-                    visible.add(step.targets[0])
         for target in targets:
             if target in visible:
                 return target
@@ -80,19 +125,39 @@ class FakePage(BrowserPage):
 
     def fill(self, target, text):
         self.log.append(("fill", target, text))
+        self.values[target] = text
 
     def click(self, target):
         self.log.append(("click", target))
-        publish_step = next(s for s in SITE.steps if s.name == "Publicar")
-        if target == publish_step.targets[0]:
-            self.world["published"] = True
+        if target == FORM.submit.targets[0]:
+            if not self.world.get("no_confirm"):
+                self.world["published"] = True
+            self.world["submits"] = self.world.get("submits", 0) + 1
+        self._open = target
 
     def click_option(self, text, timeout_ms):
         self.log.append(("option", text))
+        if text in self.world.get("missing_options", set()):
+            return False
+        if self._open:
+            self.values[self._open] = text
         return True
 
     def set_files(self, target, paths):
         self.log.append(("files", target, list(paths)))
+        self.world["files_sent"] = True
+        if not self.world.get("reject_image") and not self.world.get("no_thumbs"):
+            self.thumbs += len(paths)
+
+    def value_of(self, target):
+        name = self._field_of(target)
+        tamper = self.world.get("tamper", {})
+        if name in tamper:
+            return tamper[name]
+        return self.values.get(target, "")
+
+    def count(self, target):
+        return self.thumbs if FORM.photo_thumbnails and target == FORM.photo_thumbnails[0] else 0
 
     def text_of(self, target):
         return self.world.get("user_name", "")
@@ -155,11 +220,13 @@ def draft(tmp_path):
     image = tmp_path / "foto.jpg"
     image.write_bytes(b"\xff\xd8\xff")
     return ItemDraft(
-        title="Canapé canapé canapé canapé canapé canapé",
+        title="Canapé canapé canapé canapé canapé",
         description="GRAN OFERTA",
         price=11.44,
         category="Hogar y jardín",
         condition="Nuevo",
+        attributes={"estado": "Nuevo", "uso": "Dormitorio", "color": "Gris y Blanco",
+                    "material": "Madera"},
         image_paths=[str(image)],
     )
 
@@ -170,9 +237,11 @@ def draft(tmp_path):
 def test_los_selectores_viven_en_un_unico_fichero_y_no_estan_verificados():
     assert SITE.verified is False  # honestidad: no se han probado contra la web real
     assert SITE.url("inicio").startswith("https://es.wallapop.com")
-    nombres = [s.name for s in SITE.steps]
-    for paso in ("Título", "Descripción", "Precio", "Categoría", "Fotografías", "Publicar"):
-        assert paso in nombres
+    campos = form_fields()
+    for campo in ("titulo", "descripcion", "precio", "categoria", "fotos", "publicar",
+                  "estado", "uso", "color", "material"):
+        assert campos[campo].targets, campo
+    assert FORM.photo_thumbnails, "debe saber comprobar que la foto se ha cargado"
     assert SITE.verification, "debe saber reconocer verificaciones para detenerse"
 
 
@@ -201,20 +270,42 @@ def test_publicar_rellena_el_formulario_y_devuelve_la_url(profiles, tmp_path):
     }
     service, launcher = make_service(profiles, world, tmp_path)
     result = service.create_item("acc-1", draft(tmp_path))
-    assert result.success
+    assert result.success and result.data["confirmado"]
     assert result.data["url"] == world["item_url"]
     assert result.item_id == "canape-canape-123456789"
     log = launcher.pages[0].log
     escritos = {entry[2] for entry in log if entry[0] == "fill"}
-    assert "Canapé canapé canapé canapé canapé canapé" in escritos
+    assert "Canapé canapé canapé canapé canapé" in escritos
     assert "GRAN OFERTA" in escritos
     assert "11,44" in escritos  # formato de precio español
     assert any(entry[0] == "files" for entry in log)
-    assert ("option", "Hogar y jardín") in log
-    assert ("option", "Nuevo") in log
+    for opcion in ("Hogar y jardín", "Nuevo", "Dormitorio", "Gris y Blanco", "Madera"):
+        assert ("option", opcion) in log
+    # Todos los pasos, en orden, hechos por LOT Bot (no por el usuario).
+    assert result.data["pasos"] == [
+        "Comprobar sesión", "Abrir crear anuncio", "Tipo de anuncio", "Título", "Categoría",
+        "Característica Estado", "Característica Uso", "Característica Color",
+        "Característica Material", "Descripción", "Precio", "Fotos", "Comprobar formulario",
+        "Publicar", "Confirmación de Wallapop",
+    ]
 
 
-def test_si_wallapop_no_muestra_la_url_se_dice(profiles, tmp_path):
+def test_si_wallapop_no_confirma_no_se_da_por_publicado(profiles, tmp_path):
+    world = {"logged_in": True, "no_confirm": True}
+    service, _ = make_service(profiles, world, tmp_path)
+    service.site.success_timeout_ms = 0
+    try:
+        result = service.create_item("acc-1", draft(tmp_path))
+    finally:
+        service.site.success_timeout_ms = SITE.success_timeout_ms
+    assert not result.success
+    assert result.data["codigo"] == "RESULTADO_NO_CONFIRMADO"
+    assert "Resultado no confirmado" in result.message
+    assert world["submits"] == 1  # se pulsó una sola vez: nada de reintentos a ciegas
+    assert list((tmp_path / "shots").glob("*confirmacion*.png"))
+
+
+def test_confirmado_por_mensaje_sin_url(profiles, tmp_path):
     service, _ = make_service(profiles, {"logged_in": True}, tmp_path)
     result = service.create_item("acc-1", draft(tmp_path))
     assert result.success and result.data["url"] is None
@@ -223,8 +314,9 @@ def test_si_wallapop_no_muestra_la_url_se_dice(profiles, tmp_path):
 
 def test_sin_sesion_no_se_publica(profiles, tmp_path):
     service, _ = make_service(profiles, {"logged_in": False}, tmp_path)
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthenticationError) as info:
         service.create_item("acc-1", draft(tmp_path))
+    assert "Sesión caducada" in info.value.user_message
 
 
 def test_cuenta_no_conectada_no_abre_el_navegador(profiles, tmp_path):
@@ -234,26 +326,132 @@ def test_cuenta_no_conectada_no_abre_el_navegador(profiles, tmp_path):
     assert launcher.opened == []
 
 
-def test_una_verificacion_detiene_la_publicacion(profiles, tmp_path):
+def test_una_verificacion_sin_nadie_que_responda_detiene_la_publicacion(profiles, tmp_path):
     service, launcher = make_service(
         profiles, {"logged_in": True, "verification": True}, tmp_path
     )
-    with pytest.raises(VerificationRequiredError):
+    with pytest.raises(VerificationRequiredError) as info:
         service.create_item("acc-1", draft(tmp_path))
+    assert "pulsa Continuar" in info.value.user_message
     log = launcher.pages[0].log
     assert not any(entry[0] in ("fill", "click") for entry in log)  # nada automático
 
 
-def test_si_la_web_cambia_se_indica_el_paso_y_se_guarda_captura(profiles, tmp_path):
-    world = {"logged_in": True, "missing_steps": {"Precio"}}
+def test_captcha_a_mitad_espera_al_usuario_y_sigue_desde_el_mismo_paso(profiles, tmp_path):
+    """El CAPTCHA aparece tras escribir el título: LOT Bot NO lo toca, espera a
+    que el usuario lo complete y pulse «Continuar», y sigue con la categoría
+    sin volver a empezar ni pedirle que rellene nada."""
+    world = {"logged_in": True, "item_url": "https://es.wallapop.com/item/c-9"}
+    service, launcher = make_service(profiles, world, tmp_path)
+    avisos = []
+
+    def gate(ref, mensaje):
+        avisos.append((ref, mensaje))
+        page = launcher.pages[0]
+        assert not any(e[0] in ("fill", "click", "option") and e[-1] == SITE.verification[0]
+                       for e in page.log)
+        world["verification"] = False  # el usuario completa el CAPTCHA a mano
+        return True
+
+    service.user_gate = gate
+    original_fill = FakePage.fill
+
+    def fill_then_captcha(self, target, text):
+        original_fill(self, target, text)
+        if target == FORM.title.targets[0]:
+            world["verification"] = True
+
+    FakePage.fill = fill_then_captcha
+    try:
+        result = service.create_item("acc-1", draft(tmp_path))
+    finally:
+        FakePage.fill = original_fill
+    assert result.success
+    assert avisos == [("acc-1", VerificationRequiredError.user_message)]
+    log = launcher.pages[0].log
+    assert [e for e in log if e[0] == "goto"].__len__() == 2  # comprobar sesión + abrir: no reinicia
+    titulos = [e for e in log if e[0] == "fill" and e[1] == FORM.title.targets[0]]
+    assert len(titulos) == 1  # el título no se vuelve a escribir
+    assert list((tmp_path / "shots").glob("*verificacion*.json"))
+
+
+def test_si_un_campo_no_aparece_se_indica_el_paso_y_se_guarda_captura(profiles, tmp_path):
+    world = {"logged_in": True, "missing": {"precio"}}
     service, _ = make_service(profiles, world, tmp_path)
     service.site.timeout_ms = 0
-    with pytest.raises(BrowserStepError) as info:
-        service.create_item("acc-1", draft(tmp_path))
+    try:
+        with pytest.raises(BrowserStepError) as info:
+            service.create_item("acc-1", draft(tmp_path))
+    finally:
+        service.site.timeout_ms = SITE.timeout_ms
     assert info.value.step == "Precio"
     assert info.value.screenshot and Path(info.value.screenshot).is_file()
+    contexto = Path(info.value.screenshot).with_suffix(".json")
+    datos = json.loads(contexto.read_text(encoding="utf-8"))
+    assert datos["paso"] == "Precio" and "Descripción" in datos["pasos_completados"]
+    assert "cookie" not in contexto.read_text(encoding="utf-8").lower()
     assert "wallapop_browser.yaml" in info.value.user_message
-    service.site.timeout_ms = SITE.timeout_ms
+    assert world.get("submits") is None  # no se ha pulsado «Publicar»
+
+
+def test_si_no_existe_una_opcion_no_se_publica(profiles, tmp_path):
+    world = {"logged_in": True, "missing_options": {"Gris y Blanco"}}
+    service, _ = make_service(profiles, world, tmp_path)
+    with pytest.raises(BrowserStepError) as info:
+        service.create_item("acc-1", draft(tmp_path))
+    assert info.value.step == "Característica Color"
+    assert world.get("submits") is None
+
+
+def test_campo_opcional_que_no_existe_se_omite_y_se_informa(profiles, tmp_path):
+    world = {"logged_in": True, "missing": {"material", "tipo_anuncio"}}
+    service, _ = make_service(profiles, world, tmp_path)
+    result = service.create_item("acc-1", draft(tmp_path))
+    assert result.success
+    assert any("Material" in o for o in result.data["omitidos"])
+
+
+@pytest.mark.parametrize(
+    "campo, esperado",
+    [("titulo", "Título"), ("precio", "Precio"), ("descripcion", "Descripción"),
+     ("color", "Color")],
+)
+def test_si_el_formulario_no_coincide_no_se_publica(profiles, tmp_path, campo, esperado):
+    from lot_bot.wallapop.errors import FormMismatchError
+
+    world = {"logged_in": True, "tamper": {campo: "otra cosa 99"}}
+    service, _ = make_service(profiles, world, tmp_path)
+    with pytest.raises(FormMismatchError) as info:
+        service.create_item("acc-1", draft(tmp_path))
+    assert esperado in info.value.fields
+    assert esperado in info.value.user_message and "NO se ha publicado" in info.value.user_message
+    assert world.get("submits") is None
+
+
+@pytest.mark.parametrize("fallo", ["reject_image", "no_thumbs"])
+def test_si_la_foto_no_se_carga_no_se_publica(profiles, tmp_path, fallo):
+    from lot_bot.wallapop.errors import ImageUploadError
+
+    world = {"logged_in": True, fallo: True}
+    service, _ = make_service(profiles, world, tmp_path)
+    service.site.form.photo_wait_ms = 0
+    try:
+        with pytest.raises(ImageUploadError):
+            service.create_item("acc-1", draft(tmp_path))
+    finally:
+        service.site.form.photo_wait_ms = SITE.form.photo_wait_ms
+    assert world.get("submits") is None
+
+
+def test_sin_foto_no_se_publica(profiles, tmp_path):
+    world = {"logged_in": True}
+    service, _ = make_service(profiles, world, tmp_path)
+    sin_foto = draft(tmp_path)
+    sin_foto.image_paths = []
+    with pytest.raises(BrowserStepError) as info:
+        service.create_item("acc-1", sin_foto)
+    assert info.value.step == "Fotos"
+    assert world.get("submits") is None
 
 
 def test_solo_declara_lo_que_hace_de_verdad(profiles, tmp_path):

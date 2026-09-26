@@ -141,8 +141,7 @@ class VerificationRequiredError(WallapopError):
     """
 
     user_message = (
-        "Wallapop está pidiendo una verificación. Complétala tú en la ventana del "
-        "navegador de esta cuenta (Cuentas → Abrir navegador) y reanuda la cola."
+        "Wallapop requiere una verificación. Complétala en el navegador y pulsa Continuar."
     )
 
 
@@ -163,3 +162,51 @@ class BrowserStepError(WallapopError):
                 "Puede que la web haya cambiado: revisa wallapop_browser.yaml."
             ),
         )
+
+
+class ProfileInUseError(WallapopError):
+    """El perfil de la cuenta está abierto en otra ventana del navegador.
+
+    Chrome no deja que dos procesos usen el mismo perfil: si se lanza otro,
+    abre una pestaña en la ventana que ya existe y termina, así que LOT Bot
+    perdería el control del navegador. Se detiene y se pide cerrarla.
+    """
+
+    user_message = (
+        "La ventana de Chrome/Edge de esta cuenta ya está abierta (por ejemplo, desde "
+        "«Abrir cuenta»). Ciérrala y pulsa «Continuar»: LOT Bot necesita abrir ese mismo "
+        "perfil para rellenar y publicar el anuncio."
+    )
+
+
+class FormMismatchError(WallapopError):
+    """Antes de publicar, un campo del formulario no coincide con lo previsto.
+
+    No se pulsa «Publicar».
+    """
+
+    def __init__(self, fields: dict[str, str], screenshot: str | None = None) -> None:
+        self.fields = dict(fields)
+        self.screenshot = screenshot
+        detalle = "; ".join(f"{k}: {v}" for k, v in self.fields.items())
+        super().__init__(
+            f"Formulario no coincide: {detalle}",
+            user_message="NO se ha publicado: antes de pulsar «Publicar» se ha comprobado el "
+            f"formulario y no coincide → {detalle}.",
+        )
+
+
+class ImageUploadError(WallapopError):
+    """Wallapop no ha cargado la foto (rechazada o no aparece la miniatura)."""
+
+    def __init__(self, detail: str = "", screenshot: str | None = None) -> None:
+        self.screenshot = screenshot
+        super().__init__(
+            detail or "La foto no se ha cargado.",
+            user_message="NO se ha publicado: Wallapop no ha cargado la foto del anuncio "
+            f"({detail or 'no aparece la miniatura'}).",
+        )
+
+
+class PublishCancelledError(WallapopError):
+    user_message = "Publicación cancelada por el usuario."

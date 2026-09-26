@@ -110,6 +110,16 @@ class AccountManager:
         self._auth = auth_method or DemoAuthMethod()
         #: Perfiles de navegador por cuenta (integración por navegador).
         self._browser_profiles: Any = None
+        #: Funciones f(internal_ref) avisadas cuando una cuenta vuelve a
+        #: tener sesión válida (p. ej. la cola continúa tras «Reconectar»).
+        self.connected_listeners: list[Any] = []
+
+    def _notify_connected(self, internal_ref: str) -> None:
+        for listener in list(self.connected_listeners):
+            try:
+                listener(internal_ref)
+            except Exception:  # un aviso nunca debe romper la conexión
+                logger.exception("Error avisando de la reconexión de %s", internal_ref)
 
     def set_browser_profiles(self, store: Any, release: Any = None) -> None:
         """Almacén de perfiles de navegador: al desconectar o eliminar una
@@ -281,6 +291,7 @@ class AccountManager:
             return outcome
 
         self.store_credential(internal_ref, outcome.credential, auth.kind)
+        self._notify_connected(internal_ref)
         return outcome
 
     def reauthenticate(self, internal_ref: str, **context: Any) -> AuthOutcome:
@@ -450,6 +461,11 @@ class AccountManager:
                     account.status = AccountStatus.CONNECTED
                     account.status_detail = None
                     account.last_sync_at = datetime.now(UTC).replace(tzinfo=None)
+                    reconnected = True
+                else:
+                    reconnected = False
+            if reconnected:
+                self._notify_connected(internal_ref)
         else:
             self._mark_expired(internal_ref, detail or "La sesión no es válida. Pulsa «Reconectar».")
 

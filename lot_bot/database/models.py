@@ -482,6 +482,9 @@ class PublishTaskStatus(str, enum.Enum):
     WAITING = "waiting"
     PUBLISHING = "publishing"
     PUBLISHED = "published"
+    #: Se pulsó «Publicar» pero Wallapop no lo confirmó: NO se da por publicado
+    #: y NO se reintenta solo (podría duplicarse).
+    UNCONFIRMED = "unconfirmed"
     FAILED = "failed"
     CANCELLED = "cancelled"
 

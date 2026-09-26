@@ -474,7 +474,8 @@ class AccountsView(BaseView):
             "Abrir cuenta",
             f"Se abrirá el navegador de «{account.alias}» con su sesión. Úsalo para lo que "
             f"necesites (por ejemplo, completar una verificación de Wallapop) y ciérralo "
-            f"al terminar.",
+            f"al terminar: mientras esté abierta, LOT Bot no puede publicar en esta cuenta "
+            f"(Chrome no deja usar el mismo perfil dos veces).",
         )
         # No ocupa ningún hilo de la interfaz: el navegador queda abierto por su cuenta.
         method.open_for_user(account.internal_ref)

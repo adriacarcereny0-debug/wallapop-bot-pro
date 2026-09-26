@@ -13,8 +13,11 @@ sesión no pueda acabar subida por accidente.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
+import socket
+import sys
 import threading
 from pathlib import Path
 
@@ -77,3 +80,73 @@ class BrowserProfileStore:
             shutil.rmtree(path, ignore_errors=True)
         logger.info("Sesión de navegador borrada para la cuenta %s.", account_ref)
         return True
+
+
+# ---------------------------------------------------------------------------
+# ¿Hay un navegador usando ya este perfil?
+# ---------------------------------------------------------------------------
+#: Fichero (sin datos sensibles) que recuerda con qué navegador se creó el
+#: perfil: un perfil de Chrome no se debe abrir con Edge ni al revés.
+BROWSER_MARKER = "lotbot-navegador.txt"
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def profile_locked(profile_dir: Path, *, platform: str | None = None) -> bool:
+    """True si un navegador (Chrome/Edge) tiene abierto este perfil AHORA.
+
+    Windows: Chrome mantiene abierto «lockfile»; si se puede borrar, era un
+    resto de un cierre inesperado. Linux/macOS: «SingletonLock» es un enlace
+    «equipo-PID»; se comprueba que ese proceso siga vivo.
+    """
+    platform = platform or sys.platform
+    profile_dir = Path(profile_dir)
+    if platform.startswith("win"):
+        lock = profile_dir / "lockfile"
+        if not lock.exists():
+            return False
+        try:
+            lock.unlink()
+        except PermissionError:
+            return True
+        except OSError:
+            return True
+        return False
+    lock = profile_dir / "SingletonLock"
+    if not lock.is_symlink():
+        return False
+    try:
+        target = os.readlink(lock)
+    except OSError:
+        return False
+    host, _, pid = target.rpartition("-")
+    if not pid.isdigit():
+        return True
+    if host and host != socket.gethostname():
+        return True
+    return _pid_alive(int(pid))
+
+
+def read_browser_marker(profile_dir: Path) -> str | None:
+    try:
+        text = (Path(profile_dir) / BROWSER_MARKER).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return text or None
+
+
+def write_browser_marker(profile_dir: Path, browser_name: str) -> None:
+    try:
+        (Path(profile_dir) / BROWSER_MARKER).write_text(browser_name, encoding="utf-8")
+    except OSError:  # pragma: no cover - solo informativo
+        pass

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><title>Subir producto (SIMULADO)</title>
+<style>
+body{font-family:sans-serif;max-width:720px;margin:24px auto;padding:0 12px}
+label{display:block;margin-top:14px;font-weight:bold}
+input,textarea{width:100%;padding:6px;font-size:14px}
+.combo{position:relative}
+.combo ul{list-style:none;padding:0;margin:0;border:1px solid #999;background:#fff;position:absolute;z-index:5;width:100%}
+.combo li{padding:6px;cursor:pointer}
+.previews{display:flex;gap:8px;margin-top:8px}
+.previews img{width:90px;height:68px;object-fit:cover}
+#captcha{border:2px solid #c00;padding:12px;margin:12px 0}
+.banner{background:#fe0;padding:8px}
+</style></head>
+<body>
+<p class="banner">PÁGINA DE PRUEBA LOCAL que imita el formulario de Wallapop. No es Wallapop.</p>
+<a href="/app/profile">Tu perfil</a>
+<div id="captcha" hidden><iframe title="captcha simulado" src="about:blank" width="200" height="40"></iframe>
+  <p>Verifica que eres humano (simulado)</p>
+  <button type="button" onclick="document.getElementById('captcha').hidden=true">He completado la verificación</button></div>
+<button type="button" id="tipo">Algo que ya no necesito</button>
+<form id="f" onsubmit="return false">
+  <label for="summary">Resumen del producto</label>
+  <input id="summary" name="summary">
+  <label>Categoría</label>
+  <div class="combo"><button type="button" role="combobox" aria-label="Categoría" data-options="Hogar y jardín|Moda|Electrónica">Elige</button></div>
+  <label>Estado</label>
+  <div class="combo"><button type="button" role="combobox" aria-label="Estado" data-options="Nuevo|Como nuevo|En buen estado">Elige</button></div>
+  <label>Uso</label>
+  <div class="combo"><button type="button" role="combobox" aria-label="Uso" data-options="Dormitorio|Salón|Cocina">Elige</button></div>
+  <label>Color</label>
+  <div class="combo"><button type="button" role="combobox" aria-label="Color" data-options="Gris y Blanco|Negro|Rojo">Elige</button></div>
+  <label>Material</label>
+  <div class="combo"><button type="button" role="combobox" aria-label="Material" data-options="Madera|Metal|Plástico">Elige</button></div>
+  <label for="description">Descripción</label>
+  <textarea id="description" name="description" rows="5"></textarea>
+  <label for="sale_price">Precio</label>
+  <input id="sale_price" name="sale_price">
+  <label>Fotos</label>
+  <input type="file" id="fotos" accept="image/*" multiple style="display:none">
+  <div class="previews" id="previews"></div>
+  <p><button type="button" id="subir">Subir producto</button></p>
+</form>
+<script>
+const params = new URLSearchParams(location.search);
+if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {
+  document.getElementById('captcha').hidden = false; localStorage.removeItem('captcha');
+}
+document.querySelectorAll('[role=combobox]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.combo ul').forEach(u => u.remove());
+    const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
+    btn.dataset.options.split('|').forEach(o => {
+      const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
+      li.addEventListener('click', () => { btn.textContent = o; ul.remove(); });
+      ul.appendChild(li);
+    });
+    btn.parentElement.appendChild(ul);
+  });
+});
+document.getElementById('fotos').addEventListener('change', e => {
+  for (const file of e.target.files) {
+    setTimeout(() => {
+      const d = document.createElement('div'); d.dataset.testid = 'image-preview';
+      d.setAttribute('data-testid','image-preview');
+      const img = document.createElement('img'); img.src = URL.createObjectURL(file);
+      d.appendChild(img); document.getElementById('previews').appendChild(d);
+    }, 400);
+  }
+});
+document.getElementById('subir').addEventListener('click', () => {
+  const data = {
+    titulo: document.getElementById('summary').value,
+    precio: document.getElementById('sale_price').value,
+    fotos: document.querySelectorAll('[data-testid=image-preview]').length,
+  };
+  fetch('/publicar', {method:'POST', body: JSON.stringify(data)})
+    .then(r => r.json()).then(j => { location.href = '/item/' + j.id; });
+});
+</script>
+</body></html>

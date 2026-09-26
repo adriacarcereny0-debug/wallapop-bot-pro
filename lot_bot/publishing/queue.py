@@ -68,9 +68,21 @@ PAUSING_ERRORS = {
     "NO_API_KEY",
     "INVALID_KEY",
     "NO_CREDITS",
+    # Publicación por navegador: hace falta que el usuario mire qué pasa.
+    "ProfileInUseError",
+    "FormMismatchError",
+    "ImageUploadError",
+    "BrowserStepError",
+    "BrowserUnavailable",
+    "PublishCancelledError",
+    "RESULTADO_NO_CONFIRMADO",
 }
 #: Errores que no se arreglan reintentando.
-NON_RETRYABLE = {"CALIDAD_INSUFICIENTE", "DUPLICATE"}
+NON_RETRYABLE = {"CALIDAD_INSUFICIENTE", "DUPLICATE", "RESULTADO_NO_CONFIRMADO"}
+UNCONFIRMED_CODE = "RESULTADO_NO_CONFIRMADO"
+#: Máximo que se espera a que el usuario complete una verificación y pulse
+#: «Continuar» antes de dejar la cola en pausa.
+USER_GATE_TIMEOUT_S = 1800.0
 MAX_CONSECUTIVE_FAILURES = 2
 
 
@@ -467,6 +479,7 @@ class PublishQueue:
                 ),
                 None,
             ) or next((t for t in tasks if t.status is PublishTaskStatus.PENDING), None)
+            counts_unconfirmed = counts[PublishTaskStatus.UNCONFIRMED]
             published_times = [t.published_at for t in tasks if t.published_at]
             last_attempt = self._last_publish_ts()
             next_allowed = None
@@ -478,7 +491,7 @@ class PublishQueue:
                 status=job.status.value,
                 total=len(tasks),
                 published=counts[PublishTaskStatus.PUBLISHED],
-                failed=counts[PublishTaskStatus.FAILED],
+                failed=counts[PublishTaskStatus.FAILED] + counts_unconfirmed,
                 pending=counts[PublishTaskStatus.PENDING],
                 in_progress=counts[PublishTaskStatus.GENERATING]
                 + counts[PublishTaskStatus.WAITING]
@@ -619,8 +632,8 @@ class PublishQueue:
                 names = ", ".join(aliases.get(r, r) for r in blocked)
                 self.pause(
                     job_id,
-                    f"La sesión de estas cuentas no es válida: {names}. Pulsa «Reconectar» en "
-                    "Cuentas y después «Reanudar».",
+                    f"Sesión caducada: {names}. Pulsa «Reconectar» en Cuentas e inicia sesión "
+                    "en la ventana que se abre; al comprobarse la sesión la cola continúa sola.",
                 )
                 return True
             if job_done:
@@ -660,6 +673,10 @@ class PublishQueue:
                 attempts=attempts + 1,
             )
             self._last_attempt = self.clock.now()
+            self._current_job = job_id
+            service = getattr(self._app, "wallapop", None)
+            if service is not None and hasattr(service, "user_gate"):
+                service.user_gate = self._user_gate
             try:
                 outcome = self._app.master_ads.publish_single(
                     payload.get("master_key"),
@@ -779,7 +796,10 @@ class PublishQueue:
             task.attempts = attempts
             task.error = message[:1000]
             task.error_code = code[:80]
-            task.status = PublishTaskStatus.PENDING if retry else PublishTaskStatus.FAILED
+            if code == UNCONFIRMED_CODE:
+                task.status = PublishTaskStatus.UNCONFIRMED
+            else:
+                task.status = PublishTaskStatus.PENDING if retry else PublishTaskStatus.FAILED
             ref, title = task.account_ref, task.title
         self._audit.record_error(
             "Publicación en cola fallida" + (" (se reintentará)" if retry else ""),
@@ -797,6 +817,54 @@ class PublishQueue:
                 "errores antes de reanudar.",
             )
         self._notify(job_id)
+
+    def _user_gate(self, account_ref: str, message: str) -> bool:
+        """Deja la cola en pausa con `message` y espera a «Continuar».
+
+        La llama el navegador cuando Wallapop pide una verificación (o la
+        ventana de la cuenta sigue abierta). El navegador se queda abierto y,
+        al pulsar «Continuar» (= Reanudar), la publicación sigue desde el
+        mismo paso. True = continuar; False = cancelada o tiempo agotado.
+        """
+        job_id = getattr(self, "_current_job", None)
+        if job_id is None:
+            return False
+        aliases = {a.internal_ref: a.alias for a in self._app.accounts.list_accounts()}
+        self.pause(job_id, f"{aliases.get(account_ref, account_ref)}: {message}")
+        deadline = time.monotonic() + USER_GATE_TIMEOUT_S
+        while time.monotonic() < deadline and not self._stop.is_set():
+            status = self._job_status(job_id)
+            if status is PublishJobStatus.RUNNING:
+                return True
+            if status in (PublishJobStatus.CANCELLED, PublishJobStatus.COMPLETED):
+                return False
+            self._stop.wait(0.3)
+        return False
+
+    def account_reconnected(self, account_ref: str) -> list[int]:
+        """Tras «Reconectar» una cuenta cuya sesión caducó, las colas que
+        esperaban por ella continúan solas. Devuelve las colas reanudadas."""
+        resumed: list[int] = []
+        with self._db.session_scope() as session:
+            jobs = session.scalars(
+                select(PublishJob).where(PublishJob.status == PublishJobStatus.PAUSED)
+            ).all()
+            candidates = []
+            for job in jobs:
+                waiting = session.scalars(
+                    select(PublishTask).where(
+                        PublishTask.job_id == job.id,
+                        PublishTask.account_ref == account_ref,
+                        PublishTask.status == PublishTaskStatus.PENDING,
+                        PublishTask.error_code == "SESION_CADUCADA",
+                    )
+                ).first()
+                if waiting is not None:
+                    candidates.append(job.id)
+        for job_id in candidates:
+            self.resume(job_id)
+            resumed.append(job_id)
+        return resumed
 
     def _account_usable(self, ref: str) -> bool:
         from lot_bot.database.models import AccountStatus

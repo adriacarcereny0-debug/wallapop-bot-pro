@@ -63,6 +63,17 @@ class BrowserPage(ABC):
         """Texto visible de la página (para leer estadísticas)."""
         return ""
 
+    def value_of(self, target: str) -> str:
+        """Lo que contiene un campo (input/textarea) o el texto de un elemento.
+
+        Se usa para COMPROBAR el formulario antes de publicar.
+        """
+        return self.text_of(target)
+
+    def count(self, target: str) -> int:
+        """Cuántos elementos coinciden (p. ej. miniaturas de fotos cargadas)."""
+        return 1 if self.first_visible([target], 0) else 0
+
     def diagnostics(self) -> dict[str, Any]:
         """Datos para diagnosticar fallos. Nunca cookies, contraseñas ni tokens."""
         return {}
@@ -200,6 +211,19 @@ class _PlaywrightPage(BrowserPage):
     def set_files(self, target: str, paths: list[str]) -> None:
         self._page.locator(target).first.set_input_files(paths)
 
+    def value_of(self, target: str) -> str:
+        locator = self._page.locator(target).first
+        tag = (locator.evaluate("e => e.tagName") or "").lower()
+        if tag in ("input", "textarea", "select"):
+            return locator.input_value() or ""
+        return (locator.inner_text() or "").strip()
+
+    def count(self, target: str) -> int:
+        try:
+            return self._page.locator(target).count()
+        except Exception:
+            return 0
+
     def text_of(self, target: str) -> str:
         return (self._page.locator(target).first.inner_text() or "").strip()
 
@@ -294,6 +318,20 @@ def find_browsers(
     return found
 
 
+def order_candidates(
+    candidates: list[BrowserCandidate], marker: str | None
+) -> list[BrowserCandidate]:
+    """Si el perfil ya se creó con un navegador, SOLO se usa ese.
+
+    Abrir un perfil de Chrome con Edge (o al revés) da un perfil sin sesión:
+    las cookies van cifradas para el navegador que las creó.
+    """
+    if not marker:
+        return candidates
+    same = [c for c in candidates if c.name == marker]
+    return same or candidates
+
+
 def sandbox_enabled(platform: str | None = None, env: dict[str, str] | None = None) -> bool:
     """El sandbox de Chromium SIEMPRE activado en Windows y macOS.
 
@@ -373,20 +411,38 @@ class PlaywrightLauncher(BrowserLauncher):
         from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
 
+        from lot_bot.wallapop.browser.profiles import (
+            profile_locked,
+            read_browser_marker,
+            write_browser_marker,
+        )
+        from lot_bot.wallapop.errors import ProfileInUseError
+
         profile_dir = Path(profile_dir)
         profile_dir.mkdir(parents=True, exist_ok=True)
+        # CAUSA DEL FALLO «abre la ventana pero no publica»: si el Chrome normal
+        # de la cuenta (abierto con «Abrir cuenta» o al iniciar sesión) sigue
+        # abierto, Chrome entrega la orden a esa ventana —que muestra la cuenta—
+        # y el navegador que lanza Playwright se cierra al momento: LOT Bot se
+        # queda sin página que controlar. Se detecta ANTES de lanzar nada.
+        if profile_locked(profile_dir):
+            raise ProfileInUseError(f"Perfil en uso: {profile_dir}")
+        candidates = order_candidates(find_browsers(channels), read_browser_marker(profile_dir))
         with sync_playwright() as pw:
             context = None
             errors: list[str] = []
-            for candidate in find_browsers(channels):
+            for candidate in candidates:
                 options = build_launch_options(
                     candidate, profile_dir, visible=visible, locale=locale
                 )
                 try:
                     context = pw.chromium.launch_persistent_context(**options)
                     logger.info("Navegador abierto: %s", describe_launch(candidate, options))
+                    write_browser_marker(profile_dir, candidate.name)
                     break
                 except PlaywrightError as exc:
+                    if profile_locked(profile_dir):
+                        raise ProfileInUseError(f"Perfil en uso: {profile_dir}") from exc
                     detail = str(exc).splitlines()[0][:300]
                     logger.error(
                         "No se ha podido abrir el navegador. %s; error=%s",

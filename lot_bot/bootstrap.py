@@ -339,6 +339,7 @@ def create_application(
         db, build_image_generator(backend.demo, app.api_keys), paths.images / "generadas"
     )
     app.publish_queue = PublishQueue(db, audit, app)
+    app.accounts.connected_listeners.append(app.publish_queue.account_reconnected)
     app.stats = StatsService(db, app)
     app.analyzer = StatsAnalyzer(app.stats)
     app.optimizer = Optimizer(app.analyzer)
