@@ -249,7 +249,8 @@ def test_una_version_nueva_de_la_plantilla_no_pisa_tus_cambios(app):
     finally:
         master_service.CLIENT_MASTER_AD = original
     assert vista.price == 15  # tu cambio se respeta
-    assert vista.delivery_note == "Montaje incluido"  # lo que no tocaste se actualiza
+    # Nada del programa pisa el Anuncio principal existente.
+    assert vista.delivery_note != "Montaje incluido"
 
 
 def test_si_cierras_la_ventana_no_se_abre_otra_ni_se_reintenta(listo):
@@ -313,3 +314,34 @@ def test_rotando_cada_anuncio_lleva_una_foto_distinta(listo, tmp_path):
     assert [len(e) for e in envios] == [1, 1, 1, 1]  # una foto por anuncio
     nombres = [Path(e[0]).stem.split("-")[-1] for e in envios]
     assert nombres[0] != nombres[1] != nombres[2] and nombres[3] == nombres[0]  # rota
+
+
+def test_todo_lo_que_se_sube_sale_del_anuncio_principal(listo):
+    """Lo que un cliente ponga en «Anuncio principal» es lo que se sube:
+    nada viene de valores fijos del programa."""
+    app, world, _ = listo
+    master = app.master_ads.get(None)
+    app.master_ads.update(
+        master.key,
+        {
+            "title": "Mesa de comedor extensible",
+            "price": 89.5,
+            "condition": "Como nuevo",
+            "category": "Colchones",
+            "description": "Mesa en perfecto estado. Recogida en Madrid.",
+            "attributes": {"estado": "Como nuevo", "color": "Negro", "material": "Metal",
+                           "envio": "sí"},
+        },
+        confirmed=True,
+    )
+    publicar_uno(app)
+    app.publish_queue.run_until_idle()
+    assert app.publish_queue.progress().published == 1, app.publish_queue.progress().tasks
+    pagina = world["pages"][0]
+    escritos = {e[1]: e[2] for e in pagina.log if e[0] == "fill"}
+    assert escritos[FORM.title.targets[0]] == "Mesa de comedor extensible"
+    assert escritos[FORM.price.targets[0]] == "89,50"
+    assert escritos[FORM.description.targets[0]] == "Mesa en perfecto estado. Recogida en Madrid."
+    opciones = [e[1] for e in pagina.log if e[0] == "option"]
+    assert opciones[:4] == ["Colchones", "Como nuevo", "Negro", "Metal"]
+    assert ("click", FORM.shipping.targets[0]) in pagina.log  # envío activado desde la plantilla

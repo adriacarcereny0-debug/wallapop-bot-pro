@@ -185,7 +185,13 @@ class MasterAdService:
     # Alta inicial
     # ------------------------------------------------------------------
     def ensure_default(self) -> MasterAdView:
-        """Crea el anuncio principal del cliente si no existe. Nunca lo pisa."""
+        """Crea el anuncio principal SOLO si no existe (punto de partida).
+
+        Una vez creado, lo único que cuenta es lo que el usuario tenga en
+        «Anuncio principal»: título, precio, estado, categoría, descripción,
+        características, envío y fotos. Ninguna versión nueva del programa lo
+        modifica.
+        """
         with self._db.session_scope() as session:
             row = session.scalar(select(MasterAd).where(MasterAd.key == MASTER_KEY))
             if row is None:
@@ -194,20 +200,6 @@ class MasterAdService:
                 session.add(row)
                 session.flush()
                 logger.info("Anuncio principal creado: %s", row.name)
-            elif (row.original or {}) != CLIENT_MASTER_AD:
-                # Nueva versión de la plantilla del programa: solo se actualizan
-                # los campos que el usuario NO ha cambiado en LOT Bot. Lo que
-                # él edita (precio, título...) se respeta siempre.
-                previous = row.original or {}
-                for name, value in copy.deepcopy(CLIENT_MASTER_AD).items():
-                    if name not in EDITABLE_FIELDS:
-                        continue
-                    if name in previous and getattr(row, name) != previous[name]:
-                        continue  # editado por el usuario
-                    setattr(row, name, value)
-                row.original = copy.deepcopy(CLIENT_MASTER_AD)
-                session.flush()
-                logger.info("Plantilla única del anuncio principal actualizada a la versión del cliente.")
             return self._to_view(row)
 
     # ------------------------------------------------------------------

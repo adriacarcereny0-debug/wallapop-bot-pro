@@ -99,6 +99,11 @@ class AssistantView(BaseView):
         self.chat_layout.setSpacing(10)
         self.chat_layout.addStretch(1)
         self.scroll.setWidget(container)
+        # Bajar solo al final cuando llega un mensaje nuevo: se espera a que
+        # la zona del chat crezca (el tamaño nuevo llega después de añadirlo).
+        self._follow = True
+        self.scroll.verticalScrollBar().rangeChanged.connect(self._on_range_changed)
+        self.scroll.verticalScrollBar().valueChanged.connect(self._on_user_scroll)
         self.body.addWidget(self.scroll, 1)
 
         # --- Panel de confirmación ---
@@ -182,8 +187,20 @@ class AssistantView(BaseView):
         self._scroll_to_bottom()
 
     def _scroll_to_bottom(self) -> None:
+        from PySide6.QtCore import QTimer
+
+        self._follow = True
         bar = self.scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
+        QTimer.singleShot(0, lambda: bar.setValue(bar.maximum()))
+
+    def _on_user_scroll(self, value: int) -> None:
+        # Si subes para leer algo, no se te baja de golpe hasta el próximo mensaje.
+        self._follow = value >= self.scroll.verticalScrollBar().maximum() - 30
+
+    def _on_range_changed(self, _minimum: int, maximum: int) -> None:
+        if getattr(self, "_follow", False):
+            self.scroll.verticalScrollBar().setValue(maximum)
 
     # ------------------------------------------------------------------
     def _send(self) -> None:

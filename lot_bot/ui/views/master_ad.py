@@ -143,6 +143,7 @@ class MasterAdView(BaseView):
         self.attr_uso = QLineEdit()
         self.attr_color = QLineEdit()
         self.attr_material = QLineEdit()
+        self.shipping_box = QCheckBox("Activar envío en Wallapop (si no, se deja apagado)")
         self.locked_box = QCheckBox(
             "Plantilla única activa: todos los anuncios automáticos usan exactamente "
             "este título, precio y descripción"
@@ -183,6 +184,7 @@ class MasterAdView(BaseView):
         form.addRow("Categoría / uso", self.attr_uso)
         form.addRow("Color", self.attr_color)
         form.addRow("Material", self.attr_material)
+        form.addRow("Envío", self.shipping_box)
         form.addRow("Categoría", self.category)
         form.addRow("Subcategoría", self.subcategory)
         form.addRow("Ofertas por medida", self.variants)
@@ -204,7 +206,7 @@ class MasterAdView(BaseView):
         # una altura mínima (el precio llegaba a quedar ilegible).
         for field in (
             self.name, self.title_field, self.price, self.condition, self.category,
-            self.attr_uso, self.attr_color, self.attr_material, self.locked_box,
+            self.attr_uso, self.attr_color, self.attr_material, self.shipping_box, self.locked_box,
             self.subcategory, self.whatsapp, self.delivery, self.tags, self.keywords,
             self.aliases,
         ):
@@ -275,6 +277,7 @@ class MasterAdView(BaseView):
         self.attr_uso.setText(str(master.attributes.get("uso") or ""))
         self.attr_color.setText(str(master.attributes.get("color") or ""))
         self.attr_material.setText(str(master.attributes.get("material") or ""))
+        self.shipping_box.setChecked(str(master.attributes.get("envio") or "no") == "sí")
         self.locked_box.setChecked(master.locked)
         self.price.setValue(master.price or 0)
         self.condition.setCurrentText(master.condition or "")
@@ -380,6 +383,7 @@ class MasterAdView(BaseView):
                 "uso": self.attr_uso.text().strip(),
                 "color": self.attr_color.text().strip(),
                 "material": self.attr_material.text().strip(),
+                "envio": "sí" if self.shipping_box.isChecked() else "no",
             },
             "locked": self.locked_box.isChecked(),
             "price": self.price.value() or None,

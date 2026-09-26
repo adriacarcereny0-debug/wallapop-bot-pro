@@ -273,16 +273,17 @@ def test_los_campos_estructurados_van_al_formulario(app, monkeypatch):
     assert enviados[0].description == DESCRIPCION_EXACTA
 
 
-def test_una_instalacion_antigua_recibe_la_plantilla_nueva(app):
-    """Si la base de datos tenía la versión anterior, se actualiza una vez."""
+def test_el_programa_nunca_pisa_el_anuncio_principal_guardado(app):
+    """Lo que hay guardado en «Anuncio principal» manda siempre: una versión
+    nueva del programa no lo cambia."""
     from lot_bot.database.models import MasterAd
 
     with app.db.session_scope() as session:
         row = session.query(MasterAd).first()
-        row.title = "Canapé canapé canapé canapé canapé canapé"
-        row.original = {**row.original, "title": row.title}
+        row.title = "Título que ha puesto el cliente"
+        row.original = {**row.original, "title": "otra versión antigua"}
     master = app.master_ads.ensure_default()
-    assert master.title == TITULO_CLIENTE and master.locked
+    assert master.title == "Título que ha puesto el cliente"
 
 
 # ---------------------------------------------------------------------------

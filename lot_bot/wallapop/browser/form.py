@@ -85,6 +85,8 @@ class ListingData:
     subcategory: str = ""
     attributes: dict[str, str] = field(default_factory=dict)
     images: list[str] = field(default_factory=list)
+    #: Envío según el Anuncio principal (None = lo que diga el YAML).
+    shipping: bool | None = None
 
 
 @dataclass(slots=True)
@@ -401,7 +403,7 @@ class ListingForm:
         if target is None:
             self.skipped.append("Envío (no aparece el interruptor)")
             return
-        want = self.form.shipping_enabled
+        want = self.data.shipping if self.data.shipping is not None else self.form.shipping_enabled
         if self.page.is_checked(target) != want:
             self._do("Envío " + ("activado" if want else "desactivado"), lambda: self.page.click(target))
         else:

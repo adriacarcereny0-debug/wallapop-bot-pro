@@ -64,6 +64,7 @@ class CategoryPicker:
     _panel_seen: bool = False
     _open_reason: dict | None = None
     _opener: str | None = None
+    _leaf_clicked: bool = False
 
     # ------------------------------------------------------------------
     def _log(self, event: str, **data: Any) -> None:
@@ -113,22 +114,35 @@ class CategoryPicker:
                 "width": area["width"] + 100, "height": area["height"] + 300}
         return _inside(box, near)
 
-    def _panel_open(self) -> bool:
-        """¿Sigue abierta la lista? Por su selector o, si Wallapop cambia su
-        forma, porque se ven opciones de la ruta fuera del campo."""
-        if self._panel() is not None:
-            return True
-        if self._panel_seen:
-            return False  # el selector del panel funciona: y ya no se ve
+    def _visible_options(self) -> bool:
+        """¿Se ven opciones de la ruta como opciones de una lista (no el propio
+        campo ni enlaces que ya estaban en la página)?"""
         for text in self._path:
             for c in self.page.text_candidates(text, field=self._opener):
-                if c.get("previo") or self._is_field(c):
-                    continue  # un enlace que ya estaba, o el propio campo
-                if c.get("visible") and c.get("box") and not _inside(c["box"], self._opener_box or {}):
-                    if not self._near_field(c["box"]) or text != self._path[-1]:
-                        self._open_reason = {"texto": text, **c}
-                        return True
+                if c.get("previo") or self._is_field(c) or not c.get("visible"):
+                    continue
+                if c.get("box") and _inside(c["box"], self._opener_box or {}):
+                    continue
+                if text == self._path[-1] and self._near_field(c.get("box")):
+                    continue  # la categoría ya puesta, junto al campo
+                self._open_reason = {"texto": text, **c}
+                return True
         return False
+
+    def _panel_open(self) -> bool:
+        """¿Sigue abierta la lista?
+
+        Antes de elegir: su selector (o, si no funciona, que se vean opciones).
+        Después de pulsar la categoría final: solo si además SE VEN opciones.
+        Así no se queda esperando cuando Wallapop oculta la lista sin quitarla
+        (el bloque que la contenía sigue «visible» para el selector).
+        """
+        panel = self._panel()
+        if panel is not None:
+            return self._visible_options() if self._leaf_clicked else True
+        if self._panel_seen:
+            return False  # el selector del panel funciona: y ya no se ve
+        return self._visible_options()
 
     def _field_text(self, opener: str) -> str:
         """Texto del campo Categoría. Solo se lee con el panel CERRADO (con el
@@ -185,6 +199,8 @@ class CategoryPicker:
             return False
         option = chosen[-1]
         self.page.click_text(text, option["index"], within=self._panel())
+        if contains_text(self._path[-1], text) or contains_text(text, self._path[-1]):
+            self._leaf_clicked = True
         self._log("clic", texto=text, indice=option["index"], ejecutado=True)
         return True
 
@@ -200,6 +216,7 @@ class CategoryPicker:
         leaf = path[-1]
         self._path = list(path)
         self._opener = None
+        self._leaf_clicked = False
         opener = self.page.first_visible(self.opener_targets, self.timeout_ms)
         if opener is None:
             raise CategorySelectionError("No aparece el campo «Categoría».", self._diag(path))

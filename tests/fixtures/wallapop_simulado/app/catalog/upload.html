@@ -77,7 +77,7 @@ if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {
 // Modos (?cat=...): arbol (sin sugeridas: hay que recorrer niveles),
 // lento (las opciones tardan), ignora (los clics no seleccionan nada).
 const CAT_MODE_RAW = params.get('cat') || '';
-const CAT_MODE = CAT_MODE_RAW.split('-').includes('arbol') && CAT_MODE_RAW.includes('dentro') ? 'dentro' : CAT_MODE_RAW;
+const CAT_MODE = ['dentro', 'lento', 'ignora'].find(m => CAT_MODE_RAW.split('-').includes(m)) || CAT_MODE_RAW;
 const CAT_TREE_ONLY = CAT_MODE_RAW.split('-').includes('arbol');
 const TREE = {'Motos': null, 'Muebles y organización': {'Sofás': null,
   'Camas y accesorios': {'Colchones': null, 'Estructura de camas': null}}};
@@ -99,7 +99,8 @@ function renderCats(ul, btn, level) {
     if (CAT_MODE === 'ignora') return;
     const name = li.querySelector('span').textContent;
     if (node[name]) { renderCats(ul, btn, [...level, name]); return; }
-    btn.textContent = name; ul.remove();
+    btn.textContent = name;
+    if (CAT_MODE_RAW.includes('oculta')) ul.style.display = 'none'; else ul.remove();
     btn.parentElement.removeAttribute('aria-expanded');
     document.getElementById('revision').hidden = false;
   }));
@@ -116,7 +117,9 @@ const catTrigger = CAT_MODE === 'dentro' ? document.getElementById('cat').parent
                                          : document.getElementById('cat');
 catTrigger.addEventListener('click', () => {
   const btn = document.getElementById('cat');
-  if (btn.parentElement.querySelector('.lista')) return;
+  const vieja = btn.parentElement.querySelector('.lista');
+  if (vieja && vieja.style.display !== 'none') return;
+  if (vieja) vieja.remove();
   // Como Wallapop: la lista está DENTRO del componente del desplegable
   // (aria-expanded) y las opciones son <div> sin rol, con una segunda línea.
   btn.parentElement.setAttribute('aria-expanded', 'true');

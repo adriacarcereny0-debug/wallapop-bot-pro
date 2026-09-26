@@ -207,7 +207,7 @@ def test_navegador_real_foto_grande_o_png_se_prepara_y_se_sube(servicio):
     assert "/buscar-por-foto" not in web.visited
 
 
-@pytest.mark.parametrize("modo", ["arbol", "lento", "dentro", "dentro-arbol"])
+@pytest.mark.parametrize("modo", ["arbol", "lento", "dentro", "dentro-arbol", "oculta", "dentro-oculta"])
 def test_navegador_real_categoria_en_arbol_o_lenta_queda_seleccionada(servicio, modo):
     """Sin sugeridas (recorre Muebles y organización → Camas y accesorios →
     Estructura de camas) o con opciones que tardan: queda puesta y sigue."""
