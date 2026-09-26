@@ -67,6 +67,14 @@ class BrowserPage(ABC):
         """False si el usuario ha cerrado la ventana o la pestaña."""
         return True
 
+    def attached(self, target: str) -> int:
+        """Elementos que EXISTEN en la página, aunque estén ocultos."""
+        return self.count(target)
+
+    def upload_with_chooser(self, button: str, paths: list[str], timeout_ms: int) -> None:
+        """Pulsa `button` y entrega los archivos en la ventana «Abrir archivo»."""
+        self.click(button)
+
     def value_of(self, target: str) -> str:
         """Lo que contiene un campo (input/textarea) o el texto de un elemento.
 
@@ -215,13 +223,25 @@ class _PlaywrightPage(BrowserPage):
             return False
 
     def set_files(self, target: str, paths: list[str]) -> None:
-        self._page.locator(target).first.set_input_files(paths)
+        # Funciona aunque el campo esté oculto (no hace falta que se vea).
+        self._page.locator(target).first.set_input_files(paths, timeout=10000)
 
     def is_alive(self) -> bool:
         try:
             return not self._page.is_closed() and bool(self._page.context.pages)
         except Exception:
             return False
+
+    def attached(self, target: str) -> int:
+        try:
+            return self._page.locator(target).count()
+        except Exception:
+            return 0
+
+    def upload_with_chooser(self, button: str, paths: list[str], timeout_ms: int) -> None:
+        with self._page.expect_file_chooser(timeout=timeout_ms) as chooser:
+            self._page.locator(button).first.click()
+        chooser.value.set_files(paths)
 
     def value_of(self, target: str) -> str:
         locator = self._page.locator(target).first

@@ -169,18 +169,32 @@ publicar:
         - "role=spinbutton[name=/Precio/i]"
         - "role=textbox[name=/Precio/i]"
     fotos:
-      # Los <input type=file> suelen estar ocultos: se usa el primero.
+      # Campo de archivos. Suele estar OCULTO (no se ve, pero existe en la
+      # página): se usa igualmente. Primero el que acepta imágenes y está
+      # dentro del formulario (no el de «buscar por foto» de la cabecera).
       objetivos:
-        - "input[type='file']"
+        - "main input[type='file'][accept*='image']"
+        - "form input[type='file'][accept*='image']"
+        - "main input[type='file']"
+        - "form input[type='file']"
+        - "input[type='file'][accept*='image']:not(header *):not(nav *)"
+      # Si el campo no existe hasta pulsar un botón, se pulsa este botón y se
+      # entrega la foto en la ventana de «Abrir archivo» (sin que se vea).
+      boton:
+        - "main >> role=button[name=/(sube|subir|añade|añadir|elige).*(foto|imagen)/i]"
+        - "main >> text=/(sube|subir|añade|añadir|elige).*(foto|imagen)/i"
+        - "main >> role=button[name=/^(foto|fotos|imágenes)$/i]"
       # Miniaturas que aparecen cuando Wallapop HA CARGADO cada foto.
       miniaturas:
         - "[data-testid*='image-preview']"
         - "[class*='ImagePreview'] img"
         - "[class*='image-preview'] img"
+        - "main img[src^='blob:']"
+        - "main img[src^='data:image']"
       # Mensajes de foto rechazada.
       rechazada:
         - "text=/imagen no válida|formato no (?:válido|soportado)|no se ha podido subir la (?:foto|imagen)/i"
-      espera_ms: 45000
+      espera_ms: 30000
     publicar:
       objetivos:
         - "role=button[name=/^Subir producto$/i]"

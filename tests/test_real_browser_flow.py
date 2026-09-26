@@ -163,3 +163,28 @@ def test_navegador_real_captcha_espera_al_usuario_y_continua(servicio):
     assert avisos and "Wallapop requiere una verificación" in avisos[0]
     assert len(web.published) == 1
     assert list((tmp_path / "logs" / "navegador").glob("*verificacion*.png"))
+
+
+def test_navegador_real_sube_la_foto_aunque_el_campo_se_cree_al_pulsar_el_boton(servicio):
+    """Si no hay campo de archivos hasta pulsar «Sube tus fotos», LOT Bot pulsa
+    el botón y entrega la foto en la ventana «Abrir archivo»."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?modo=boton"
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    assert web.published[0]["fotos"] == 1
+    assert "/buscar-por-foto" not in web.visited
+
+
+def test_navegador_real_foto_grande_o_png_se_prepara_y_se_sube(servicio):
+    from PIL import Image
+
+    service, web, tmp_path = servicio
+    datos = borrador(tmp_path)
+    grande = tmp_path / "grande.png"
+    Image.new("RGBA", (5000, 3500), (120, 120, 130, 255)).save(grande)
+    datos.image_paths = [str(grande)]
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    assert web.published[0]["fotos"] == 1
+    assert "/buscar-por-foto" not in web.visited

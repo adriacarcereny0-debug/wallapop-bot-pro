@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import tempfile
 import time
 import unicodedata
 from collections.abc import Callable
@@ -324,21 +325,80 @@ class ListingForm:
     def fill_price(self) -> None:
         self._type("Precio", self.form.price, self.data.price_text)
 
+    def _thumb_count(self, thumbs: list[str]) -> int:
+        """Miniaturas visibles. Se usa el selector que más encuentre (no se
+        suman: varios selectores pueden señalar la misma miniatura)."""
+        return max((self.page.count(t) for t in thumbs), default=0)
+
+    def prepare_images(self, images: list[str]) -> list[str]:
+        """Copias JPEG ligeras (máx. 2048 px) para que Wallapop las acepte y
+        se suban rápido. El original no se toca. Si no se puede convertir,
+        se usa el original."""
+        prepared: list[str] = []
+        folder = Path(tempfile.gettempdir()) / "lotbot-subida"
+        folder.mkdir(parents=True, exist_ok=True)
+        for index, path in enumerate(images):
+            try:
+                from PIL import Image, ImageOps
+
+                with Image.open(path) as img:
+                    img = ImageOps.exif_transpose(img).convert("RGB")
+                    img.thumbnail((2048, 2048))
+                    target = folder / f"{self.account_ref}-{index}-{Path(path).stem}.jpg"
+                    img.save(target, "JPEG", quality=90, optimize=True)
+                prepared.append(str(target))
+            except Exception:
+                logger.warning("No se ha podido preparar %s; se sube el original.", Path(path).name)
+                prepared.append(str(path))
+        return prepared
+
+    def _send_files(self, step: str, images: list[str]) -> str:
+        """Entrega las fotos a Wallapop. Devuelve cómo se hizo (para el registro).
+
+        1. Campo de archivos existente (aunque esté oculto).
+        2. Si no existe: botón «Subir fotos» + ventana «Abrir archivo».
+        3. Si no hay ninguno en esta pantalla: «Continuar» del formulario y otra vez.
+        """
+        photos = self.form.photos
+        deadline = time.monotonic() + self.timeout / 1000
+        continued = False
+        while True:
+            for target in photos.targets:
+                if self.page.attached(target):
+                    self.page.set_files(target, images)
+                    return f"campo {target}"
+            button = self.page.first_visible(self.form.photo_buttons, 0) if self.form.photo_buttons else None
+            if button:
+                self.page.upload_with_chooser(button, images, min(self.timeout, 10000))
+                return f"botón {button}"
+            if not continued and self.continue_if_present(f"Continuar (antes de {step})", wait_ms=0):
+                continued = True
+                continue
+            if time.monotonic() > deadline:
+                raise self._fail(
+                    step,
+                    "No se encuentra dónde subir las fotos (ni campo de archivos ni botón). "
+                    f"Selectores: {photos.targets + self.form.photo_buttons}",
+                )
+            self.guard(step)
+            self.page.wait(250)
+
     def upload_photos(self) -> None:
         step = "Fotos"
         images = [p for p in self.data.images if Path(p).is_file()]
         if not images:
-            raise self._fail(step, "No hay ninguna foto preparada para este anuncio.")
+            raise self._fail(
+                step,
+                "No hay ninguna foto preparada para este anuncio (sube una en «Anuncio "
+                "principal → Fotografías» o activa FLUX).",
+            )
+        images = self.prepare_images(images)
         thumbs = self.form.photo_thumbnails
 
         def action() -> None:
-            self._photos_before = sum(self.page.count(t) for t in thumbs) if thumbs else 0
-            target = self.page.first_visible(self.form.photos.targets, 0)
-            if target is None and self.form.photos.targets:
-                target = self.form.photos.targets[0]  # input de archivos oculto
-            if target is None:
-                raise self._fail(step, "No hay selector del campo de fotos en el YAML.")
-            self.page.set_files(target, images)
+            self._photos_before = self._thumb_count(thumbs) if thumbs else 0
+            how = self._send_files(step, images)
+            logger.info("Fotos entregadas a Wallapop (%s): %d.", how, len(images))
 
         self._do(step, action)
         # Comprobar que Wallapop HA CARGADO las fotos (aparece la miniatura).
@@ -350,7 +410,7 @@ class ListingForm:
             if self.form.photo_rejected and self.page.first_visible(self.form.photo_rejected, 0):
                 shot = self.save_error_context(step, "Wallapop ha rechazado la foto")
                 raise ImageUploadError("Wallapop ha rechazado la foto.", shot)
-            loaded = sum(self.page.count(t) for t in thumbs) - self._photos_before
+            loaded = self._thumb_count(thumbs) - self._photos_before
             if loaded >= len(images):
                 return
             if time.monotonic() > deadline:
@@ -392,7 +452,7 @@ class ListingForm:
             if current is None or normalize(expected) not in normalize(current):
                 problems[ATTRIBUTE_LABELS.get(key, key)] = f"se esperaba «{expected}», hay «{current}»"
         thumbs = self.form.photo_thumbnails
-        loaded = sum(self.page.count(t) for t in thumbs) - self._photos_before if thumbs else 0
+        loaded = self._thumb_count(thumbs) - self._photos_before if thumbs else 0
         if loaded < len(self.data.images):
             problems["Fotos"] = f"cargadas {max(loaded, 0)} de {len(self.data.images)}"
         if self.profile_dir is not None and self.profile_dir.name != self.account_ref:

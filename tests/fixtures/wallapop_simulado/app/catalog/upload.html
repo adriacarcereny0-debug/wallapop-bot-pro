@@ -18,6 +18,9 @@ input,textarea{width:100%;padding:6px;font-size:14px}
 <header><a href="/app/profile">Tu perfil</a>
   <!-- Trampa: el menú de la cabecera sirve para BUSCAR, no para elegir la categoría. -->
   <button type="button" onclick="location.href='/buscar-categorias'">Categorías</button>
+  <!-- Trampa: «buscar por foto» de la cabecera; NO es el campo del anuncio. -->
+  <input type="file" id="buscar-foto" accept="image/*" style="display:none"
+         onchange="location.href='/buscar-por-foto'">
 </header>
 <main>
 <div id="captcha" hidden><iframe title="captcha simulado" src="about:blank" width="200" height="40"></iframe>
@@ -45,6 +48,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <input id="sale_price" name="sale_price">
   <label>Fotos</label>
   <input type="file" id="fotos" accept="image/*" multiple style="display:none">
+  <button type="button" id="boton-fotos" hidden>Sube tus fotos</button>
   <div class="previews" id="previews"></div>
   <p><button type="button" id="subir">Subir producto</button></p>
   </div>
@@ -67,7 +71,7 @@ document.querySelectorAll('[role=combobox]').forEach(btn => {
     btn.parentElement.appendChild(ul);
   });
 });
-document.getElementById('fotos').addEventListener('change', e => {
+function mostrarFotos(e) {
   for (const file of e.target.files) {
     setTimeout(() => {
       const d = document.createElement('div'); d.dataset.testid = 'image-preview';
@@ -76,7 +80,21 @@ document.getElementById('fotos').addEventListener('change', e => {
       d.appendChild(img); document.getElementById('previews').appendChild(d);
     }, 400);
   }
-});
+}
+if (params.get('modo') === 'boton') {
+  // Como algunas webs: el campo de archivos no existe hasta pulsar el botón.
+  document.getElementById('fotos').remove();
+  const boton = document.getElementById('boton-fotos');
+  boton.hidden = false;
+  boton.addEventListener('click', () => {
+    const input = document.createElement('input');
+    input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+    input.addEventListener('change', mostrarFotos);
+    input.click();
+  });
+} else {
+  document.getElementById('fotos').addEventListener('change', mostrarFotos);
+}
 document.getElementById('subir').addEventListener('click', () => {
   const data = {
     titulo: document.getElementById('summary').value,

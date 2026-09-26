@@ -161,6 +161,15 @@ class FakePage(BrowserPage):
             return tamper[name]
         return self.values.get(target, "")
 
+    def attached(self, target):
+        if "fotos" in self.world.get("missing", set()) or self.world.get("no_file_input"):
+            return 0
+        return 1 if target == FORM.photos.targets[0] else 0
+
+    def upload_with_chooser(self, button, paths, timeout_ms):
+        self.log.append(("chooser", button))
+        self.set_files(button, paths)
+
     def count(self, target):
         return self.thumbs if FORM.photo_thumbnails and target == FORM.photo_thumbnails[0] else 0
 
@@ -682,3 +691,42 @@ def test_sin_eleccion_se_queda_en_demo(database, temp_paths):
     from lot_bot.wallapop.factory import build_backend
 
     assert build_backend(Settings(), AccountManager(database), "").demo
+
+
+def test_sin_campo_de_archivos_usa_el_boton_de_subir_fotos(profiles, tmp_path):
+    world = {"logged_in": True, "no_file_input": True, "visible": set(FORM.photo_buttons[:1])}
+    service, launcher = make_service(profiles, world, tmp_path)
+    result = service.create_item("acc-1", draft(tmp_path))
+    assert result.success
+    assert ("chooser", FORM.photo_buttons[0]) in launcher.pages[0].log
+
+
+def test_si_no_hay_donde_subir_la_foto_se_dice_claramente(profiles, tmp_path):
+    world = {"logged_in": True, "no_file_input": True}
+    service, _ = make_service(profiles, world, tmp_path)
+    service.site.timeout_ms = 0
+    try:
+        with pytest.raises(BrowserStepError) as info:
+            service.create_item("acc-1", draft(tmp_path))
+    finally:
+        service.site.timeout_ms = SITE.timeout_ms
+    assert info.value.step == "Fotos"
+    assert "dónde subir las fotos" in info.value.detail
+    assert world.get("submits") is None
+
+
+def test_la_foto_se_sube_como_jpeg_sin_tocar_el_original(profiles, tmp_path):
+    from PIL import Image
+
+    world = {"logged_in": True}
+    service, launcher = make_service(profiles, world, tmp_path)
+    original = tmp_path / "foto.png"
+    Image.new("RGBA", (3000, 2000), (1, 2, 3, 255)).save(original)
+    datos = draft(tmp_path)
+    datos.image_paths = [str(original)]
+    assert service.create_item("acc-1", datos).success
+    enviado = next(e for e in launcher.pages[0].log if e[0] == "files")[2][0]
+    with Image.open(enviado) as img:
+        assert img.format == "JPEG" and max(img.size) <= 2048
+    with Image.open(original) as img:
+        assert img.size == (3000, 2000)  # el original no se toca

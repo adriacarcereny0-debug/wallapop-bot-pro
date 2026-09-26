@@ -62,6 +62,7 @@ class ListingFormConfig:
     description: FormField = field(default_factory=FormField)
     price: FormField = field(default_factory=FormField)
     photos: FormField = field(default_factory=FormField)
+    photo_buttons: list[str] = field(default_factory=list)
     photo_thumbnails: list[str] = field(default_factory=list)
     photo_rejected: list[str] = field(default_factory=list)
     photo_wait_ms: int = 45000
@@ -90,6 +91,7 @@ class ListingFormConfig:
             description=FormField.from_dict(data.get("descripcion")),
             price=FormField.from_dict(data.get("precio")),
             photos=FormField.from_dict(photos),
+            photo_buttons=[str(x) for x in (photos.get("boton") or [])],
             photo_thumbnails=[str(x) for x in (photos.get("miniaturas") or [])],
             photo_rejected=[str(x) for x in (photos.get("rechazada") or [])],
             photo_wait_ms=int(photos.get("espera_ms", 45000)),
