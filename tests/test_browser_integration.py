@@ -150,7 +150,7 @@ class FakePage(BrowserPage):
         if target == FORM.shipping.targets[0]:
             self.shipping_on = not self.is_checked(target)
 
-    def click_option(self, text, timeout_ms, opener=None):
+    def click_option(self, text, timeout_ms, opener=None, opener_box=None):
         self.log.append(("option", text))
         if text in self.world.get("missing_options", set()):
             return False
@@ -158,6 +158,7 @@ class FakePage(BrowserPage):
             self.values[self._open] = text
         if self._open == FORM.category.targets[0]:
             self.cat_open = False
+        self._open = None  # la lista se cierra al elegir
         return True
 
     def set_files(self, target, paths):
@@ -460,10 +461,13 @@ def test_si_el_formulario_no_coincide_no_se_publica(profiles, tmp_path, campo, e
 
     world = {"logged_in": True, "tamper": {campo: "otra cosa 99"}}
     service, _ = make_service(profiles, world, tmp_path)
-    with pytest.raises(FormMismatchError) as info:
+    with pytest.raises((FormMismatchError, BrowserStepError)) as info:
         service.create_item("acc-1", draft(tmp_path))
-    assert esperado in info.value.fields
-    assert esperado in info.value.user_message and "NO se ha publicado" in info.value.user_message
+    if isinstance(info.value, FormMismatchError):
+        assert esperado in info.value.fields
+        assert "NO se ha publicado" in info.value.user_message
+    else:  # las características se comprueban nada más elegirlas
+        assert esperado in info.value.step and "otra cosa 99" in info.value.detail
     assert world.get("submits") is None
 
 

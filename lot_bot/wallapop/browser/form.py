@@ -298,16 +298,38 @@ class ListingForm:
 
         def action() -> None:
             target = self._require(step, spec)
-            self.page.click(target)
-            for index, candidate in enumerate(candidates):
-                wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
-                if index and not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
-                    self.page.click(target)  # la lista se cerró: se vuelve a abrir
-                if self.page.click_option(candidate, wait, opener=target):
-                    chosen.append(candidate)
-                    self.close_open_lists()
+            box = self.page.bbox(target)  # ANTES de abrir la lista
+            # Los textos que ya se ven (p. ej. «Sugerencias inteligentes»)
+            # no son opciones de esta lista.
+            self.page.mark_existing(candidates)
+            try:
+                self.page.click(target)
+                for index, candidate in enumerate(candidates):
+                    wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
+                    if index and not self.page.first_visible(self.OPEN_LISTS, 0):
+                        self.page.click(target)  # la lista se cerró: se vuelve a abrir
+                    if self.page.click_option(candidate, wait, opener=target, opener_box=box):
+                        chosen.append(candidate)
+                        break
+            finally:
+                self.page.unmark_existing()
+            if not chosen:
+                raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+            self.close_open_lists()
+            # COMPROBAR que Wallapop lo ha guardado (no basta con el clic).
+            deadline = time.monotonic() + 3
+            while True:
+                try:
+                    current = self.page.value_of(target)
+                except Exception:
+                    current = None
+                if current is None or contains_text(chosen[0], current):
                     return
-            raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+                if time.monotonic() > deadline:
+                    raise self._fail(
+                        step, f"Se ha elegido «{chosen[0]}» pero el campo muestra «{current}»."
+                    )
+                self.page.wait(200)
 
         self._do(step, action)
         if chosen and chosen[0] != option:
@@ -319,12 +341,19 @@ class ListingForm:
 
     def close_open_lists(self) -> None:
         """Cierra la lista que haya quedado abierta (p. ej. Color, que admite
-        varias opciones y no se cierra sola): tecla Escape, como un usuario."""
-        self.page.press("Escape")  # por si la lista no se marca como tal
-        self.page.wait(150)
-        for _ in range(2):
-            if not self.page.first_visible(self.OPEN_LISTS, 300):
-                return
+        varias opciones y no se cierra sola) SIN deshacer la selección: primero
+        su botón de aceptar si lo tiene; si no, un clic fuera (en un título del
+        formulario), como haría una persona. Escape solo como último recurso
+        (en algunas listas de Wallapop, Escape CANCELA lo elegido)."""
+        confirm = self.page.first_visible(self.form.list_confirm, 300) if self.form.list_confirm else None
+        if confirm:
+            self.page.click(confirm)
+            self.page.wait(150)
+        neutral = self.page.first_visible(self.form.neutral_click, 0) if self.form.neutral_click else None
+        if neutral:
+            self.page.click(neutral)
+            self.page.wait(150)
+        if self.page.first_visible(self.OPEN_LISTS, 300):
             self.page.press("Escape")
             self.page.wait(200)
 
@@ -436,20 +465,24 @@ class ListingForm:
         )
 
     def set_shipping(self) -> None:
-        """«Activar envío» apagado (o como diga el YAML)."""
+        """«Activar envío» apagado (o como diga el YAML). El interruptor de
+        Wallapop suele ser un dibujo encima de una casilla OCULTA: se busca
+        aunque no se vea y se desmarca con su etiqueta/casilla."""
         spec = self.form.shipping
         if not spec.targets:
             return
         target = self.page.first_visible(spec.targets, min(self.timeout, 3000))
         if target is None:
-            self.skipped.append("Envío (no aparece el interruptor)")
+            target = next((t for t in spec.targets if self.page.attached(t)), None)
+        if target is None:
+            self.skipped.append("Envío (no aparece el interruptor «Activar envío»)")
             return
         want = self.form.shipping_enabled
         label = "Envío " + ("activado" if want else "desactivado")
-        if self.page.is_checked(target) != want:
-            self._do(label, lambda: self.page.click(target))
-        else:
-            self.steps.append(label)
+        if self.page.is_checked(target) == want:
+            self.steps.append(label + " (ya estaba)")
+            return
+        self._do(label, lambda: self.page.set_checked(target, want))
         if self.page.is_checked(target) != want:
             raise self._fail("Envío", "No se ha podido dejar «Activar envío» como se indica.")
 
@@ -472,14 +505,30 @@ class ListingForm:
             pass
 
         def action() -> None:
-            self.page.click(opener)
-            field_ = self.page.first_visible(self.form.location_input, min(self.timeout, 5000)) or opener
-            self.page.fill(field_, city)
-            if not self.page.click_suggestion(city, self.timeout):
-                raise self._fail("Ubicación", f"Wallapop no sugiere ninguna ubicación con «{city}».")
+            # Sin clic en el campo: la barra fija de abajo («Publicar») puede
+            # taparlo. Se escribe tecla a tecla y se elige la sugerencia (con
+            # el ratón o, si algo la tapa, con las flechas y Enter). El mapa
+            # no se toca.
+            field_ = self.page.first_visible(self.form.location_input, 0) or opener
+            self.page.type_text(field_, city)
+            if not self.page.click_suggestion(city, min(self.timeout, 8000)):
+                self.page.press("ArrowDown")
+                self.page.press("Enter")
             confirm = self.page.first_visible(self.form.location_confirm, 1500) if self.form.location_confirm else None
             if confirm:
                 self.page.click(confirm)
+            # Comprobar que ha quedado la ciudad.
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    shown = self.page.value_of(field_)
+                except Exception:
+                    shown = None
+                if shown is None or contains_text(city, shown):
+                    return
+                if time.monotonic() > deadline:
+                    raise self._fail("Ubicación", f"Tras escribir «{city}» el campo muestra «{shown}».")
+                self.page.wait(250)
 
         self._do(f"Ubicación {city}", action)
 

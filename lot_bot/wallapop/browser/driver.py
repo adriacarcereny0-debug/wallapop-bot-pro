@@ -48,7 +48,9 @@ class BrowserPage(ABC):
     def click(self, target: str) -> None: ...
 
     @abstractmethod
-    def click_option(self, text: str, timeout_ms: int, opener: str | None = None) -> bool:
+    def click_option(
+        self, text: str, timeout_ms: int, opener: str | None = None, opener_box: dict | None = None
+    ) -> bool:
         """Pulsa una opción visible con ese texto exacto (listas desplegables)."""
 
     @abstractmethod
@@ -75,6 +77,16 @@ class BrowserPage(ABC):
     def press(self, key: str) -> None:
         """Pulsa una tecla (p. ej. «Escape» para cerrar una lista abierta)."""
         return None
+
+    def set_checked(self, target: str, value: bool) -> None:
+        """Deja una casilla/interruptor marcado o no (vale con su etiqueta)."""
+        if self.is_checked(target) != value:
+            self.click(target)
+
+    def type_text(self, target: str, text: str) -> None:
+        """Escribe tecla a tecla (para buscadores que sugieren al escribir),
+        sin hacer clic (una barra fija podría tapar el campo)."""
+        self.fill(target, text)
 
     # --- Piezas para el selector de categoría (category.py) ---
     def bbox(self, target: str) -> dict | None:
@@ -300,11 +312,51 @@ class _PlaywrightPage(BrowserPage):
     def press(self, key: str) -> None:
         self._page.keyboard.press(key)
 
+    def set_checked(self, target: str, value: bool) -> None:
+        locator = self._page.locator(target).first
+        try:
+            if locator.is_visible():
+                locator.set_checked(value, timeout=5000)
+                return
+        except Exception:
+            pass
+        # Interruptor dibujado encima de una casilla OCULTA: se pulsa lo que se
+        # ve (su etiqueta o el elemento que la contiene), como una persona.
+        if self.is_checked(target) == value:
+            return
+        for visible in (
+            locator.locator("xpath=ancestor::label[1]"),
+            locator.locator("xpath=following-sibling::*[1]"),
+            locator.locator("xpath=.."),
+        ):
+            try:
+                if visible.count() and visible.first.is_visible():
+                    visible.first.click(timeout=5000)
+                    if self.is_checked(target) == value:
+                        return
+            except Exception:
+                continue
+        locator.click(timeout=5000)
+
+    def type_text(self, target: str, text: str) -> None:
+        locator = self._page.locator(target).first
+        locator.scroll_into_view_if_needed(timeout=5000)
+        locator.focus(timeout=5000)
+        locator.fill("", timeout=5000)
+        locator.press_sequentially(text, delay=60)
+
     def click(self, target: str) -> None:
         self._page.locator(target).first.click()
 
-    def click_option(self, text: str, timeout_ms: int, opener: str | None = None) -> bool:
+    def click_option(
+        self, text: str, timeout_ms: int, opener: str | None = None, opener_box: dict | None = None
+    ) -> bool:
         """Pulsa la opción visible cuyo texto es EXACTAMENTE `text`.
+
+        `opener_box`: posición del desplegable ANTES de abrirlo (si la lista
+        está dentro del componente, medirlo abierto taparía las opciones). Los
+        textos marcados como previos (ya estaban antes de abrir, p. ej.
+        «Sugerencias inteligentes») nunca se pulsan.
 
         Vale para listas de cualquier tipo (role=option, <li>, <div>…), también
         cuando cada opción tiene una segunda línea («Estructura de camas» +
@@ -314,8 +366,7 @@ class _PlaywrightPage(BrowserPage):
         """
         exact = tolerant_pattern(text)
         texts = self._page.get_by_text(exact)
-        opener_box = None
-        if opener:
+        if opener and opener_box is None:
             try:
                 opener_box = self._page.locator(opener).first.bounding_box()
             except Exception:
@@ -331,6 +382,8 @@ class _PlaywrightPage(BrowserPage):
                 try:
                     if not item.is_visible():
                         continue
+                    if item.evaluate("e => !!e.closest('[data-lotbot-previo]')"):
+                        continue  # ya estaba en la página antes de abrir la lista
                     box = item.bounding_box()
                     if opener_box and box and _inside(box, opener_box):
                         continue  # es el propio desplegable, no una opción

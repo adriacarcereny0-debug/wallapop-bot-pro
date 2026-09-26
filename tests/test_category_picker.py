@@ -120,7 +120,7 @@ class CategoryPage(BrowserPage):
     def current_url(self):
         return "https://es.wallapop.com/app/catalog/upload"
     def fill(self, target, text): ...
-    def click_option(self, text, timeout_ms, opener=None):
+    def click_option(self, text, timeout_ms, opener=None, opener_box=None):
         return False
     def set_files(self, target, paths): ...
     def text_of(self, target):

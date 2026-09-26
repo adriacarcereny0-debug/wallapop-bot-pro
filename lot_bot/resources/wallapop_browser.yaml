@@ -203,6 +203,9 @@ publicar:
         - "role=switch[name=/Activar envío/i]"
         - "role=checkbox[name=/Activar envío/i]"
         - "label:has-text('Activar envío') input[type='checkbox']"
+        # Interruptor dibujado sobre una casilla oculta: la casilla siguiente
+        # al texto «Activar envío» (se marca/desmarca aunque esté oculta).
+        - "xpath=//*[normalize-space(text())='Activar envío']/following::*[@role='switch' or @role='checkbox' or self::input[@type='checkbox']][1]"
         # El interruptor junto al texto «Activar envío» (misma fila).
         - "xpath=//*[normalize-space(text())='Activar envío']/ancestor::*[.//*[@role='switch' or @role='checkbox' or self::input[@type='checkbox']]][1]//*[@role='switch' or @role='checkbox' or self::input[@type='checkbox']]"
     # Ubicación del anuncio (Anuncio principal → «Ubicación»). Wallapop pone la
@@ -212,6 +215,7 @@ publicar:
     ubicacion:
       opcional: true
       objetivos:
+        - "input[placeholder*='localización' i]"
         - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
         - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
         - "role=button[name=/Ubicación|Localización|Dónde se verán|Dónde está/i]"
@@ -221,6 +225,7 @@ publicar:
       # Campo donde se escribe la ciudad (si al pulsar se abre otro). NO se
       # toca el mapa: solo se escribe la ciudad y se elige la sugerencia.
       escribir:
+        - "input[placeholder*='localización' i]"
         - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
         - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
         - "input[placeholder*='dirección' i]"
@@ -230,6 +235,13 @@ publicar:
       # Botón para confirmar la ubicación elegida (si lo hay).
       confirmar:
         - "role=button[name=/^(Aplicar|Guardar|Confirmar|Aceptar|Listo)$/i]"
+    # Cerrar una lista desplegable sin deshacer lo elegido: su botón de
+    # aceptar (si lo tiene) o un clic en un título del formulario.
+    listas_aceptar:
+      - "role=button[name=/^(Aplicar|Aceptar|Hecho|Listo|Confirmar)$/i]"
+    clic_fuera:
+      - "text=/^Información del producto$/"
+      - "text=/^Revisa la información$/"
     # Si Wallapop no tiene el valor exacto de la plantilla, se prueban estas
     # alternativas en orden (se indica en el resultado cuál se eligió).
     equivalencias:

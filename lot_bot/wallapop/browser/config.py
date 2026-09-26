@@ -73,6 +73,8 @@ class ListingFormConfig:
     category_paths: dict[str, str] = field(default_factory=dict)
     #: Tras elegir la categoría Wallapop «prepara» el resto del formulario.
     prepare_wait_ms: int = 60000
+    list_confirm: list[str] = field(default_factory=list)
+    neutral_click: list[str] = field(default_factory=list)
     location: FormField = field(default_factory=FormField)
     location_input: list[str] = field(default_factory=list)
     location_confirm: list[str] = field(default_factory=list)
@@ -114,6 +116,8 @@ class ListingFormConfig:
             location=FormField.from_dict(data.get("ubicacion")),
             location_input=[str(x) for x in ((data.get("ubicacion") or {}).get("escribir") or [])],
             location_confirm=[str(x) for x in ((data.get("ubicacion") or {}).get("confirmar") or [])],
+            list_confirm=[str(x) for x in (data.get("listas_aceptar") or [])],
+            neutral_click=[str(x) for x in (data.get("clic_fuera") or [])],
             prepare_wait_ms=int((data.get("categoria") or {}).get("espera_preparacion_ms", 60000)),
             category_paths={
                 str(k): str(v) for k, v in ((data.get("categoria") or {}).get("rutas") or {}).items()
