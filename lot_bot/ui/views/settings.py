@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -335,8 +334,14 @@ class SettingsView(BaseView):
         self.publish_interval.setRange(60, 3600)
         self.publish_interval.setSuffix(" s")
         form.addRow("Intervalo mínimo entre publicaciones", self.publish_interval)
-        self.publish_images = QCheckBox("Generar una imagen distinta para cada anuncio")
-        form.addRow("Imágenes", self.publish_images)
+        self.publish_images = QComboBox()
+        self.publish_images.addItem(
+            "Mis fotos (las que subes en «Anuncio principal» → «Fotografías…»)", False
+        )
+        self.publish_images.addItem(
+            "Generar una foto distinta por anuncio con FLUX.2 Pro (necesita clave)", True
+        )
+        form.addRow("Fotos de cada anuncio", self.publish_images)
         _fixed_height(self.integration_mode, self.publish_interval, self.publish_images)
         integration.body.addLayout(form)
         integration_note = QLabel(
@@ -450,7 +455,7 @@ class SettingsView(BaseView):
         self.integration_mode.setCurrentIndex(max(index, 0))
         queue_settings = self.app.publish_queue.settings()
         self.publish_interval.setValue(queue_settings["minimum_publish_interval_seconds"])
-        self.publish_images.setChecked(bool(queue_settings["generate_images"]))
+        self.publish_images.setCurrentIndex(1 if queue_settings["generate_images"] else 0)
         from lot_bot.wallapop.browser.config import local_config_path
 
         self.selectors_label.setText(
@@ -600,7 +605,7 @@ class SettingsView(BaseView):
         try:
             self.app.publish_queue.save_settings(
                 minimum_publish_interval_seconds=self.publish_interval.value(),
-                generate_images=self.publish_images.isChecked(),
+                generate_images=bool(self.publish_images.currentData()),
             )
             if mode != (self.app.integration_mode or "demo"):
                 self.app.set_integration_mode(mode)

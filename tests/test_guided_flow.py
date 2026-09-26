@@ -272,3 +272,52 @@ def test_la_interfaz_siempre_recibe_el_aviso_de_terminado():
         qa.processEvents()
         time.sleep(0.01)
     assert len(terminados) == 30
+
+
+# ---------------------------------------------------------------------------
+# Publicar con fotos propias, SIN clave de FLUX
+# ---------------------------------------------------------------------------
+def test_sin_clave_de_flux_se_publica_con_mis_fotos(real, tmp_path, monkeypatch):
+    import httpx
+    from PIL import Image
+
+    from lot_bot.config.api_keys import FLUX
+    from lot_bot.publishing.queue import FakeClock
+
+    app, world, cuenta = real
+
+    def prohibido(*a, **k):
+        raise AssertionError("No se debe llamar a FLUX sin clave")
+
+    monkeypatch.setattr(httpx.Client, "send", prohibido)
+    assert not app.api_keys.has(FLUX)
+    app.publish_queue.save_settings(generate_images=True)  # aunque esté elegido FLUX
+
+    foto = tmp_path / "mi_foto.jpg"
+    Image.new("RGB", (1200, 900), (140, 140, 150)).save(foto)
+    from lot_bot.ui.views.image_studio import use_image_in_ads
+
+    assert use_image_in_ads(app, str(foto))
+    assert not use_image_in_ads(app, str(foto))  # no se duplica
+
+    r = app.agent.ask("Empieza a subir 1 anuncio en la cuenta Mi tienda")
+    assert r.needs_confirmation
+    assert any("las tuyas" in linea and "no hace falta" in linea for linea in r.pending.request.lines)
+    app.agent.confirm(r.pending.token)
+    app.publish_queue.clock = FakeClock()
+    app.backend.service.is_mock = True
+    try:
+        app.publish_queue.run_until_idle()
+    finally:
+        app.backend.service.is_mock = False
+    tarea = app.publish_queue.progress().tasks[0]
+    assert tarea["estado"] == "published" and tarea["imagen"] is None
+    subidas = [e for p in app.wallapop.launcher.pages for e in p.log if e[0] == "files"]
+    assert subidas and subidas[0][2][0].endswith(".jpg")  # se sube TU foto
+
+
+def test_sin_fotos_ni_clave_se_explica_como_subirlas(real):
+    app, _, _ = real
+    r = app.agent.ask("Empieza a subir 1 anuncio en la cuenta Mi tienda")
+    texto = textos(r)
+    assert "Fotografías…" in texto and "no hace falta ninguna clave" in texto

@@ -40,6 +40,20 @@ from lot_bot.ui.widgets.common import Card, SectionTitle, ask_confirmation, info
 OPERATION_NAMES = {**OPERATIONS, "propia": "Foto propia"}
 
 
+def use_image_in_ads(app, path: str) -> bool:
+    """Añade una imagen a las fotos del anuncio principal. True si se añadió."""
+    master = app.master_ads.get(None)
+    before = len(master.images)
+    imported = app.images.import_image(path, "anuncio-principal", position=before)
+    app.master_ads.add_images(master.key, [imported.to_dict()])
+    added = len(app.master_ads.get(master.key).images) > before
+    if added:
+        app.audit.record_success(
+            "Fotografías del anuncio principal", target=master.name, detail="1 añadida desde Imágenes"
+        )
+    return added
+
+
 class ImageStudioView(BaseView):
     title = "Imágenes / IA"
     subtitle = "Elige una imagen y qué hacer con ella. La original nunca se modifica"
@@ -110,6 +124,17 @@ class ImageStudioView(BaseView):
             buttons.addWidget(button)
             self.buttons[key] = button
         actions.body.addLayout(buttons)
+        use_row = QHBoxLayout()
+        self.use_button = QPushButton("Usar en mis anuncios")
+        self.use_button.setMinimumHeight(34)
+        self.use_button.setToolTip(
+            "Añade la imagen elegida a las fotos del anuncio principal: se publicará con ella "
+            "(no hace falta clave de FLUX)."
+        )
+        self.use_button.clicked.connect(self._use_in_ads)
+        use_row.addWidget(self.use_button)
+        use_row.addStretch(1)
+        actions.body.addLayout(use_row)
         hint = QLabel(
             "Generar: foto nueva desde cero · Mejorar: más resolución y nitidez (local, sin IA) · "
             "Cambiar estilo / habitación: misma imagen, otro ambiente · Usar como referencia: "
@@ -164,6 +189,8 @@ class ImageStudioView(BaseView):
         needs_image = ("mejorar", "estilo", "habitacion", "referencia")
         for key in needs_image:
             self.buttons[key].setEnabled(info is not None)
+        if hasattr(self, "use_button"):
+            self.use_button.setEnabled(info is not None)
         if info is None:
             self.preview.setText("Selecciona una imagen o pulsa «Generar»")
             self.preview.setPixmap(QPixmap())
@@ -264,6 +291,24 @@ class ImageStudioView(BaseView):
             on_done=lambda: self._show_selected() or self.buttons["generar"].setEnabled(True),
         )
 
+    def _use_in_ads(self) -> None:
+        info = self._selected()
+        if info is None:
+            return
+        try:
+            added = use_image_in_ads(self.app, info["ruta"])
+        except Exception as exc:
+            show_error(self, "No se ha podido añadir la foto.", str(exc))
+            return
+        if added:
+            info_box(
+                self,
+                "Foto añadida",
+                "La imagen se usará en tus anuncios (Anuncio principal → Fotografías).",
+            )
+        else:
+            info_box(self, "Ya estaba", "Esa imagen ya está entre las fotos de tus anuncios.")
+
     def _upload(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
             self, "Subir foto propia", "", "Imágenes (*.jpg *.jpeg *.png *.webp)"
@@ -279,5 +324,10 @@ class ImageStudioView(BaseView):
             show_error(self, "No es una imagen válida.", type(exc).__name__)
             return
         self.app.audit.record_success("Foto propia añadida", detail=f"imagen {result.image_id}")
-        info_box(self, "Foto guardada", f"Imagen #{result.image_id}: ya puedes usarla como referencia.")
+        info_box(
+            self,
+            "Foto guardada",
+            f"Imagen #{result.image_id} guardada. Pulsa «Usar en mis anuncios» para publicar con "
+            f"ella, o úsala como referencia para crear otras.",
+        )
         self.refresh()

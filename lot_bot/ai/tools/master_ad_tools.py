@@ -102,7 +102,8 @@ GENERATED_IMAGE_PLACEHOLDER = "(imagen generada para cada anuncio)"
 
 _FIXES = {
     "categoría": "pon la categoría en «Anuncio principal»",
-    "fotografía": "añade fotos en «Anuncio principal» o una clave de FLUX.2 Pro en "
+    "fotografía": "sube tus fotos desde el ordenador en «Anuncio principal» → «Fotografías…» "
+    "(no hace falta ninguna clave) o, si lo prefieres, añade una clave de FLUX.2 Pro en "
     "Configuración → IA / Imágenes para generar una por anuncio",
 }
 
@@ -377,7 +378,7 @@ def _will_generate_images(context: ToolContext) -> tuple[bool, str]:
 
     app = context.app
     if not app.publish_queue.settings()["generate_images"]:
-        return False, "Fotografías: las del anuncio principal (generación automática desactivada)."
+        return False, "Fotografías: las tuyas, del anuncio principal."
     if app.demo_mode:
         return True, (
             "Se generará una imagen de DEMOSTRACIÓN distinta para cada anuncio "
@@ -385,8 +386,8 @@ def _will_generate_images(context: ToolContext) -> tuple[bool, str]:
         )
     if not app.api_keys.has(FLUX):
         return False, (
-            "Sin clave de FLUX.2 Pro: se usarán las fotos del anuncio principal. "
-            "Añade la clave en Configuración → IA / Imágenes para generar una por anuncio."
+            "Fotografías: las tuyas, del anuncio principal (no hay clave de FLUX.2 Pro; no "
+            "hace falta para publicar)."
         )
     return True, (
         "Se generará con FLUX.2 Pro una imagen fotorrealista distinta para cada anuncio "
