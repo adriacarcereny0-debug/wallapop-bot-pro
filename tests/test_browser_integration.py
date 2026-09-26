@@ -49,6 +49,7 @@ def form_fields() -> dict[str, object]:
         "fotos": FORM.photos,
         "publicar": FORM.submit,
         "ubicacion": FORM.location,
+        "envio": FORM.shipping,
         "ubicacion_escribir": FormField(targets=FORM.location_input),
     }
     fields.update(FORM.attributes)
@@ -146,6 +147,8 @@ class FakePage(BrowserPage):
         self._open = target
         if target == FORM.category.targets[0]:
             self.cat_open = True
+        if target == FORM.shipping.targets[0]:
+            self.shipping_on = not self.is_checked(target)
 
     def click_option(self, text, timeout_ms, opener=None):
         self.log.append(("option", text))
@@ -169,6 +172,9 @@ class FakePage(BrowserPage):
         if name in tamper:
             return tamper[name]
         return self.values.get(target, "")
+
+    def is_checked(self, target):
+        return getattr(self, "shipping_on", True)  # Wallapop lo trae activado
 
     def attached(self, target):
         if "fotos" in self.world.get("missing", set()) or self.world.get("no_file_input"):
@@ -308,7 +314,8 @@ def test_publicar_rellena_el_formulario_y_devuelve_la_url(profiles, tmp_path):
     assert result.data["pasos"] == [
         "Comprobar sesión", "Abrir crear anuncio", "Tipo de anuncio", "Título", "Fotos",
         "Categoría", "Detalles listos", "Característica Estado", "Característica Uso", "Característica Color",
-        "Característica Material", "Descripción", "Precio", "Comprobar formulario",
+        "Característica Material", "Descripción", "Precio", "Envío desactivado",
+        "Comprobar formulario",
         "Publicar", "Confirmación de Wallapop",
     ]
 

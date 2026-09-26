@@ -68,6 +68,7 @@ class CategoryPicker:
     _open_reason: dict | None = None
     _opener: str | None = None
     _leaf_clicked: bool = False
+    _text_before: str = ""
 
     # ------------------------------------------------------------------
     def _log(self, event: str, **data: Any) -> None:
@@ -158,6 +159,17 @@ class CategoryPicker:
             f"en vez de «{leaf}»."
         )
 
+    def _field_shows(self, text: str, leaf: str) -> bool:
+        """¿El campo muestra la categoría elegida? Wallapop puede mostrar el
+        nombre («Estructura de camas») o la RUTA de su categoría madre
+        («Hogar y jardín > Muebles y organización > Camas y accesorios»)."""
+        if contains_text(leaf, text):
+            return True
+        if len(self._path) > 1 and contains_text(self._path[-2], text):
+            return True
+        # Ruta desconocida: el campo ha pasado del texto vacío a una ruta.
+        return ">" in (text or "") and _norm(text) != _norm(self._text_before)
+
     def _accept_ms(self) -> int:
         if self.accept_timeout_ms is not None:
             return self.accept_timeout_ms
@@ -191,10 +203,10 @@ class CategoryPicker:
     def _is_selected(self, opener: str, leaf: str) -> bool:
         """Panel CERRADO y la categoría final visible en el formulario (en el
         campo; o, si el campo cambia de forma al elegir, en la página)."""
-        if self._panel() is not None:
+        if self._panel_open():
             return False
-        if contains_text(leaf, self._field_text(opener)):
-            return not self._panel_open()
+        if self._field_shows(self._field_text(opener), leaf):
+            return True
         # El campo puede cambiar de forma al elegir: se acepta el texto de la
         # categoría SOLO si está donde estaba el campo (no en otra parte).
         return any(
@@ -257,7 +269,8 @@ class CategoryPicker:
         opener_box = self.page.bbox(opener)  # ANTES de abrir la lista
         self._opener_box = opener_box
         self._log("campo", selector=opener, caja=opener_box)
-        if contains_text(leaf, self._field_text(opener)) and self._panel() is None:
+        self._text_before = self._field_text(opener)
+        if contains_text(leaf, self._text_before) and self._panel() is None:
             self._log("ya_seleccionada", categoria=leaf)
             return leaf
 

@@ -408,6 +408,24 @@ class ListingForm:
             "descripción a tiempo.",
         )
 
+    def set_shipping(self) -> None:
+        """«Activar envío» apagado (o como diga el YAML)."""
+        spec = self.form.shipping
+        if not spec.targets:
+            return
+        target = self.page.first_visible(spec.targets, min(self.timeout, 3000))
+        if target is None:
+            self.skipped.append("Envío (no aparece el interruptor)")
+            return
+        want = self.form.shipping_enabled
+        label = "Envío " + ("activado" if want else "desactivado")
+        if self.page.is_checked(target) != want:
+            self._do(label, lambda: self.page.click(target))
+        else:
+            self.steps.append(label)
+        if self.page.is_checked(target) != want:
+            raise self._fail("Envío", "No se ha podido dejar «Activar envío» como se indica.")
+
     def set_location(self) -> None:
         """Ubicación del Anuncio principal. Wallapop pone la de la cuenta; si
         ya muestra la ciudad pedida, no se toca."""
@@ -593,7 +611,8 @@ class ListingForm:
             problems["Precio"] = f"se esperaba {expected} €, hay «{price}»"
         category = self._read(self.form.category)
         leaf = getattr(self, "category_chosen", None) or self.data.category.split(">")[-1].strip()
-        if category is not None and not contains_text(leaf, category):
+        verified = getattr(self, "category_chosen", None)  # ya verificada al elegirla
+        if not verified and category is not None and not contains_text(leaf, category):
             problems["Categoría"] = f"se esperaba «{leaf}», hay «{category}»"
         for key, expected in self.attributes_filled.items():
             spec = self.form.attributes[key]
@@ -667,6 +686,7 @@ class ListingForm:
         self.fill_final_title()
         self.fill_description()
         self.fill_price()
+        self.set_shipping()
         self.set_location()
         self.refill_if_overwritten()
         self.verify_form()

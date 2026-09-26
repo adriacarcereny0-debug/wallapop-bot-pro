@@ -145,8 +145,10 @@ publicar:
       # Ruta completa de las categorías conocidas, por si la plantilla solo
       # dice el nombre final y Wallapop no la muestra entre las sugeridas.
       rutas:
-        "Estructura de camas": "Muebles y organización > Camas y accesorios > Estructura de camas"
-        "Colchones": "Muebles y organización > Camas y accesorios > Colchones"
+        # Ruta real vista en Wallapop (el campo muestra «Hogar y jardín >
+        # Muebles y organización > Camas y accesorios» tras elegir).
+        "Estructura de camas": "Hogar y jardín > Muebles y organización > Camas y accesorios > Estructura de camas"
+        "Colchones": "Hogar y jardín > Muebles y organización > Camas y accesorios > Colchones"
       # Dónde se ve la categoría elegida (opcional; si no, el propio campo).
       seleccionada:
         - "role=combobox[name=/^Categoría(?!s)/i]"
@@ -193,6 +195,14 @@ publicar:
       objetivos:
         - "role=textbox[name=/^Título/i]"
         - "input[name='title']"
+    # Interruptor «Activar envío»: se deja SIEMPRE apagado (sin envíos). Si
+    # Wallapop lo trae activado, el bot lo desactiva.
+    envio:
+      activado: false
+      objetivos:
+        - "role=switch[name=/Activar envío/i]"
+        - "role=checkbox[name=/Activar envío/i]"
+        - "label:has-text('Activar envío') input[type='checkbox']"
     # Ubicación del anuncio (Anuncio principal → «Ubicación»). Wallapop pone la
     # de la cuenta; si la plantilla indica otra ciudad, se cambia: se abre el
     # campo, se escribe la ciudad y se elige la primera sugerencia que la

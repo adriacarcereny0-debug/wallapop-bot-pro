@@ -61,6 +61,8 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <div class="combo"><button type="button" role="combobox" aria-label="Estado*" data-options="Nuevo|Como nuevo|En buen estado">Estado*</button></div>
   <label for="sale_price">Precio*</label>
   <input id="sale_price" name="sale_price">
+  <h3>Opciones de envío</h3>
+  <label><input type="checkbox" role="switch" id="envio" aria-label="Activar envío" checked> Activar envío</label>
   <label>Ubicación</label>
   <button type="button" id="ubic" aria-label="Ubicación">Barcelona</button>
   <div id="ubic-panel" hidden>
@@ -84,8 +86,8 @@ if (params.get('captcha') === '1' || localStorage.getItem('captcha') === '1') {
 const CAT_MODE_RAW = params.get('cat') || '';
 const CAT_MODE = ['dentro', 'lento', 'ignora'].find(m => CAT_MODE_RAW.split('-').includes(m)) || CAT_MODE_RAW;
 const CAT_TREE_ONLY = CAT_MODE_RAW.split('-').includes('arbol');
-const TREE = {'Motos': null, 'Muebles y organización': {'Sofás': null,
-  'Camas y accesorios': {'Colchones': null, 'Estructura de camas': null}}};
+const TREE = {'Motos': null, 'Hogar y jardín': {'Muebles y organización': {'Sofás': null,
+  'Camas y accesorios': {'Colchones': null, 'Estructura de camas': null}}}};
 function renderCats(ul, btn, level) {
   let node = TREE; level.forEach(p => node = node[p]);
   let html = '';
@@ -104,7 +106,10 @@ function renderCats(ul, btn, level) {
     if (CAT_MODE === 'ignora') return;
     const name = li.querySelector('span').textContent;
     if (node[name]) { renderCats(ul, btn, [...level, name]); return; }
-    btn.textContent = name;
+    // Como el Wallapop real: el campo muestra la RUTA de la categoría madre,
+    // no el nombre elegido.
+    btn.textContent = 'Hogar y jardín > Muebles y organización > Camas y accesorios';
+    btn.dataset.elegida = name;
     if (CAT_MODE_RAW.includes('oculta')) ul.style.display = 'none'; else ul.remove();
     btn.parentElement.removeAttribute('aria-expanded');
     // Como Wallapop: «preparando» el resto del formulario unos segundos, se
@@ -203,8 +208,9 @@ document.getElementById('subir').addEventListener('click', () => {
   const data = {
     titulo: document.getElementById('title').value,
     descripcion: document.getElementById('description').value,
-    categoria: document.getElementById('cat').textContent,
+    categoria: document.getElementById('cat').dataset.elegida || '',
     ubicacion: document.getElementById('ubic').textContent,
+    envio: document.getElementById('envio').checked,
     precio: document.getElementById('sale_price').value,
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
   };

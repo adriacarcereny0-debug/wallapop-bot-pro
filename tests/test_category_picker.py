@@ -100,6 +100,9 @@ class CategoryPage(BrowserPage):
             self.level.append(text)
             return
         self.field = "Colchones" if self.cfg.get("wrong") else text
+        if self.cfg.get("breadcrumb") and not self.cfg.get("wrong"):
+            # Como el Wallapop real: el campo muestra la ruta de la madre.
+            self.field = "Categoría y subcategoría\nMuebles y organización > Camas y accesorios"
         if not self.cfg.get("stays_open"):
             self.open = False
 
@@ -268,3 +271,17 @@ def test_categoria_escrita_con_plural_o_mayusculas_se_encuentra(escrita):
     page = CategoryPage()
     assert picker(page).select([escrita]) == escrita
     assert page.field == "Estructura de camas" and not page.open
+
+
+def test_el_campo_muestra_la_ruta_de_la_categoria_madre_como_en_wallapop():
+    """Tu log: tras elegir, el campo muestra «Hogar y jardín > Muebles y
+    organización > Camas y accesorios» y no «Estructura de camas»."""
+    page = CategoryPage(breadcrumb=True)
+    assert picker(page).select(PATH) == "Estructura de camas"
+    assert not page.open
+
+
+def test_ruta_en_el_campo_pero_de_otra_categoria_no_vale():
+    page = CategoryPage(wrong=True)
+    with pytest.raises(CategorySelectionError):
+        picker(page).select(PATH)

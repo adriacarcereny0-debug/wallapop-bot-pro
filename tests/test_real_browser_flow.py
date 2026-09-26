@@ -69,7 +69,7 @@ def borrador(tmp_path) -> ItemDraft:
         title=CLIENT_TITLE,
         description=DESCRIPCION,
         price=11.44,
-        category="Muebles y organización > Camas y accesorios > Estructura de camas",
+        category="Hogar y jardín > Muebles y organización > Camas y accesorios > Estructura de camas",
         condition="Nuevo",
         attributes={**CLIENT_ATTRIBUTES, "ubicacion": "Madrid"},
         image_paths=[str(foto)],
@@ -94,6 +94,7 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     # Ubicación del Anuncio principal (Wallapop tenía Barcelona) y la
     # descripción que la IA de Wallapop reescribió tarde vuelve a ser la tuya.
     assert publicado["ubicacion"] == "Madrid"
+    assert publicado["envio"] is False  # «Activar envío» desactivado
     # Pulsa «Continuar» tras el título y NUNCA el menú «Categorías» de la cabecera.
     pasos = resultado.data["pasos"]
     assert "Continuar tras el título" in pasos

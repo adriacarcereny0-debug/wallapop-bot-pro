@@ -76,7 +76,7 @@ CLIENT_MASTER_AD: dict[str, Any] = {
     # «Estructura de camas», dentro de Muebles y organización > Camas y
     # accesorios. El bot elige la última parte; si no aparece entre las
     # sugeridas, recorre la ruta completa.
-    "category": "Muebles y organización > Camas y accesorios > Estructura de camas",
+    "category": "Hogar y jardín > Muebles y organización > Camas y accesorios > Estructura de camas",
     "subcategory": "",
     "condition": "Nuevo",
     "tags": [],
