@@ -68,6 +68,8 @@ class ListingFormConfig:
     photo_wait_ms: int = 45000
     submit: FormField = field(default_factory=FormField)
     next_button: FormField = field(default_factory=FormField)
+    category_panel: list[str] = field(default_factory=list)
+    category_selected: list[str] = field(default_factory=list)
     final_title: FormField = field(default_factory=FormField)
     shipping: FormField = field(default_factory=FormField)
     shipping_enabled: bool = False
@@ -102,6 +104,10 @@ class ListingFormConfig:
             photo_wait_ms=int(photos.get("espera_ms", 45000)),
             submit=FormField.from_dict(data.get("publicar")),
             next_button=FormField.from_dict(data.get("continuar")),
+            category_panel=[str(x) for x in ((data.get("categoria") or {}).get("panel") or [])],
+            category_selected=[
+                str(x) for x in ((data.get("categoria") or {}).get("seleccionada") or [])
+            ],
             final_title=FormField.from_dict(data.get("titulo_revision")),
             shipping=FormField.from_dict(data.get("envio")),
             shipping_enabled=bool((data.get("envio") or {}).get("activado", False)),

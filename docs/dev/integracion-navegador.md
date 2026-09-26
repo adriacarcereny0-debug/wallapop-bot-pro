@@ -299,3 +299,29 @@ prueba primero con «Continuar». Los selectores de categoría y característica
 van limitados a `main`/`form` y a nombres que empiezan por «Categoría» (no
 «Categorías»): el menú «Categorías» de la cabecera es el buscador de la web y
 nunca se pulsa.
+
+## Categoría (CategoryPicker, `category.py`)
+
+Flujo: medir el campo «Categoría» ANTES de abrirlo → marcar los textos de la
+ruta que ya existen en la página (enlaces del pie, textos ocultos: nunca son
+opciones) → abrir → esperar a que la lista esté visible → buscar la categoría
+final dentro del panel (sugeridas) → si no, recorrer la ruta nivel a nivel
+esperando a que aparezca cada nivel → pulsar la FILA de la opción → esperar a
+que la lista se cierre → VERIFICAR (lista cerrada + el campo muestra la
+categoría). Si no se verifica, error con captura, `.json` con los pasos y el
+HTML del panel.
+
+Selectores (`publicar.formulario.categoria` en el YAML): `objetivos` (campo),
+`panel` (lista abierta) y `seleccionada` (dónde se lee lo elegido). Si el
+selector del panel deja de valer, la lista abierta se reconoce por sus
+opciones visibles fuera del campo.
+
+Causa del fallo anterior: la comprobación leía el texto del componente del
+desplegable; si la lista está DENTRO de ese componente, con la lista abierta
+el texto incluía «Estructura de camas» y se daba por seleccionada → el bot
+seguía con el selector abierto y se bloqueaba. Reproducido con la página de
+prueba (`?cat=dentro`).
+
+Diagnóstico detallado: `LOT_BOT_BROWSER_DEBUG=1` registra cada paso de la
+categoría en el log y guarda también captura cuando sale bien. Sin él, solo se
+guarda (en `logs/navegador`) cuando falla.

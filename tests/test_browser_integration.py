@@ -117,6 +117,8 @@ class FakePage(BrowserPage):
                 for name, spec in form_fields().items():
                     if spec.targets and name not in missing:
                         visible.add(spec.targets[0])
+        if getattr(self, "cat_open", False) and FORM.category_panel:
+            visible |= {FORM.category_panel[0]}
         if self.world.get("verification"):
             visible |= {SITE.verification[0]}
         if self.world.get("reject_image") and self.thumbs == 0 and self.world.get("files_sent"):
@@ -139,6 +141,8 @@ class FakePage(BrowserPage):
                 self.world["published"] = True
             self.world["submits"] = self.world.get("submits", 0) + 1
         self._open = target
+        if target == FORM.category.targets[0]:
+            self.cat_open = True
 
     def click_option(self, text, timeout_ms, opener=None):
         self.log.append(("option", text))
@@ -146,6 +150,8 @@ class FakePage(BrowserPage):
             return False
         if self._open:
             self.values[self._open] = text
+        if self._open == FORM.category.targets[0]:
+            self.cat_open = False
         return True
 
     def set_files(self, target, paths):

@@ -205,3 +205,31 @@ def test_navegador_real_foto_grande_o_png_se_prepara_y_se_sube(servicio):
     assert resultado.success, resultado.message
     assert web.published[0]["fotos"] == 1
     assert "/buscar-por-foto" not in web.visited
+
+
+@pytest.mark.parametrize("modo", ["arbol", "lento", "dentro", "dentro-arbol"])
+def test_navegador_real_categoria_en_arbol_o_lenta_queda_seleccionada(servicio, modo):
+    """Sin sugeridas (recorre Muebles y organización → Camas y accesorios →
+    Estructura de camas) o con opciones que tardan: queda puesta y sigue."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += f"?cat={modo}"
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    assert web.published[0]["categoria"] == "Estructura de camas"
+    assert "/buscar-categorias" not in web.visited  # nunca el enlace duplicado de fuera
+    pasos = resultado.data["pasos"]
+    assert pasos.index("Categoría") < pasos.index("Característica Estado")
+
+
+def test_navegador_real_si_wallapop_no_acepta_la_categoria_no_sigue(servicio):
+    from lot_bot.wallapop.errors import BrowserStepError
+
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?cat=ignora"
+    service.site.timeout_ms = 3000
+    with pytest.raises(BrowserStepError) as info:
+        service.create_item("cuenta-1", borrador(tmp_path))
+    assert info.value.step == "Categoría"
+    assert web.published == []  # no se ha seguido rellenando ni publicado
+    contexto = next((tmp_path / "logs" / "navegador").glob("*Categor*.json")).read_text(encoding="utf-8")
+    assert "Estructura de camas" in contexto and "html_panel" in contexto

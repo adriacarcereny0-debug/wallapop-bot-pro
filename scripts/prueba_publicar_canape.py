@@ -55,6 +55,9 @@ def _prepare_simulated(app):
     web = SimulatedWallapop().__enter__()
     service = app.wallapop
     service.site = web.site(service.site)
+    modo = os.environ.get("LOT_BOT_SIMULADO_CATEGORIAS")  # p. ej. «dentro-arbol»
+    if modo:
+        service.site.urls["subir"] += f"?cat={modo}"
     service.site.visible = True
     cuenta = app.accounts.add_account("Cuenta de prueba")
     service.profiles.profile_dir(cuenta.internal_ref).joinpath("Local State").write_text("{}")
@@ -76,7 +79,13 @@ def main() -> int:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--simulado", action="store_true", help="página local que imita Wallapop")
     group.add_argument("--cuenta", help="alias de la cuenta de Wallapop conectada en LOT Bot")
+    parser.add_argument(
+        "--diagnostico", action="store_true",
+        help="registra cada paso de la categoría y guarda capturas en logs/navegador",
+    )
     args = parser.parse_args()
+    if args.diagnostico:
+        os.environ["LOT_BOT_BROWSER_DEBUG"] = "1"
 
     if args.simulado:
         os.environ["LOT_BOT_DATA_DIR"] = tempfile.mkdtemp(prefix="lotbot-prueba-")

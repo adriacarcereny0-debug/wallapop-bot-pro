@@ -72,6 +72,36 @@ class BrowserPage(ABC):
         """Estado de un interruptor/casilla."""
         return False
 
+    # --- Piezas para el selector de categoría (category.py) ---
+    def bbox(self, target: str) -> dict | None:
+        """Posición del elemento en pantalla (x, y, width, height)."""
+        return None
+
+    def text_candidates(
+        self, text: str, within: str | None = None, field: str | None = None
+    ) -> list[dict]:
+        """Elementos cuyo texto es EXACTAMENTE `text` (dentro de `within` si se
+        indica): [{index, visible, enabled, box, previo, en_campo}]. `en_campo`:
+        el elemento está dentro del campo `field` (el propio desplegable)."""
+        return [{"index": 0, "visible": True, "enabled": True, "box": None}]
+
+    def click_text(self, text: str, index: int, within: str | None = None) -> None:
+        """Pulsa la FILA (opción) que contiene el texto número `index`."""
+        if not self.click_option(text, 0):
+            raise RuntimeError(f"No se ha podido pulsar «{text}».")
+
+    def outer_html(self, target: str, limit: int = 20000) -> str:
+        """HTML de un elemento (para diagnóstico; sin cookies ni tokens)."""
+        return ""
+
+    def mark_existing(self, texts: list[str]) -> int:
+        """Marca los elementos con esos textos que YA están en la página antes
+        de abrir una lista: nunca serán opciones de esa lista."""
+        return 0
+
+    def unmark_existing(self) -> None:
+        return None
+
     def attached(self, target: str) -> int:
         """Elementos que EXISTEN en la página, aunque estén ocultos."""
         return self.count(target)
@@ -267,6 +297,110 @@ class _PlaywrightPage(BrowserPage):
             return not self._page.is_closed() and bool(self._page.context.pages)
         except Exception:
             return False
+
+    def _text_locator(self, text: str, within: str | None):
+        exact = re.compile(rf"^\s*{re.escape(text)}\s*$", re.IGNORECASE)
+        root = self._page.locator(within).first if within else self._page
+        return root.get_by_text(exact)
+
+    def bbox(self, target: str) -> dict | None:
+        try:
+            return self._page.locator(target).first.bounding_box()
+        except Exception:
+            return None
+
+    def text_candidates(
+        self, text: str, within: str | None = None, field: str | None = None
+    ) -> list[dict]:
+        found: list[dict] = []
+        locator = self._text_locator(text, within)
+        field_handle = None
+        if field:
+            try:
+                field_handle = self._page.locator(field).first.element_handle(timeout=1000)
+            except Exception:
+                field_handle = None
+        try:
+            count = min(locator.count(), 20)
+        except Exception:
+            return found
+        for index in range(count):
+            item = locator.nth(index)
+            try:
+                visible = item.is_visible()
+            except Exception:
+                visible = False
+            try:
+                enabled = item.is_enabled()
+            except Exception:
+                enabled = True
+            box = None
+            if visible:
+                try:
+                    box = item.bounding_box()
+                except Exception:
+                    box = None
+            try:
+                pre = bool(item.evaluate("e => !!e.closest('[data-lotbot-previo]')"))
+            except Exception:
+                pre = False
+            in_field = False
+            if field_handle is not None:
+                try:
+                    in_field = bool(
+                        item.evaluate("(e, f) => f === e || f.contains(e)", field_handle)
+                    )
+                except Exception:
+                    in_field = False
+            found.append(
+                {"index": index, "visible": visible, "enabled": enabled, "box": box,
+                 "previo": pre, "en_campo": in_field}
+            )
+        return found
+
+    def mark_existing(self, texts: list[str]) -> int:
+        marked = 0
+        for text in texts:
+            locator = self._text_locator(text, None)
+            try:
+                count = min(locator.count(), 50)
+            except Exception:
+                continue
+            for index in range(count):
+                try:
+                    locator.nth(index).evaluate("e => e.setAttribute('data-lotbot-previo', '1')")
+                    marked += 1
+                except Exception:
+                    continue
+        return marked
+
+    def unmark_existing(self) -> None:
+        try:
+            self._page.evaluate(
+                "() => document.querySelectorAll('[data-lotbot-previo]')"
+                ".forEach(e => e.removeAttribute('data-lotbot-previo'))"
+            )
+        except Exception:
+            pass
+
+    #: La «fila» que se pulsa: el antepasado más cercano que es una opción.
+    _ROW_XPATH = (
+        "xpath=ancestor-or-self::*[@role='option' or @role='menuitem' or @role='treeitem'"
+        " or @role='button' or self::button or self::li or self::a or @tabindex][1]"
+    )
+
+    def click_text(self, text: str, index: int, within: str | None = None) -> None:
+        item = self._text_locator(text, within).nth(index)
+        row = item.locator(self._ROW_XPATH)
+        target = row.first if row.count() else item
+        target.scroll_into_view_if_needed(timeout=3000)
+        target.click(timeout=5000)
+
+    def outer_html(self, target: str, limit: int = 20000) -> str:
+        try:
+            return (self._page.locator(target).first.evaluate("e => e.outerHTML") or "")[:limit]
+        except Exception:
+            return ""
 
     def is_checked(self, target: str) -> bool:
         locator = self._page.locator(target).first

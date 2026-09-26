@@ -135,6 +135,17 @@ publicar:
         - "role=button[name=/^Categoría(?!s)/i]"
         - "[placeholder^='Categoría' i]"
         - "text=/^Categoría y subcategoría$/i"
+      # Panel con la lista de categorías, una vez abierto. Mientras se vea, la
+      # categoría NO está elegida. En Wallapop tiene los títulos «Categorías
+      # sugeridas» y «Todas las categorías».
+      panel:
+        - "role=listbox"
+        - "role=tree"
+        - "div:has(:text-is('Categorías sugeridas')):has(:text-is('Todas las categorías'))"
+      # Dónde se ve la categoría elegida (opcional; si no, el propio campo).
+      seleccionada:
+        - "role=combobox[name=/^Categoría(?!s)/i]"
+        - "role=button[name=/^Categoría(?!s)/i]"
     subcategoria:
       opcional: true
       objetivos:

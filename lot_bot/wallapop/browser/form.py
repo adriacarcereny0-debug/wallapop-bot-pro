@@ -36,6 +36,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from lot_bot.wallapop.browser.category import (
+    CategoryPicker,
+    CategorySelectionError,
+    debug_enabled,
+)
 from lot_bot.wallapop.browser.config import ATTRIBUTE_KEYS, BrowserSiteConfig, FormField
 from lot_bot.wallapop.browser.driver import BrowserPage, safe_url
 from lot_bot.wallapop.errors import (
@@ -126,7 +131,11 @@ class ListingForm:
     def timeout(self) -> int:
         return self.site.timeout_ms
 
-    def save_error_context(self, step: str, error: str) -> str | None:
+    _last_shot: str | None = None
+
+    def save_error_context(
+        self, step: str, error: str, extra: dict | None = None
+    ) -> str | None:
         """Captura + contexto en logs/navegador. Nunca cookies ni tokens."""
         if self.shots_dir is None:
             return None
@@ -158,6 +167,7 @@ class ListingForm:
             "diagnostico": diagnostics,
             "nota": "Pasa esta captura y este fichero a Claude para actualizar los "
             "selectores de wallapop_browser.yaml.",
+            **(extra or {}),
         }
         try:
             base.parent.mkdir(parents=True, exist_ok=True)
@@ -167,6 +177,7 @@ class ListingForm:
         except OSError:
             pass
         logger.error("Publicación: fallo en «%s» (%s). Contexto: %s", step, error, base.with_suffix(".json"))
+        self._last_shot = shot
         return shot
 
     def _fail(self, step: str, detail: str) -> BrowserStepError:
@@ -289,32 +300,33 @@ class ListingForm:
         return chosen[0] if chosen else None
 
     def _choose_path(self, step: str, spec: FormField, path: str) -> str:
-        """Categoría tipo «A > B > Estructura de camas»: primero se busca la
-        última parte (Wallapop la suele sugerir); si no está, se recorre la ruta."""
+        """Categoría «A > B > Estructura de camas» con `CategoryPicker`:
+        abre, recorre los niveles y VERIFICA que la final ha quedado puesta."""
         parts = [p.strip() for p in path.split(">") if p.strip()]
-        leaf = parts[-1]
-
-        def selected(target: str) -> bool:
-            try:
-                return normalize(leaf) in normalize(self.page.value_of(target))
-            except Exception:
-                return True  # no se puede leer: lo comprueba verify_form
-
-        def action() -> None:
-            target = self._require(step, spec)
-            self.page.click(target)
-            if self.page.click_option(leaf, min(self.timeout, 4000), opener=target) and selected(target):
-                return
-            # No estaba entre las sugeridas (o no quedó puesta): ruta completa.
-            if not self.page.first_visible(["[role=option]", "[role=listbox]"], 0):
-                self.page.click(target)
-            for part in parts:
-                if not self.page.click_option(part, self.timeout, opener=target):
-                    raise self._fail(step, f"No aparece «{part}» en la lista de categorías.")
-            if not selected(target):
-                raise self._fail(step, f"La categoría no ha quedado como «{leaf}».")
-
-        self._do(step, action)
+        picker = CategoryPicker(
+            self.page,
+            opener_targets=spec.targets,
+            panel_targets=self.form.category_panel,
+            selected_targets=self.form.category_selected,
+            timeout_ms=self.timeout,
+        )
+        self.guard(step)
+        try:
+            leaf = picker.select(parts)
+        except CategorySelectionError as exc:
+            self.save_error_context(step, exc.reason, extra={"categoria": exc.diagnostics})
+            raise BrowserStepError(step, exc.reason, self._last_shot) from exc
+        except WallapopError:
+            raise
+        except Exception as exc:
+            reason = f"{type(exc).__name__}: {str(exc).splitlines()[0][:200] if str(exc) else ''}"
+            self.save_error_context(step, reason, extra={"categoria": picker._diag(parts)})
+            raise BrowserStepError(step, reason, self._last_shot) from exc
+        if debug_enabled():
+            self.save_error_context("categoria-ok", f"Seleccionada «{leaf}»",
+                                    extra={"categoria": {"pasos": picker.trace[-40:]}})
+        self._check_wallapop_error(step)
+        self.steps.append(step)
         return leaf
 
     # ------------------------------------------------------------------
