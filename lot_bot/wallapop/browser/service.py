@@ -89,13 +89,6 @@ def format_price(price: float, style: str) -> str:
     return text.replace(".", ",") if style == "coma" else text
 
 
-def _shipping(value) -> bool | None:
-    """«sí»/«no» del Anuncio principal → True/False; sin dato → None."""
-    if value is None or value == "":
-        return None
-    return str(value).strip().lower() in ("sí", "si", "true", "1", "yes")
-
-
 class BrowserWallapopService(WallapopService):
     backend_name = "WALLAPOP (NAVEGADOR)"
     is_mock = False
@@ -302,7 +295,7 @@ class BrowserWallapopService(WallapopService):
             subcategory=str((draft.attributes or {}).get("subcategoria") or ""),
             attributes=attributes,
             images=[str(Path(p)) for p in draft.image_paths if Path(p).is_file()],
-            shipping=_shipping((draft.attributes or {}).get("envio")),
+            location=str((draft.attributes or {}).get("ubicacion") or ""),
         )
 
     def _screenshot(self, page: BrowserPage, account_ref: str, step: str) -> str | None:

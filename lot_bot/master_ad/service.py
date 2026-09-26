@@ -452,6 +452,11 @@ class MasterAdService:
     # ------------------------------------------------------------------
     # Publicación
     # ------------------------------------------------------------------
+    @staticmethod
+    def is_active(view: MasterAdView) -> bool:
+        """«Anuncio activo» del Anuncio principal (por defecto, sí)."""
+        return str((view.attributes or {}).get("activo") or "sí").strip().lower() != "no"
+
     def set_image_enabled(self, key: str | None, index: int, enabled: bool) -> MasterAdView:
         """Marca si una foto se usa al publicar (las no marcadas se guardan
         pero no se suben)."""
@@ -627,6 +632,12 @@ class MasterAdService:
         """Publica UNA copia (la usa la cola de publicación)."""
         if not confirmed:
             raise ConfirmationRequiredError("publicar el anuncio principal")
+        current = self.get(key)
+        if current is not None and not self.is_active(current):
+            raise ValueError(
+                "El Anuncio principal está DESACTIVADO: márcalo como «Anuncio activo» en "
+                "«Anuncio principal» para que el bot lo publique."
+            )
         self._wallapop.require(Capability.CREATE_ITEM)
         view = self.get(key)
         if view is None:

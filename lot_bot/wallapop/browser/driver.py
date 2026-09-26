@@ -94,6 +94,11 @@ class BrowserPage(ABC):
         """HTML de un elemento (para diagnóstico; sin cookies ni tokens)."""
         return ""
 
+    def click_suggestion(self, text: str, timeout_ms: int) -> bool:
+        """Pulsa la primera sugerencia visible que CONTIENE `text` (p. ej. al
+        escribir «Madrid» aparece «Madrid, Madrid»)."""
+        return self.click_option(text, timeout_ms)
+
     def mark_existing(self, texts: list[str]) -> int:
         """Marca los elementos con esos textos que YA están en la página antes
         de abrir una lista: nunca serán opciones de esa lista."""
@@ -390,6 +395,20 @@ class _PlaywrightPage(BrowserPage):
                  "previo": pre, "en_campo": in_field}
             )
         return found
+
+    def click_suggestion(self, text: str, timeout_ms: int) -> bool:
+        pattern = re.compile(re.escape(text), re.IGNORECASE)
+        options = (
+            self._page.locator("[role=option], [role=menuitem], li")
+            .filter(has_text=pattern)
+            .filter(visible=True)
+        )
+        try:
+            options.first.wait_for(state="visible", timeout=timeout_ms)
+            options.first.click(timeout=5000)
+            return True
+        except Exception:
+            return False
 
     def mark_existing(self, texts: list[str]) -> int:
         marked = 0

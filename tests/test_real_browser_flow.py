@@ -71,7 +71,7 @@ def borrador(tmp_path) -> ItemDraft:
         price=11.44,
         category="Muebles y organización > Camas y accesorios > Estructura de camas",
         condition="Nuevo",
-        attributes=dict(CLIENT_ATTRIBUTES),
+        attributes={**CLIENT_ATTRIBUTES, "ubicacion": "Madrid"},
         image_paths=[str(foto)],
     )
 
@@ -90,8 +90,10 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     assert publicado["descripcion"] == DESCRIPCION
     assert publicado["precio"] == "11,44"
     assert publicado["categoria"] == "Estructura de camas"
-    assert publicado["envio"] is False
     assert publicado["fotos"] == 1
+    # Ubicación del Anuncio principal (Wallapop tenía Barcelona) y la
+    # descripción que la IA de Wallapop reescribió tarde vuelve a ser la tuya.
+    assert publicado["ubicacion"] == "Madrid"
     # Pulsa «Continuar» tras el título y NUNCA el menú «Categorías» de la cabecera.
     pasos = resultado.data["pasos"]
     assert "Continuar tras el título" in pasos
@@ -99,7 +101,7 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     assert pasos.index("Fotos") < pasos.index("Continuar tras las fotos") < pasos.index("Categoría")
     for c in ("Estado", "Color", "Material"):
         assert f"Característica {c}" in pasos, pasos
-    assert "Título (revisión)" in pasos and "Envío desactivado" in pasos
+    assert "Título (revisión)" in pasos and "Detalles listos" in pasos
     omitidos = resultado.data["omitidos"]
     assert any("Uso" in o for o in omitidos)  # Wallapop no tiene ese campo
     assert any("elegido «Gris»" in o for o in omitidos)  # no hay «Gris y Blanco»

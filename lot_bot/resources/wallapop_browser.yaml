@@ -193,14 +193,25 @@ publicar:
       objetivos:
         - "role=textbox[name=/^Título/i]"
         - "input[name='title']"
-    # Interruptor «Activar envío». activado: false → sin envíos (la
-    # descripción ya explica la entrega). Si está activado, se apaga.
-    envio:
-      activado: false
+    # Ubicación del anuncio (Anuncio principal → «Ubicación»). Wallapop pone la
+    # de la cuenta; si la plantilla indica otra ciudad, se cambia: se abre el
+    # campo, se escribe la ciudad y se elige la primera sugerencia que la
+    # contenga. SIN VERIFICAR contra la web real.
+    ubicacion:
+      opcional: true
       objetivos:
-        - "role=switch[name=/Activar envío/i]"
-        - "role=checkbox[name=/Activar envío/i]"
-        - "label:has-text('Activar envío') input[type='checkbox']"
+        - "role=button[name=/Ubicación|Localización|Dónde está/i]"
+        - "role=combobox[name=/Ubicación|Localización|Código postal|Ciudad/i]"
+        - "role=textbox[name=/Ubicación|Localización|Código postal|Ciudad/i]"
+      # Campo donde se escribe la ciudad (si al pulsar se abre otro).
+      escribir:
+        - "role=combobox[name=/Ubicación|Localización|Código postal|Ciudad|Busca/i]"
+        - "role=textbox[name=/Ubicación|Localización|Código postal|Ciudad|Busca/i]"
+        - "input[placeholder*='ciudad' i]"
+        - "input[placeholder*='código postal' i]"
+      # Botón para confirmar la ubicación elegida (si lo hay).
+      confirmar:
+        - "role=button[name=/^(Aplicar|Guardar|Confirmar|Aceptar|Listo)$/i]"
     # Si Wallapop no tiene el valor exacto de la plantilla, se prueban estas
     # alternativas en orden (se indica en el resultado cuál se eligió).
     equivalencias:

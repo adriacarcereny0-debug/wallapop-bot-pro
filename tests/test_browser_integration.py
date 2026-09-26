@@ -34,6 +34,7 @@ SITE = load_site_config(Path(__file__).resolve().parents[1] / "lot_bot/resources
 
 
 FORM = SITE.form
+from lot_bot.wallapop.browser.config import FormField  # noqa: E402
 
 
 def form_fields() -> dict[str, object]:
@@ -47,7 +48,8 @@ def form_fields() -> dict[str, object]:
         "precio": FORM.price,
         "fotos": FORM.photos,
         "publicar": FORM.submit,
-        "envio": FORM.shipping,
+        "ubicacion": FORM.location,
+        "ubicacion_escribir": FormField(targets=FORM.location_input),
     }
     fields.update(FORM.attributes)
     return fields
@@ -144,8 +146,6 @@ class FakePage(BrowserPage):
         self._open = target
         if target == FORM.category.targets[0]:
             self.cat_open = True
-        if FORM.shipping.targets and target == FORM.shipping.targets[0]:
-            self.shipping_on = not getattr(self, "shipping_on", False)
 
     def click_option(self, text, timeout_ms, opener=None):
         self.log.append(("option", text))
@@ -169,9 +169,6 @@ class FakePage(BrowserPage):
         if name in tamper:
             return tamper[name]
         return self.values.get(target, "")
-
-    def is_checked(self, target):
-        return getattr(self, "shipping_on", False)
 
     def attached(self, target):
         if "fotos" in self.world.get("missing", set()) or self.world.get("no_file_input"):
@@ -310,9 +307,8 @@ def test_publicar_rellena_el_formulario_y_devuelve_la_url(profiles, tmp_path):
     # Todos los pasos, en orden, hechos por LOT Bot (no por el usuario).
     assert result.data["pasos"] == [
         "Comprobar sesión", "Abrir crear anuncio", "Tipo de anuncio", "Título", "Fotos",
-        "Categoría", "Característica Estado", "Característica Uso", "Característica Color",
-        "Característica Material", "Descripción", "Precio", "Envío desactivado",
-        "Comprobar formulario",
+        "Categoría", "Detalles listos", "Característica Estado", "Característica Uso", "Característica Color",
+        "Característica Material", "Descripción", "Precio", "Comprobar formulario",
         "Publicar", "Confirmación de Wallapop",
     ]
 

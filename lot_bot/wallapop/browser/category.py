@@ -57,6 +57,9 @@ class CategoryPicker:
     panel_targets: list[str]
     selected_targets: list[str] = field(default_factory=list)
     timeout_ms: int = 20000
+    #: Espera a que Wallapop acepte la categoría y termine de «preparar» el
+    #: formulario (None = el mayor entre timeout_ms y 30 s).
+    accept_timeout_ms: int | None = None
     #: Registro de lo que se ha hecho (va al .json de diagnóstico).
     trace: list[dict[str, Any]] = field(default_factory=list)
     _opener_box: dict | None = None
@@ -143,6 +146,36 @@ class CategoryPicker:
         if self._panel_seen:
             return False  # el selector del panel funciona: y ya no se ve
         return self._visible_options()
+
+    def _not_accepted_reason(self, opener: str, leaf: str) -> str:
+        if self._panel_open():
+            return (
+                f"Se ha pulsado «{leaf}» pero la lista de categorías sigue abierta: "
+                "Wallapop no ha aceptado la selección."
+            )
+        return (
+            f"La lista se ha cerrado pero el campo muestra «{self._field_text(opener)}» "
+            f"en vez de «{leaf}»."
+        )
+
+    def _accept_ms(self) -> int:
+        if self.accept_timeout_ms is not None:
+            return self.accept_timeout_ms
+        return max(self.timeout_ms, 30000)
+
+    def _accepted(self, opener: str, leaf: str) -> bool:
+        """La categoría ha quedado puesta: lista cerrada y la categoría a la
+        vista en el formulario. Si Wallapop vuelve a dibujar el formulario al
+        prepararlo, el campo puede cambiar: vale verla en cualquier sitio
+        que NO sea un texto previo (enlaces) ni una opción de la lista."""
+        if self._is_selected(opener, leaf):
+            return True
+        if self._panel_open():
+            return False
+        return any(
+            c.get("visible") and not c.get("previo")
+            for c in self.page.text_candidates(leaf)
+        )
 
     def _field_text(self, opener: str) -> str:
         """Texto del campo Categoría. Solo se lee con el panel CERRADO (con el
@@ -240,13 +273,15 @@ class CategoryPicker:
         self._log("panel_abierto", panel=self._panel())
 
         # 1. La final entre las sugeridas.
-        if self._click(leaf, opener_box, min(self.timeout_ms, 4000)) and self._wait(
-            lambda: self._is_selected(opener, leaf), min(self.timeout_ms, 5000)
-        ):
-            self._log("verificada", categoria=leaf, via="sugerida")
-            return leaf
+        if self._click(leaf, opener_box, min(self.timeout_ms, 4000)):
+            # Wallapop ACEPTA la categoría y se pone a «preparar» el resto del
+            # formulario (puede tardar): se espera, SIN volver a abrir la lista.
+            if self._wait(lambda: self._accepted(opener, leaf), self._accept_ms()):
+                self._log("verificada", categoria=leaf, via="sugerida")
+                return leaf
+            raise CategorySelectionError(self._not_accepted_reason(opener, leaf), self._diag(path))
 
-        # 2. Recorrer la ruta nivel a nivel.
+        # 2. No estaba entre las sugeridas: recorrer la ruta nivel a nivel.
         if not self._panel_open():
             self.page.click(opener)
             self._wait(self._panel_open, self.timeout_ms)
@@ -267,7 +302,7 @@ class CategoryPicker:
                         self._diag(path),
                     )
 
-        if not self._wait(lambda: self._is_selected(opener, leaf), self.timeout_ms):
+        if not self._wait(lambda: self._accepted(opener, leaf), self._accept_ms()):
             if self._panel_open():
                 reason = (
                     f"Se ha pulsado «{leaf}» pero la lista de categorías sigue abierta: "

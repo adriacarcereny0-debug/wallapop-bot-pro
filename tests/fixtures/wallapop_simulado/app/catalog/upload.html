@@ -42,6 +42,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <div id="paso2" hidden>
   <p>No te preocupes, te ayudaremos con algunas sugerencias cuando abras el desplegable</p>
   <div class="combo" style="margin-top:220px"><button type="button" role="combobox" aria-label="Categoría y subcategoría" id="cat">Categoría y subcategoría</button></div>
+  <p id="preparando" hidden>Preparando el resto de la información…</p>
   <div id="revision" hidden>
   <p><b>Revisa la información</b> Hemos rellenado algunos detalles por ti.</p>
   <label>Marca</label>
@@ -60,8 +61,12 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <div class="combo"><button type="button" role="combobox" aria-label="Estado*" data-options="Nuevo|Como nuevo|En buen estado">Estado*</button></div>
   <label for="sale_price">Precio*</label>
   <input id="sale_price" name="sale_price">
-  <h3>Opciones de envío</h3>
-  <label><input type="checkbox" role="switch" id="envio" aria-label="Activar envío" checked> Activar envío</label>
+  <label>Ubicación</label>
+  <button type="button" id="ubic" aria-label="Ubicación">Barcelona</button>
+  <div id="ubic-panel" hidden>
+    <input id="ubic-busca" placeholder="Busca una ciudad o código postal" aria-label="Busca tu ciudad">
+    <ul id="ubic-sug" role="listbox"></ul>
+  </div>
   </div>
   <p><button type="button" id="subir">Subir producto</button></p>
   </div>
@@ -102,7 +107,16 @@ function renderCats(ul, btn, level) {
     btn.textContent = name;
     if (CAT_MODE_RAW.includes('oculta')) ul.style.display = 'none'; else ul.remove();
     btn.parentElement.removeAttribute('aria-expanded');
-    document.getElementById('revision').hidden = false;
+    // Como Wallapop: «preparando» el resto del formulario unos segundos, se
+    // vuelve a dibujar el campo y, al final, su IA reescribe la descripción.
+    const prep = document.getElementById('preparando'); prep.hidden = false;
+    setTimeout(() => {
+      prep.hidden = true;
+      const nuevo = btn.cloneNode(true); btn.replaceWith(nuevo);
+      document.getElementById('revision').hidden = false;
+      setTimeout(() => { document.getElementById('description').value =
+        'Canapé de madera con almacenaje. Generado por la IA de Wallapop.'; }, 1500);
+    }, CAT_MODE_RAW.includes('rapido') ? 0 : 3000);
   }));
 }
 if (CAT_MODE === 'dentro') {
@@ -169,12 +183,28 @@ if (params.get('modo') === 'boton') {
   document.getElementById('fotos').addEventListener('change', mostrarFotos);
   document.getElementById('subir-fotos').addEventListener('click', () => document.getElementById('fotos').click());
 }
+document.getElementById('ubic').addEventListener('click', () => {
+  document.getElementById('ubic-panel').hidden = false;
+});
+document.getElementById('ubic-busca').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  const ul = document.getElementById('ubic-sug'); ul.innerHTML = '';
+  ['Madrid, Madrid', 'Valencia, Valencia', 'Barcelona, Barcelona', 'Sevilla, Sevilla']
+    .filter(c => q && c.toLowerCase().includes(q)).forEach(c => {
+      const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = c;
+      li.addEventListener('click', () => {
+        document.getElementById('ubic').textContent = c.split(',')[0];
+        document.getElementById('ubic-panel').hidden = true;
+      });
+      ul.appendChild(li);
+    });
+});
 document.getElementById('subir').addEventListener('click', () => {
   const data = {
     titulo: document.getElementById('title').value,
     descripcion: document.getElementById('description').value,
     categoria: document.getElementById('cat').textContent,
-    envio: document.getElementById('envio').checked,
+    ubicacion: document.getElementById('ubic').textContent,
     precio: document.getElementById('sale_price').value,
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
   };

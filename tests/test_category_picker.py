@@ -130,7 +130,8 @@ class CategoryPage(BrowserPage):
 
 
 def picker(page, timeout_ms=400):
-    return CategoryPicker(page, [OPENER], [PANEL], timeout_ms=timeout_ms)
+    return CategoryPicker(page, [OPENER], [PANEL], timeout_ms=timeout_ms,
+                          accept_timeout_ms=timeout_ms)
 
 
 def test_categoria_sugerida_se_selecciona_y_se_verifica():
@@ -254,10 +255,10 @@ def test_sin_selector_de_panel_se_detecta_la_lista_por_sus_opciones():
     """Si Wallapop cambia el panel y su selector deja de valer, la lista
     abierta se reconoce por las opciones visibles fuera del campo."""
     page = CategoryPage(suggested=False)
-    assert CategoryPicker(page, [OPENER], [], timeout_ms=400).select(PATH) == "Estructura de camas"
+    assert CategoryPicker(page, [OPENER], [], timeout_ms=400, accept_timeout_ms=400).select(PATH) == "Estructura de camas"
     page = CategoryPage(stays_open=True)
     with pytest.raises(CategorySelectionError):
-        CategoryPicker(page, [OPENER], [], timeout_ms=400).select(PATH)
+        CategoryPicker(page, [OPENER], [], timeout_ms=400, accept_timeout_ms=400).select(PATH)
 
 
 @pytest.mark.parametrize("escrita", ["Estructuras de camas", "estructura de camas", "ESTRUCTURA DE CAMA"])

@@ -330,7 +330,7 @@ def test_todo_lo_que_se_sube_sale_del_anuncio_principal(listo):
             "category": "Colchones",
             "description": "Mesa en perfecto estado. Recogida en Madrid.",
             "attributes": {"estado": "Como nuevo", "color": "Negro", "material": "Metal",
-                           "envio": "sí"},
+                           "ubicacion": "Madrid"},
         },
         confirmed=True,
     )
@@ -344,4 +344,16 @@ def test_todo_lo_que_se_sube_sale_del_anuncio_principal(listo):
     assert escritos[FORM.description.targets[0]] == "Mesa en perfecto estado. Recogida en Madrid."
     opciones = [e[1] for e in pagina.log if e[0] == "option"]
     assert opciones[:4] == ["Colchones", "Como nuevo", "Negro", "Metal"]
-    assert ("click", FORM.shipping.targets[0]) in pagina.log  # envío activado desde la plantilla
+    assert ("fill", FORM.location_input[0], "Madrid") in pagina.log  # ubicación de la plantilla
+
+
+def test_anuncio_principal_desactivado_no_se_publica(listo):
+    app, world, _ = listo
+    master = app.master_ads.get(None)
+    app.master_ads.update(
+        master.key, {"attributes": {**master.attributes, "activo": "no"}}, confirmed=True
+    )
+    r = app.agent.ask("Publica 1 canapé en la cuenta Mi tienda")
+    assert not r.needs_confirmation
+    assert "DESACTIVADO" in textos(r)
+    assert world.get("pages") is None  # ni se abre el navegador

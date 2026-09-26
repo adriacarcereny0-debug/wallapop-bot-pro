@@ -85,8 +85,8 @@ class ListingData:
     subcategory: str = ""
     attributes: dict[str, str] = field(default_factory=dict)
     images: list[str] = field(default_factory=list)
-    #: Envío según el Anuncio principal (None = lo que diga el YAML).
-    shipping: bool | None = None
+    #: Ciudad del Anuncio principal («» = la que ponga Wallapop).
+    location: str = ""
 
 
 @dataclass(slots=True)
@@ -317,6 +317,7 @@ class ListingForm:
             panel_targets=self.form.category_panel,
             selected_targets=self.form.category_selected,
             timeout_ms=self.timeout,
+            accept_timeout_ms=max(self.timeout, min(self.form.prepare_wait_ms, 30000)),
         )
         self.guard(step)
         try:
@@ -383,6 +384,76 @@ class ListingForm:
             if chosen:
                 self.attributes_filled[key] = chosen
 
+    def wait_until_details_ready(self) -> None:
+        """Tras la categoría, Wallapop se queda «preparando» el resto del
+        formulario (a veces con su IA). Se ESPERA a que aparezcan los campos
+        de detalles (precio, estado, descripción…) antes de tocarlos."""
+        targets = [
+            *self.form.price.targets,
+            *self.form.description.targets,
+            *(self.form.attributes.get("estado").targets if self.form.attributes.get("estado") else []),
+        ]
+        deadline = time.monotonic() + self.form.prepare_wait_ms / 1000
+        while time.monotonic() < deadline:
+            self.guard("Preparando detalles")
+            if self.page.first_visible(targets, 0):
+                self.steps.append("Detalles listos")
+                return
+            if self.continue_if_present("Continuar tras la categoría", wait_ms=0):
+                continue
+            self.page.wait(250)
+        raise self._fail(
+            "Preparando detalles",
+            "Tras elegir la categoría, Wallapop no ha mostrado los campos de precio/estado/"
+            "descripción a tiempo.",
+        )
+
+    def set_location(self) -> None:
+        """Ubicación del Anuncio principal. Wallapop pone la de la cuenta; si
+        ya muestra la ciudad pedida, no se toca."""
+        city = (self.data.location or "").strip()
+        if not city:
+            return
+        spec = self.form.location
+        opener = self.page.first_visible(spec.targets, min(self.timeout, 3000)) if spec.targets else None
+        if opener is None:
+            self.skipped.append(f"Ubicación «{city}» (el formulario no muestra el campo)")
+            return
+        try:
+            if contains_text(city, self.page.value_of(opener)):
+                self.steps.append(f"Ubicación {city} (ya estaba)")
+                return
+        except Exception:
+            pass
+
+        def action() -> None:
+            self.page.click(opener)
+            field_ = self.page.first_visible(self.form.location_input, min(self.timeout, 5000)) or opener
+            self.page.fill(field_, city)
+            if not self.page.click_suggestion(city, self.timeout):
+                raise self._fail("Ubicación", f"Wallapop no sugiere ninguna ubicación con «{city}».")
+            confirm = self.page.first_visible(self.form.location_confirm, 1500) if self.form.location_confirm else None
+            if confirm:
+                self.page.click(confirm)
+
+        self._do(f"Ubicación {city}", action)
+
+    def refill_if_overwritten(self) -> None:
+        """Wallapop puede rellenar título y descripción con su IA DESPUÉS de
+        que los escribamos: si no son los del Anuncio principal, se vuelven a
+        poner (una vez) antes de comprobar el formulario."""
+        checks = [
+            ("Título (revisión)", self.form.final_title, self.data.title),
+            ("Descripción", self.form.description, self.data.description),
+        ]
+        for step, spec, expected in checks:
+            if not spec.targets:
+                continue
+            current = self._read(spec)
+            if current is not None and normalize(current) != normalize(expected):
+                logger.info("Wallapop ha cambiado «%s»: se vuelve a poner el del Anuncio principal.", step)
+                self._type(f"{step} (de nuevo)", spec, expected)
+
     def fill_final_title(self) -> None:
         """En «Revisa la información» Wallapop cambia el título con su IA: se
         vuelve a poner el de la plantilla."""
@@ -393,23 +464,6 @@ class ListingForm:
             self.skipped.append("Título en «Revisa la información» (no aparece)")
             return
         self._type("Título (revisión)", spec, self.data.title)
-
-    def set_shipping(self) -> None:
-        """Deja «Activar envío» como indica el YAML (apagado: sin envíos)."""
-        spec = self.form.shipping
-        if not spec.targets:
-            return
-        target = self.page.first_visible(spec.targets, min(self.timeout, 3000))
-        if target is None:
-            self.skipped.append("Envío (no aparece el interruptor)")
-            return
-        want = self.data.shipping if self.data.shipping is not None else self.form.shipping_enabled
-        if self.page.is_checked(target) != want:
-            self._do("Envío " + ("activado" if want else "desactivado"), lambda: self.page.click(target))
-        else:
-            self.steps.append("Envío " + ("activado" if want else "desactivado"))
-        if self.page.is_checked(target) != want:
-            raise self._fail("Envío", "No se ha podido dejar el envío como se indica.")
 
     def fill_description(self) -> None:
         self._type("Descripción", self.form.description, self.data.description)
@@ -608,11 +662,13 @@ class ListingForm:
         self.upload_photos()
         self.continue_if_present("Continuar tras las fotos")
         self.select_category()
+        self.wait_until_details_ready()
         self.fill_attributes()
         self.fill_final_title()
         self.fill_description()
         self.fill_price()
-        self.set_shipping()
+        self.set_location()
+        self.refill_if_overwritten()
         self.verify_form()
         self.submit_listing()
         signal = self.wait_for_publish_confirmation()

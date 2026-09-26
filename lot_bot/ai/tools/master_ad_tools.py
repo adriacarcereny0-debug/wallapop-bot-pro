@@ -185,6 +185,11 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
     master = context.app.master_ads.get(args.get("plantilla"))
     if master is None:
         return fail("No hay ningún anuncio principal configurado.")
+    if not context.app.master_ads.is_active(master):
+        return fail(
+            "El Anuncio principal está DESACTIVADO, así que no se publica. Márcalo como "
+            "«Anuncio activo» en «Anuncio principal» cuando quieras volver a publicarlo."
+        )
     try:
         previews = _build_previews(context, master.key, refs, copies, overrides)
     except ValueError as exc:
