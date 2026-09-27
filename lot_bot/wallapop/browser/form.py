@@ -581,30 +581,37 @@ class ListingForm:
             pass
 
         def action() -> None:
-            # Sin clic en el campo: la barra fija de abajo («Publicar») puede
-            # taparlo. Se escribe tecla a tecla y se elige la sugerencia (con
-            # el ratón o, si algo la tapa, con las flechas y Enter). El mapa
-            # no se toca.
-            field_ = self.page.first_visible(self.form.location_input, 0) or opener
+            # 1) El campo donde se escribe: el mismo, o el que se abre al pulsar
+            #    la caja «Marca la localización». Nunca el buscador de arriba.
+            field_ = self.page.first_visible(self.form.location_input, 0)
+            if field_ is None:
+                self.page.click(opener)
+                field_ = self.page.first_visible(self.form.location_input, min(self.timeout, 6000))
+            if field_ is None:
+                raise self._fail("Ubicación", "Al pulsar «Marca la localización» no aparece dónde escribir la ciudad.")
+            # 2) Se escribe tecla a tecla y se elige la sugerencia (con el
+            #    ratón o, si algo la tapa, con las flechas y Enter). El mapa no
+            #    se toca.
             self.page.type_text(field_, city)
             if not self.page.click_suggestion(city, min(self.timeout, 8000)):
                 self.page.press("ArrowDown")
                 self.page.press("Enter")
-            confirm = self.page.first_visible(self.form.location_confirm, 1500) if self.form.location_confirm else None
+            confirm = self.page.first_visible(self.form.location_confirm, 800) if self.form.location_confirm else None
             if confirm:
                 self.page.click(confirm)
-            # Comprobar que ha quedado la ciudad.
+            # 3) Comprobar que ha quedado la ciudad (en el campo o en la caja).
             deadline = time.monotonic() + 5
-            while True:
-                try:
-                    shown = self.page.value_of(field_)
-                except Exception:
-                    shown = None
-                if shown is None or contains_text(city, shown):
-                    return
-                if time.monotonic() > deadline:
-                    raise self._fail("Ubicación", f"Tras escribir «{city}» el campo muestra «{shown}».")
+            shown = None
+            while time.monotonic() < deadline:
+                for where in (field_, opener):
+                    try:
+                        shown = self.page.value_of(where)
+                    except Exception:
+                        continue
+                    if shown and contains_text(city, shown):
+                        return
                 self.page.wait(250)
+            raise self._fail("Ubicación", f"Tras escribir «{city}» se muestra «{shown}».")
 
         self._do(f"Ubicación {city}", action)
 

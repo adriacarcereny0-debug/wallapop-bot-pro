@@ -22,6 +22,8 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <!-- Trampa: «buscar por foto» de la cabecera; NO es el campo del anuncio. -->
   <input type="file" id="buscar-foto" accept="image/*" style="display:none"
          onchange="location.href='/buscar-por-foto'">
+  <!-- Trampa: el buscador de productos de la cabecera. La ciudad NUNCA va aquí. -->
+  <input type="search" id="buscador" role="combobox" aria-label="Buscar en Wallapop" placeholder="Buscar en Wallapop">
 </header>
 <div id='contenido'>
 <div id="captcha" hidden><iframe title="captcha simulado" src="about:blank" width="200" height="40"></iframe>
@@ -206,6 +208,24 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
     btn.parentElement.appendChild(ul);
   });
 });
+if (params.get('ubic') === 'boton') {
+  // Como el Wallapop real: «Marca la localización» es una caja (no un campo
+  // de texto) que abre una ventana con el buscador de direcciones.
+  const inp = document.getElementById('ubic-busca');
+  const caja = document.createElement('div');
+  caja.id = 'ubic-caja'; caja.textContent = 'Marca la localización';
+  caja.style.cssText = 'border:1px solid #c00;padding:10px;cursor:pointer';
+  inp.replaceWith(caja);
+  const dlg = document.createElement('div');
+  dlg.setAttribute('role', 'dialog'); dlg.hidden = true;
+  dlg.innerHTML = '<p>¿Dónde quieres que se vean tus productos?</p>';
+  dlg.appendChild(inp); inp.placeholder = 'Busca una dirección';
+  dlg.appendChild(document.getElementById('ubic-sug'));
+  caja.after(dlg);
+  caja.addEventListener('click', () => { dlg.hidden = false; });
+  // Al abrir la página el cursor está en el buscador de la cabecera.
+  document.getElementById('buscador').focus();
+}
 if (params.get('extras') === 'no') {
   // Variante: Wallapop cambia y NO muestra envío ni ubicación.
   document.querySelector('.fila').remove();
@@ -264,6 +284,8 @@ document.getElementById('ubic-busca')?.addEventListener('input', e => {
         document.getElementById('ubic').textContent = c.split(',')[0];
         document.getElementById('ubic-busca').value = c;
         ul.innerHTML = '';
+        const caja = document.getElementById('ubic-caja');
+        if (caja) { caja.textContent = c; caja.nextElementSibling.hidden = true; }
       });
       ul.appendChild(li);
     });
@@ -274,6 +296,7 @@ document.getElementById('subir').addEventListener('click', () => {
     descripcion: document.getElementById('description').value,
     categoria: document.getElementById('cat').dataset.elegida || '',
     ubicacion: document.getElementById('ubic').textContent,
+    buscador_cabecera: document.getElementById('buscador').value,
     envio: document.getElementById('envio') ? document.getElementById('envio').checked : null,
     precio: document.getElementById('sale_price').value,
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,

@@ -599,10 +599,11 @@ class _PlaywrightPage(BrowserPage):
 
     def value_of(self, target: str) -> str:
         locator = self._page.locator(target).first
-        tag = (locator.evaluate("e => e.tagName") or "").lower()
+        # Tiempo corto: si el elemento ya no está, no quedarse 30 s esperando.
+        tag = (locator.evaluate("e => e.tagName", timeout=3000) or "").lower()
         if tag in ("input", "textarea", "select"):
-            return locator.input_value() or ""
-        return (locator.inner_text() or "").strip()
+            return locator.input_value(timeout=3000) or ""
+        return (locator.inner_text(timeout=3000) or "").strip()
 
     def count(self, target: str) -> int:
         try:
@@ -611,7 +612,7 @@ class _PlaywrightPage(BrowserPage):
             return 0
 
     def text_of(self, target: str) -> str:
-        return (self._page.locator(target).first.inner_text() or "").strip()
+        return (self._page.locator(target).first.inner_text(timeout=3000) or "").strip()
 
     def body_text(self) -> str:
         try:

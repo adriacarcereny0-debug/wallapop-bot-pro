@@ -264,3 +264,17 @@ def test_navegador_real_si_no_hay_envio_ni_ubicacion_publica_igual_y_avisa(servi
     assert len(web.published) == 1
     omitidos = " ".join(resultado.data["omitidos"])
     assert "Envío" in omitidos and "Ubicación" in omitidos
+
+
+def test_navegador_real_ubicacion_va_en_marca_la_localizacion_no_en_el_buscador(servicio):
+    """Tu captura: «Tus productos se verán en: Marca la localización» es una
+    caja que abre el buscador de direcciones. La ciudad se escribía en el
+    buscador de productos de la cabecera."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?ubic=boton"
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    publicado = web.published[0]
+    assert publicado["ubicacion"] == "Madrid"
+    assert publicado["buscador_cabecera"] == ""  # la cabecera no se toca
+    assert not any("Ubicación" in o for o in resultado.data["omitidos"])

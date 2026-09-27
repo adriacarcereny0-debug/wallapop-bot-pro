@@ -214,24 +214,25 @@ publicar:
     # contenga. SIN VERIFICAR contra la web real.
     ubicacion:
       opcional: true
+      # «Tus productos se verán en: Marca la localización». Puede ser un campo
+      # de texto o una CAJA que abre el buscador de direcciones. Nunca el
+      # buscador de productos de la cabecera (por eso «:not(header *)» y
+      # siempre dentro de la sección «Tus productos se verán en»).
       objetivos:
-        - "input[placeholder*='localización' i]"
-        - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
-        - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Dónde/i]"
-        - "role=button[name=/Ubicación|Localización|Dónde se verán|Dónde está/i]"
-        - "input[placeholder*='dirección' i]"
-        - "input[placeholder*='ubicación' i]"
-        - "input[placeholder*='ciudad' i]"
-      # Campo donde se escribe la ciudad (si al pulsar se abre otro). NO se
-      # toca el mapa: solo se escribe la ciudad y se elige la sugerencia.
+        - "input[placeholder*='Marca la localización' i]:not(header *)"
+        - "text=/^\\s*Marca la localización\\s*$/i"
+        - "xpath=//*[text()[contains(., 'Tus productos se verán en')]][not(ancestor::header)]/following::*[self::input or @role='button' or self::button][1]"
+        - "input[placeholder*='localización' i]:not(header *)"
+      # Campo donde se escribe la ciudad (el mismo, o el que se abre al pulsar
+      # la caja). NO se toca el mapa: se escribe la ciudad y se elige la
+      # sugerencia.
       escribir:
-        - "input[placeholder*='localización' i]"
-        - "role=combobox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
-        - "role=textbox[name=/Ubicación|Localización|Dirección|Código postal|Ciudad|Busca|Dónde/i]"
-        - "input[placeholder*='dirección' i]"
-        - "input[placeholder*='ubicación' i]"
-        - "input[placeholder*='ciudad' i]"
-        - "input[placeholder*='código postal' i]"
+        - "[role=dialog] input:not([type=hidden]):not([type=checkbox]):not([type=radio])"
+        - "input[placeholder*='localización' i]:not(header *)"
+        - "input[placeholder*='dirección' i]:not(header *)"
+        - "input[placeholder*='ubicación' i]:not(header *)"
+        - "input[placeholder*='ciudad' i]:not(header *)"
+        - "input[placeholder*='código postal' i]:not(header *)"
       # Botón para confirmar la ubicación elegida (si lo hay).
       confirmar:
         - "role=button[name=/^(Aplicar|Guardar|Confirmar|Aceptar|Listo)$/i]"
