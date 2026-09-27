@@ -88,7 +88,7 @@ def test_navegador_real_publica_el_canape_completo(servicio):
     # el bot los sustituye por los de la plantilla y apaga el envío.
     assert publicado["titulo"] == CLIENT_TITLE
     assert publicado["descripcion"] == DESCRIPCION
-    assert publicado["precio"] == "11,44"
+    assert publicado["precio"] in ("11,44", "11.44")  # campo numérico: con punto
     assert publicado["categoria"] == "Estructura de camas"
     assert publicado["fotos"] == 1
     # Ubicación del Anuncio principal (Wallapop tenía Barcelona) y la
@@ -251,3 +251,16 @@ def test_navegador_real_categoria_escrita_en_plural_como_en_tu_plantilla(servici
     resultado = service.create_item("cuenta-1", datos)
     assert resultado.success, resultado.message
     assert web.published[0]["categoria"] == "Estructura de camas"
+
+
+def test_navegador_real_si_no_hay_envio_ni_ubicacion_publica_igual_y_avisa(servicio):
+    """El envío y la ubicación nunca impiden publicar: si Wallapop no los
+    muestra, se publica y el resultado dice qué no se pudo hacer."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?extras=no"
+    service.site.timeout_ms = 3000
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    assert len(web.published) == 1
+    omitidos = " ".join(resultado.data["omitidos"])
+    assert "Envío" in omitidos and "Ubicación" in omitidos

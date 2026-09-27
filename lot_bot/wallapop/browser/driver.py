@@ -301,6 +301,14 @@ class _PlaywrightPage(BrowserPage):
         locator = self._page.locator(target).first
         locator.scroll_into_view_if_needed(timeout=5000)
         try:
+            kind = (locator.get_attribute("type", timeout=2000) or "").lower()
+        except Exception:
+            kind = ""
+        if kind == "number" and re.fullmatch(r"-?\d+,\d+", text.strip()):
+            # Campo numérico (el precio de Wallapop): el navegador NO admite la
+            # coma («11,44» acababa como «1144»). Se escribe con punto.
+            text = text.strip().replace(",", ".")
+        try:
             locator.fill(text, timeout=10000)
         except Exception:
             # Editores que no admiten fill: foco, seleccionar todo, borrar y escribir.

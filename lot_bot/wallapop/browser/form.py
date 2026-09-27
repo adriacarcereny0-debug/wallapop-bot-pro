@@ -464,6 +464,17 @@ class ListingForm:
             "descripción a tiempo.",
         )
 
+    def _not_blocking(self, name: str, step) -> None:
+        try:
+            step()
+        except (BrowserStepError, WallapopError) as exc:
+            if isinstance(exc, VerificationRequiredError):
+                raise
+            detail = getattr(exc, "detail", "") or str(exc)
+            logger.warning("%s: no se ha podido completar (%s). Se publica igual.", name, detail)
+            self.skipped.append(f"{name}: NO se ha podido completar ({detail[:160]})")
+            self.close_open_lists()
+
     def set_shipping(self) -> None:
         """«Activar envío» apagado (o como diga el YAML). El interruptor de
         Wallapop suele ser un dibujo encima de una casilla OCULTA: se busca
@@ -762,8 +773,10 @@ class ListingForm:
         self.fill_final_title()
         self.fill_description()
         self.fill_price()
-        self.set_shipping()
-        self.set_location()
+        # Envío y ubicación no deben impedir publicar: si Wallapop cambia algo
+        # ahí, se publica igual y el resultado dice qué no se pudo hacer.
+        self._not_blocking("Envío", self.set_shipping)
+        self._not_blocking("Ubicación", self.set_location)
         self.refill_if_overwritten()
         self.verify_form()
         self.submit_listing()

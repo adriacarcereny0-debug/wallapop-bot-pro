@@ -64,7 +64,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <div id="sugerencias"><b>Sugerencias inteligentes</b>
     <span class="chip">Marrón</span> <span class="chip">Madera</span> <span class="chip">Nuevo</span></div>
   <label for="sale_price">Precio*</label>
-  <input id="sale_price" name="sale_price">
+  <input id="sale_price" name="sale_price" type="number" step="0.01">
   <h3>Opciones de envío</h3>
   <div class="fila"><span>Activar envío</span>
     <label class="interruptor"><input type="checkbox" id="envio" checked style="display:none">
@@ -195,6 +195,11 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
     btn.parentElement.appendChild(ul);
   });
 });
+if (params.get('extras') === 'no') {
+  // Variante: Wallapop cambia y NO muestra envío ni ubicación.
+  document.querySelector('.fila').remove();
+  document.getElementById('ubic-busca').remove();
+}
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Como Wallapop: Escape CANCELA lo elegido en la lista abierta.
@@ -238,7 +243,7 @@ if (params.get('modo') === 'boton') {
   document.getElementById('fotos').addEventListener('change', mostrarFotos);
   document.getElementById('subir-fotos').addEventListener('click', () => document.getElementById('fotos').click());
 }
-document.getElementById('ubic-busca').addEventListener('input', e => {
+document.getElementById('ubic-busca')?.addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   const ul = document.getElementById('ubic-sug'); ul.innerHTML = '';
   ['Madrid, Madrid', 'Valencia, Valencia', 'Barcelona, Barcelona', 'Sevilla, Sevilla']
@@ -258,7 +263,7 @@ document.getElementById('subir').addEventListener('click', () => {
     descripcion: document.getElementById('description').value,
     categoria: document.getElementById('cat').dataset.elegida || '',
     ubicacion: document.getElementById('ubic').textContent,
-    envio: document.getElementById('envio').checked,
+    envio: document.getElementById('envio') ? document.getElementById('envio').checked : null,
     precio: document.getElementById('sale_price').value,
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
   };
