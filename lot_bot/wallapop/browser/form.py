@@ -43,6 +43,7 @@ from lot_bot.wallapop.browser.category import (
 )
 from lot_bot.wallapop.browser.config import ATTRIBUTE_KEYS, BrowserSiteConfig, FormField
 from lot_bot.wallapop.browser.driver import BrowserPage, contains_text, safe_url, same_text
+from lot_bot.wallapop.browser.driver import _inside as _inside_box
 from lot_bot.wallapop.errors import (
     BrowserStepError,
     FormMismatchError,
@@ -296,18 +297,27 @@ class ListingForm:
                 self.steps.append(f"{step} (ya estaba: {already})")
                 return already
 
+        def option_showing(candidate: str, box: dict | None) -> bool:
+            """¿Se ve YA la opción en una lista abierta? (visible, no es un texto
+            que estaba antes, y no es el propio campo)."""
+            for c in self.page.text_candidates(candidate):
+                if not c.get("visible") or c.get("previo") or not c.get("box"):
+                    continue
+                if box and _inside_box(c["box"], box):
+                    continue
+                return True
+            return False
+
         def pick(target: str, box: dict | None) -> str | None:
-            """Abre la lista y pulsa la primera opción que exista."""
+            """Abre la lista (si no se ve ya la opción) y pulsa la opción."""
             self.page.mark_existing(candidates)
             try:
-                # Solo se abre si está cerrada: pulsar el campo con la lista
-                # abierta la CIERRA (y luego se esperaba en vano).
-                if not self.page.first_visible(self.OPEN_LISTS, 0):
-                    self.page.click(target)
-                for index, candidate in enumerate(candidates):
-                    wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
-                    if index and not self.page.first_visible(self.OPEN_LISTS, 0):
-                        self.page.click(target)  # la lista se cerró: se vuelve a abrir
+                for candidate in candidates:
+                    if not option_showing(candidate, box):
+                        self.page.click(target)
+                    # Espera acotada: si no aparece, se falla rápido (con
+                    # diagnóstico) en vez de quedarse parado.
+                    wait = min(self.timeout, 8000) if len(candidates) == 1 else min(self.timeout, 2500)
                     if self.page.click_option(candidate, wait, opener=target, opener_box=box):
                         return candidate
             finally:
@@ -336,6 +346,7 @@ class ListingForm:
             for attempt in range(2):
                 picked = pick(target, box)
                 if picked is None:
+                    self._dump_field_html(step, target)
                     raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
                 self.close_open_lists()
                 ok, current = shows(target, picked, 3 if attempt == 0 else 6)
@@ -343,12 +354,27 @@ class ListingForm:
                     chosen.append(picked)
                     return
                 logger.info("%s: «%s» no ha quedado puesto (intento %d); se repite.", step, picked, attempt + 1)
+            self._dump_field_html(step, target)
             raise self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
 
         self._do(step, action)
         if chosen and chosen[0] != option:
             self.skipped.append(f"{step}: Wallapop no tiene «{option}»; elegido «{chosen[0]}»")
         return chosen[0] if chosen else None
+
+    def _dump_field_html(self, step: str, target: str) -> None:
+        """Guarda el HTML de la zona del campo (y de la lista abierta) para
+        poder ajustar el bot a la web real. Sin cookies ni datos privados."""
+        html = ""
+        for zone in (f"{target} >> xpath=ancestor::*[3]", f"{target} >> xpath=ancestor::*[2]", target):
+            html = self.page.outer_html(zone, 30000)
+            if html:
+                break
+        lists = self.page.outer_html("[role=listbox]", 15000)
+        self.save_error_context(
+            f"{step}-html", "HTML del campo para diagnóstico",
+            extra={"html_campo": html, "html_lista_abierta": lists},
+        )
 
     #: Listas desplegables abiertas (si quedan abiertas, tapan otros campos).
     OPEN_LISTS = ["[role=listbox]", "[role=menu]", "[role=option]"]
