@@ -162,21 +162,26 @@ catTrigger.addEventListener('click', () => {
 // Como Wallapop: el Estado tiene sus opciones YA en la página (ocultas) antes
 // de abrir la lista; al pulsar solo se muestran.
 document.querySelectorAll('[data-prerender]').forEach(btn => {
-  const ul = document.createElement('ul'); ul.className = 'pre'; ul.style.display = 'none';
-  ul.setAttribute('role', 'listbox');
+  // Lista como un bloque ENFOCABLE (tabindex) con opciones <div> sin rol, y
+  // el campo abre/cierra la lista con cada clic (como un desplegable real).
+  const ul = document.createElement('div'); ul.className = 'pre'; ul.tabIndex = -1;
+  ul.style.cssText = 'display:none;position:absolute;z-index:5;background:#fff;border:1px solid #999;width:100%;height:220px';
   btn.dataset.options.split('|').forEach(o => {
-    const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = o;
+    const li = document.createElement('div'); li.className = 'opcion';
+    li.style.cssText = 'padding:14px 6px'; li.innerHTML = '<span>' + o + '</span>';
     li.addEventListener('click', ev => {
       ev.stopPropagation();
-      // Como en tu log: el PRIMER clic no registra la opción (la lista se
-      // cierra y el campo sigue en «Estado*»).
+      // El PRIMER clic no registra la opción (como en tu log).
       if (!btn.dataset.fallado) { btn.dataset.fallado = '1'; ul.style.display = 'none'; return; }
       btn.textContent = o; ul.style.display = 'none';
     });
     ul.appendChild(li);
   });
   btn.parentElement.appendChild(ul);
-  btn.addEventListener('click', ev => { ev.stopPropagation(); ul.style.display = 'block'; });
+  btn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    ul.style.display = ul.style.display === 'none' ? 'block' : 'none';
+  });
 });
 document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').forEach(btn => {
   btn.addEventListener('click', () => {
@@ -209,7 +214,7 @@ if (params.get('extras') === 'no') {
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Como Wallapop: Escape CANCELA lo elegido en la lista abierta.
-  document.querySelectorAll('.combo ul.pre').forEach(u => u.style.display = 'none');
+  document.querySelectorAll('.combo .pre').forEach(u => u.style.display = 'none');
   document.querySelectorAll('.combo ul:not(.pre)').forEach(u => {
     const b = u.parentElement.querySelector('[role=combobox]');
     if (b && b.dataset.antes !== undefined) b.textContent = b.dataset.antes;
@@ -220,7 +225,7 @@ document.addEventListener('keydown', e => {
 document.addEventListener('click', e => {
   if (e.target.closest('.combo')) return;
   document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
-  document.querySelectorAll('.combo ul.pre').forEach(u => u.style.display = 'none');
+  document.querySelectorAll('.combo .pre').forEach(u => u.style.display = 'none');
 });
 function mostrarFotos(e) {
   for (const file of e.target.files) {

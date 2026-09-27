@@ -407,15 +407,25 @@ class _PlaywrightPage(BrowserPage):
             for _, _, item in sorted(usable, key=lambda u: (u[0], u[1])):
                 try:
                     item.scroll_into_view_if_needed(timeout=2000)
-                    row = item.locator(self._ROW_XPATH)
-                    target = row.first if row.count() else item
-                    target.click(timeout=5000)
+                    item.click(timeout=5000, position=self._text_point(item))
                     return True
                 except Exception:
                     continue
             if time.monotonic() >= deadline:
                 return False
             self._page.wait_for_timeout(150)
+
+    @staticmethod
+    def _text_point(item) -> dict | None:
+        """Clic en el PROPIO texto de la opción (un poco dentro de su borde
+        izquierdo), no en el centro de un contenedor grande."""
+        try:
+            box = item.bounding_box()
+        except Exception:
+            box = None
+        if not box:
+            return None
+        return {"x": min(12, box["width"] / 2), "y": box["height"] / 2}
 
     def set_files(self, target: str, paths: list[str]) -> None:
         # Funciona aunque el campo esté oculto (no hace falta que se vea).

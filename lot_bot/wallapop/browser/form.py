@@ -300,7 +300,10 @@ class ListingForm:
             """Abre la lista y pulsa la primera opción que exista."""
             self.page.mark_existing(candidates)
             try:
-                self.page.click(target)
+                # Solo se abre si está cerrada: pulsar el campo con la lista
+                # abierta la CIERRA (y luego se esperaba en vano).
+                if not self.page.first_visible(self.OPEN_LISTS, 0):
+                    self.page.click(target)
                 for index, candidate in enumerate(candidates):
                     wait = self.timeout if len(candidates) == 1 else min(self.timeout, 1200)
                     if index and not self.page.first_visible(self.OPEN_LISTS, 0):
