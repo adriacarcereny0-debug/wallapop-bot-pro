@@ -154,6 +154,11 @@ class FakePage(BrowserPage):
         self.log.append(("option", text))
         if text in self.world.get("missing_options", set()):
             return False
+        if text in self.world.get("unconfirmed_options", set()):
+            if self._open:
+                self.values[self._open] = text
+            self._open = None
+            return False
         if self._open:
             self.values[self._open] = text
         if self._open == FORM.category.targets[0]:
@@ -425,13 +430,23 @@ def test_si_un_campo_no_aparece_se_indica_el_paso_y_se_guarda_captura(profiles, 
     assert world.get("submits") is None  # no se ha pulsado «Publicar»
 
 
-def test_si_no_existe_una_opcion_no_se_publica(profiles, tmp_path):
+def test_si_no_existe_una_opcion_se_sigue_y_se_publica_igual(profiles, tmp_path):
+    """Una característica que falla no deja sin precio, envío, ubicación ni
+    «Publicar»: se sigue y se informa."""
     world = {"logged_in": True, "missing_options": {"Madera"}}
+    service, launcher = make_service(profiles, world, tmp_path)
+    result = service.create_item("acc-1", draft(tmp_path))
+    assert result.success and world.get("submits")
+    assert any("Material" in o and "NO se ha podido" in o for o in result.data["omitidos"])
+
+
+def test_opcion_puesta_aunque_el_clic_no_se_confirme_sigue_adelante(profiles, tmp_path):
+    """Tu log: «Nuevo» queda puesto pero el bot se quedaba en Estado."""
+    world = {"logged_in": True, "unconfirmed_options": {"Nuevo"}}
     service, _ = make_service(profiles, world, tmp_path)
-    with pytest.raises(BrowserStepError) as info:
-        service.create_item("acc-1", draft(tmp_path))
-    assert info.value.step == "Característica Material"
-    assert world.get("submits") is None
+    result = service.create_item("acc-1", draft(tmp_path))
+    assert result.success and world.get("submits")
+    assert not any("Estado" in o for o in result.data["omitidos"])
 
 
 def test_color_sin_valor_exacto_usa_la_equivalencia_y_lo_dice(profiles, tmp_path):

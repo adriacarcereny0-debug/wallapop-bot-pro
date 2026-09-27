@@ -346,6 +346,14 @@ class ListingForm:
             for attempt in range(2):
                 picked = pick(target, box)
                 if picked is None:
+                    # El clic puede haber funcionado aunque no se confirme
+                    # (lista que se cierra sola): si el campo YA lo muestra, vale.
+                    self.close_open_lists()
+                    for candidate in candidates:
+                        ok, current = shows(target, candidate, 2)
+                        if ok and current:
+                            chosen.append(candidate)
+                            return
                     self._dump_field_html(step, target)
                     raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
                 self.close_open_lists()
@@ -355,7 +363,13 @@ class ListingForm:
                     return
                 logger.info("%s: «%s» no ha quedado puesto (intento %d); se repite.", step, picked, attempt + 1)
             self._dump_field_html(step, target)
-            raise self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
+            error = self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
+            # Otro valor de verdad (no vacío ni el nombre del campo): no se
+            # publica nada equivocado.
+            label = step.split()[-1]
+            shown = (current or "").strip().rstrip("*").strip()
+            error.wrong_value = bool(shown) and not contains_text(label, shown)
+            raise error
 
         self._do(step, action)
         if chosen and chosen[0] != option:
@@ -476,7 +490,18 @@ class ListingForm:
                 self.skipped.append(f"{label} (sin selectores en el YAML)")
                 continue
             alternatives = (self.form.equivalents.get(key) or {}).get(value) or []
-            chosen = self._choose(label, spec, value, alternatives)
+            # Si no se puede poner, NO para el resto (precio, envío, ubicación
+            # y «Publicar» se hacen igual). Si queda OTRO valor, sí para.
+            try:
+                chosen = self._choose(label, spec, value, alternatives)
+            except BrowserStepError as exc:
+                if getattr(exc, "wrong_value", False):
+                    raise
+                detail = getattr(exc, "detail", "") or str(exc)
+                logger.warning("%s: no se ha podido completar (%s). Se sigue.", label, detail)
+                self.skipped.append(f"{label}: NO se ha podido completar ({detail[:160]})")
+                self.close_open_lists()
+                continue
             if chosen:
                 self.attributes_filled[key] = chosen
 
