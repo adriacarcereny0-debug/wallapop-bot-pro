@@ -385,6 +385,7 @@ class _PlaywrightPage(BrowserPage):
                 count = min(texts.count(), 15)
             except Exception:
                 count = 0
+            usable = []
             for index in range(count):
                 item = texts.nth(index)
                 try:
@@ -395,8 +396,20 @@ class _PlaywrightPage(BrowserPage):
                     box = item.bounding_box()
                     if opener_box and box and _inside(box, opener_box):
                         continue  # es el propio desplegable, no una opción
+                    in_list = item.evaluate(
+                        "e => !!e.closest('[role=option],[role=listbox],[role=menuitem],"
+                        "[role=menu],[role=radio],li')"
+                    )
+                    usable.append((0 if in_list else 1, index, item))
+                except Exception:
+                    continue
+            # Primero lo que está DENTRO de una lista (la opción de verdad).
+            for _, _, item in sorted(usable, key=lambda u: (u[0], u[1])):
+                try:
                     item.scroll_into_view_if_needed(timeout=2000)
-                    item.click(timeout=5000)
+                    row = item.locator(self._ROW_XPATH)
+                    target = row.first if row.count() else item
+                    target.click(timeout=5000)
                     return True
                 except Exception:
                     continue

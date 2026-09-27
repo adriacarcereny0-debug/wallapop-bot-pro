@@ -296,11 +296,8 @@ class ListingForm:
                 self.steps.append(f"{step} (ya estaba: {already})")
                 return already
 
-        def action() -> None:
-            target = self._require(step, spec)
-            box = self.page.bbox(target)  # ANTES de abrir la lista
-            # Los textos que ya se ven (p. ej. «Sugerencias inteligentes»)
-            # no son opciones de esta lista.
+        def pick(target: str, box: dict | None) -> str | None:
+            """Abre la lista y pulsa la primera opción que exista."""
             self.page.mark_existing(candidates)
             try:
                 self.page.click(target)
@@ -309,27 +306,41 @@ class ListingForm:
                     if index and not self.page.first_visible(self.OPEN_LISTS, 0):
                         self.page.click(target)  # la lista se cerró: se vuelve a abrir
                     if self.page.click_option(candidate, wait, opener=target, opener_box=box):
-                        chosen.append(candidate)
-                        break
+                        return candidate
             finally:
                 self.page.unmark_existing()
-            if not chosen:
-                raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
-            self.close_open_lists()
-            # COMPROBAR que Wallapop lo ha guardado (no basta con el clic).
-            deadline = time.monotonic() + 3
+            return None
+
+        def shows(target: str, value: str, seconds: float) -> tuple[bool, str | None]:
+            deadline = time.monotonic() + seconds
             while True:
                 try:
                     current = self.page.value_of(target)
                 except Exception:
                     current = None
-                if current is None or contains_text(chosen[0], current):
-                    return
+                if current is None or contains_text(value, current):
+                    return True, current
                 if time.monotonic() > deadline:
-                    raise self._fail(
-                        step, f"Se ha elegido «{chosen[0]}» pero el campo muestra «{current}»."
-                    )
+                    return False, current
                 self.page.wait(200)
+
+        def action() -> None:
+            target = self._require(step, spec)
+            box = self.page.bbox(target)  # ANTES de abrir la lista
+            current = None
+            # Hasta 2 intentos: si el clic no llega a la opción (la lista aún se
+            # abría, u otro texto igual), se reabre y se vuelve a elegir.
+            for attempt in range(2):
+                picked = pick(target, box)
+                if picked is None:
+                    raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+                self.close_open_lists()
+                ok, current = shows(target, picked, 3 if attempt == 0 else 6)
+                if ok:
+                    chosen.append(picked)
+                    return
+                logger.info("%s: «%s» no ha quedado puesto (intento %d); se repite.", step, picked, attempt + 1)
+            raise self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
 
         self._do(step, action)
         if chosen and chosen[0] != option:

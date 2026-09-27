@@ -166,7 +166,13 @@ document.querySelectorAll('[data-prerender]').forEach(btn => {
   ul.setAttribute('role', 'listbox');
   btn.dataset.options.split('|').forEach(o => {
     const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = o;
-    li.addEventListener('click', ev => { ev.stopPropagation(); btn.textContent = o; ul.style.display = 'none'; });
+    li.addEventListener('click', ev => {
+      ev.stopPropagation();
+      // Como en tu log: el PRIMER clic no registra la opción (la lista se
+      // cierra y el campo sigue en «Estado*»).
+      if (!btn.dataset.fallado) { btn.dataset.fallado = '1'; ul.style.display = 'none'; return; }
+      btn.textContent = o; ul.style.display = 'none';
+    });
     ul.appendChild(li);
   });
   btn.parentElement.appendChild(ul);
