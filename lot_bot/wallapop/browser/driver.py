@@ -62,6 +62,14 @@ class BrowserPage(ABC):
     @abstractmethod
     def links_matching(self, pattern: str) -> list[str]: ...
 
+    def item_cards(self, pattern: str) -> list[dict[str, str]]:
+        """Fichas de anuncios de la página: [{href, text}] (una por dirección)."""
+        return []
+
+    def scroll_to_end(self) -> None:
+        """Baja hasta el final (para que carguen más anuncios)."""
+        return None
+
     def body_text(self) -> str:
         """Texto visible de la página (para leer estadísticas)."""
         return ""
@@ -624,6 +632,34 @@ class _PlaywrightPage(BrowserPage):
         regex = re.compile(pattern)
         hrefs = self._page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
         return [h for h in hrefs if regex.search(h or "")]
+
+    def item_cards(self, pattern: str) -> list[dict[str, str]]:
+        regex = re.compile(pattern)
+        # Texto de la tarjeta: el del enlace o, si está vacío (solo foto), el
+        # de su contenedor más cercano con texto.
+        found = self._page.eval_on_selector_all(
+            "a[href]",
+            """els => els.map(e => {
+                let node = e, text = (e.innerText || '').trim();
+                for (let i = 0; !text && node && i < 4; i++) {
+                    node = node.parentElement;
+                    text = node ? (node.innerText || '').trim() : '';
+                }
+                return {href: e.href, text: text};
+            })""",
+        )
+        cards: dict[str, str] = {}
+        for card in found:
+            href = card.get("href") or ""
+            match = regex.search(href)
+            if match:
+                url = match.group(0)
+                # Varios enlaces a la misma ficha: se junta su texto.
+                cards[url] = (cards.get(url, "") + "\n" + (card.get("text") or "")).strip()
+        return [{"href": url, "text": text} for url, text in cards.items()]
+
+    def scroll_to_end(self) -> None:
+        self._page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
 
     def wait(self, ms: int) -> None:
         self._page.wait_for_timeout(ms)

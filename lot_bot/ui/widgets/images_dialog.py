@@ -27,6 +27,32 @@ from PySide6.QtWidgets import (
 from lot_bot.ui import theme
 from lot_bot.ui.widgets.common import ask_confirmation, info_box
 
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def image_files_in(folder: str | Path) -> list[str]:
+    """Todas las fotos (JPG, PNG, WEBP) de una carpeta, por nombre."""
+    base = Path(folder)
+    if not base.is_dir():
+        return []
+    return sorted(
+        str(p) for p in base.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS
+    )
+
+
+def dropped_images(mime) -> list[str]:
+    """Fotos soltadas desde el Explorador (ficheros sueltos o carpetas enteras)."""
+    paths: list[str] = []
+    for url in mime.urls() if mime is not None and mime.hasUrls() else []:
+        local = url.toLocalFile()
+        if not local:
+            continue
+        if Path(local).is_dir():
+            paths.extend(image_files_in(local))
+        elif Path(local).suffix.lower() in IMAGE_EXTENSIONS:
+            paths.append(local)
+    return paths
+
 
 @dataclass
 class ImageAdapter:
@@ -57,7 +83,9 @@ class ImagesDialog(QDialog):
         hint = QLabel(
             "La primera fotografía es la principal. Formatos admitidos: JPG, JPEG, PNG y "
             "WEBP. Las fotos repetidas se descartan solas. Solo se suben a Wallapop las marcadas "
-            "con ✓ (botón «Usar / no usar al publicar»)."
+            "con ✓ (botón «Usar / no usar al publicar»).\nPara añadir MUCHAS de golpe: "
+            "«Añadir carpeta completa…», o ARRASTRA las fotos (o la carpeta) desde Windows "
+            "y suéltalas en esta ventana."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet(f"color: {theme.TEXT_MUTED};")
@@ -75,6 +103,10 @@ class ImagesDialog(QDialog):
         self.gallery.setMovement(QListWidget.Movement.Static)
         self.gallery.setSpacing(10)
         self.gallery.itemSelectionChanged.connect(self._update_buttons)
+        # Las fotos se sueltan en la ventana (la galería no se las queda).
+        self.gallery.setAcceptDrops(False)
+        self.gallery.viewport().setAcceptDrops(False)
+        self.setAcceptDrops(True)
         layout.addWidget(self.gallery, 1)
 
         row = QHBoxLayout()
@@ -82,6 +114,10 @@ class ImagesDialog(QDialog):
         self.add_button.setObjectName("Primary")
         self.add_button.clicked.connect(self._add)
         row.addWidget(self.add_button)
+        self.folder_button = QPushButton("Añadir carpeta completa…")
+        self.folder_button.setToolTip("Añade todas las fotos de una carpeta de una vez.")
+        self.folder_button.clicked.connect(self._add_folder)
+        row.addWidget(self.folder_button)
         self.left_button = QPushButton("◀ Mover antes")
         self.left_button.clicked.connect(lambda: self._move(-1))
         row.addWidget(self.left_button)
@@ -157,11 +193,42 @@ class ImagesDialog(QDialog):
     # ------------------------------------------------------------------
     def _add(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Selecciona las fotografías", "", "Imágenes (*.jpg *.jpeg *.png *.webp)"
+            self,
+            "Selecciona las fotografías (Ctrl+A = todas · Ctrl+clic = varias)",
+            "",
+            "Imágenes (*.jpg *.jpeg *.png *.webp)",
         )
+        self.add_paths(paths)
+
+    def _add_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Elige la carpeta con las fotos")
+        if not folder:
+            return
+        paths = image_files_in(folder)
+        if not paths:
+            info_box(self, "Fotografías", "En esa carpeta no hay fotos JPG, PNG ni WEBP.")
+            return
+        self.add_paths(paths)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt)
+        if dropped_images(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 (Qt)
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt)
+        paths = dropped_images(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self.add_paths(paths)
+
+    def add_paths(self, paths: list[str]) -> None:
         if not paths:
             return
-        added, problems = self.adapter.add_files(paths)
+        added, problems = self.adapter.add_files(list(paths))
         message = f"{added} fotografía(s) añadidas."
         if problems:
             message += "\n\nIncidencias:\n" + "\n".join(f"• {p}" for p in problems)

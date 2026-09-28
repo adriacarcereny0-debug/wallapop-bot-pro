@@ -404,7 +404,13 @@ class MockWallapopService(WallapopService):
             success=True, message="Anuncio publicado en modo DEMO (simulado, no está en Wallapop).", item_id=item_id
         )
 
-    def update_item(self, account_ref: str, item_id: str, changes: dict[str, Any]) -> OperationResult:
+    def update_item(
+        self,
+        account_ref: str,
+        item_id: str,
+        changes: dict[str, Any],
+        item_url: str | None = None,
+    ) -> OperationResult:
         self._check_triggers(str(changes.get("title")), str(changes.get("description")))
         with self._lock:
             items = self._account(account_ref)
@@ -446,7 +452,9 @@ class MockWallapopService(WallapopService):
             self._save()
         return OperationResult(success=True, message="Anuncio eliminado en modo DEMO (simulado).", item_id=item_id)
 
-    def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
+    def update_item_price(
+        self, account_ref: str, item_id: str, price: float, item_url: str | None = None
+    ) -> OperationResult:
         if price is None or price <= 0:
             raise ValidationRejectedError("El precio debe ser mayor que cero.")
         return self.update_item(account_ref, item_id, {"price": float(price)})

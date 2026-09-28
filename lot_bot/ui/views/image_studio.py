@@ -36,6 +36,7 @@ from lot_bot.images.generation.prompts import (
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
 from lot_bot.ui.widgets.common import Card, SectionTitle, ask_confirmation, info_box, show_error
+from lot_bot.ui.widgets.images_dialog import dropped_images, image_files_in
 
 OPERATION_NAMES = {**OPERATIONS, "propia": "Foto propia"}
 
@@ -60,7 +61,10 @@ class ImageStudioView(BaseView):
 
     def build(self) -> None:
         self.add_header_button("Subir foto propia…", self._upload)
+        self.add_header_button("Subir carpeta completa…", self._upload_folder)
         self.add_header_button("Actualizar", self.refresh)
+        # También se pueden ARRASTRAR fotos (o una carpeta) desde Windows.
+        self.setAcceptDrops(True)
 
         self.notice = QLabel()
         self.notice.setWordWrap(True)
@@ -315,6 +319,34 @@ class ImageStudioView(BaseView):
             self, "Subir fotos propias (puedes elegir varias)", "",
             "Imágenes (*.jpg *.jpeg *.png *.webp)",
         )
+        self.upload_paths(paths)
+
+    def _upload_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(self, "Elige la carpeta con las fotos")
+        if not folder:
+            return
+        paths = image_files_in(folder)
+        if not paths:
+            info_box(self, "Fotos propias", "En esa carpeta no hay fotos JPG, PNG ni WEBP.")
+            return
+        self.upload_paths(paths)
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802 (Qt)
+        if dropped_images(event.mimeData()):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802 (Qt)
+        self.dragEnterEvent(event)
+
+    def dropEvent(self, event) -> None:  # noqa: N802 (Qt)
+        paths = dropped_images(event.mimeData())
+        if paths:
+            event.acceptProposedAction()
+            self.upload_paths(paths)
+
+    def upload_paths(self, paths: list[str]) -> None:
         if not paths:
             return
         use = ask_confirmation(

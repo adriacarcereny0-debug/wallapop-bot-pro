@@ -267,6 +267,17 @@ class ListingService:
                 raise ValueError(f"Cuenta '{account_ref}' no encontrada.")
 
             seen: set[str] = set()
+            # Anuncios publicados por navegador cuya dirección Wallapop no
+            # mostró: se emparejan por título (y precio más cercano).
+            pending = list(
+                session.scalars(
+                    select(Listing)
+                    .where(Listing.account_id == account.id)
+                    .where(Listing.wallapop_item_id.like("navegador-%"))
+                    .where(Listing.status != ListingStatus.REMOVED)
+                    .order_by(Listing.id)
+                ).all()
+            )
             for item in items:
                 seen.add(item.item_id)
                 listing = session.scalar(
@@ -274,6 +285,11 @@ class ListingService:
                     .where(Listing.account_id == account.id)
                     .where(Listing.wallapop_item_id == item.item_id)
                 )
+                if listing is None:
+                    listing = _match_pending(pending, item)
+                    if listing is not None:
+                        pending.remove(listing)
+                        listing.wallapop_item_id = item.item_id
                 if listing is None:
                     listing = Listing(account_id=account.id, wallapop_item_id=item.item_id)
                     session.add(listing)
@@ -285,7 +301,10 @@ class ListingService:
 
             # Los anuncios que ya no aparecen se marcan como retirados,
             # nunca se borran del historial local sin avisar.
-            missing = session.scalars(
+            # Por navegador, una lista vacía puede ser un fallo al leerla: no
+            # se da nada por retirado sin haber visto al menos un anuncio.
+            browser = getattr(self._wallapop, "backend_name", "").endswith("(NAVEGADOR)")
+            missing = [] if (browser and not items) else session.scalars(
                 select(Listing)
                 .where(Listing.account_id == account.id)
                 .where(Listing.wallapop_item_id.notin_(seen or {"__none__"}))
@@ -424,7 +443,37 @@ class ListingService:
         return find_duplicates(records)
 
 
+def _norm_text(text: str) -> str:
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", text or "")
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    return " ".join(plain.lower().split())
+
+
+def _match_pending(pending: list[Listing], item: Item) -> Listing | None:
+    """El anuncio local sin dirección que corresponde a esta ficha: mismo
+    título (dentro del texto de la ficha) y, entre varios, el precio más cercano."""
+    card = _norm_text(item.raw.get("texto") or item.title)
+    candidates = [lst for lst in pending if lst.title and _norm_text(lst.title) in card]
+    if not candidates:
+        return None
+    if item.price is None:
+        return candidates[0]
+    return min(candidates, key=lambda lst: abs((lst.price or 0) - item.price))
+
+
 def _apply_item(listing: Listing, item: Item) -> None:
+    if item.raw.get("parcial"):
+        # Leído de la lista del navegador: solo lo que se ve (dirección,
+        # precio y que sigue a la venta). El resto se conserva.
+        listing.url = item.raw.get("url") or listing.url
+        if item.price is not None:
+            listing.price = item.price
+        if not listing.title:
+            listing.title = item.title
+        listing.status = ListingStatus.ACTIVE
+        return
     listing.title = item.title
     listing.description = item.description
     listing.price = item.price

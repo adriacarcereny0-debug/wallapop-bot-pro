@@ -519,10 +519,12 @@ def test_solo_declara_lo_que_hace_de_verdad(profiles, tmp_path):
         Capability.CREATE_ITEM,
         Capability.ITEM_STATS,
         Capability.DELETE_ITEM,  # en la página del anuncio, con su dirección
+        Capability.LIST_ITEMS,  # lista «Tus productos»
+        Capability.UPDATE_ITEM,  # «Editar»: título
+        Capability.UPDATE_ITEM_PRICE,  # «Editar»: precio
     }
     for llamada in (
-        lambda: service.list_items("acc-1"),
-        lambda: service.update_item_price("acc-1", "x", 10),
+        lambda: service.update_item("acc-1", "x", {"description": "otra"}),
         lambda: service.send_message("acc-1", "c", "hola"),
     ):
         with pytest.raises(NotAvailableWithCurrentAPIError):

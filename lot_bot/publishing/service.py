@@ -409,6 +409,29 @@ class PublishingService:
     # ------------------------------------------------------------------
     # Modificaciones sobre anuncios ya publicados
     # ------------------------------------------------------------------
+    def _with_url(self, listing_id: int, synced: set[str] | None = None):
+        """El anuncio con su dirección de Wallapop. Si se publicó por navegador
+        y Wallapop no mostró la dirección, se lee la lista de productos de la
+        cuenta (una vez) para encontrarla."""
+        view = self._listings.get(listing_id)
+        if (
+            view is None
+            or view.url
+            or not str(view.wallapop_item_id or "").startswith("navegador-")
+            or Capability.LIST_ITEMS not in self._wallapop.capabilities()
+        ):
+            return view
+        synced = synced if synced is not None else set()
+        if view.account_ref not in synced:
+            synced.add(view.account_ref)
+            try:
+                self._listings.sync_account(view.account_ref)
+            except WallapopError:
+                raise
+            except Exception as exc:  # se informa en el resultado del anuncio
+                logger.warning("No se ha podido leer la lista de productos: %s", exc)
+        return self._listings.get(listing_id)
+
     def update_listing(
         self,
         listing_id: int,
@@ -420,7 +443,10 @@ class PublishingService:
         if not confirmed:
             raise ConfirmationRequiredError("modificar anuncio")
 
-        view = self._listings.get(listing_id)
+        try:
+            view = self._with_url(listing_id)
+        except WallapopError as exc:
+            return PublishOutcome("", "", False, exc.user_message, error_code=type(exc).__name__)
         if view is None:
             raise ValueError(f"No se encuentra el anuncio {listing_id}.")
         if not view.wallapop_item_id:
@@ -428,7 +454,9 @@ class PublishingService:
 
         self._wallapop.require(Capability.UPDATE_ITEM)
         try:
-            result = self._wallapop.update_item(view.account_ref, view.wallapop_item_id, changes)
+            result = self._wallapop.update_item(
+                view.account_ref, view.wallapop_item_id, changes, item_url=view.url
+            )
         except WallapopError as exc:
             self._audit.record_error(
                 "Modificación de anuncio",
@@ -477,8 +505,15 @@ class PublishingService:
 
         self._wallapop.require(Capability.UPDATE_ITEM_PRICE)
         outcomes: list[PublishOutcome] = []
+        synced: set[str] = set()
         for listing_id in listing_ids:
-            view = self._listings.get(listing_id)
+            try:
+                view = self._with_url(listing_id, synced)
+            except WallapopError as exc:
+                outcomes.append(
+                    PublishOutcome("", "", False, exc.user_message, error_code=type(exc).__name__)
+                )
+                break
             if view is None or not view.wallapop_item_id:
                 outcomes.append(
                     PublishOutcome("", "", False, f"Anuncio {listing_id} no encontrado.", error_code="NO_ENCONTRADO")
@@ -486,7 +521,7 @@ class PublishingService:
                 continue
             try:
                 result = self._wallapop.update_item_price(
-                    view.account_ref, view.wallapop_item_id, price
+                    view.account_ref, view.wallapop_item_id, price, item_url=view.url
                 )
             except WallapopError as exc:
                 self._audit.record_error(
@@ -527,15 +562,32 @@ class PublishingService:
         return outcomes
 
     def delete_listing(
-        self, listing_id: int, *, confirmed: bool, actor: str = "usuario"
+        self,
+        listing_id: int,
+        *,
+        confirmed: bool,
+        actor: str = "usuario",
+        synced: set[str] | None = None,
     ) -> PublishOutcome:
         """Elimina un anuncio. Accion destructiva: exige confirmacion."""
         if not confirmed:
             raise ConfirmationRequiredError("eliminar anuncio")
 
-        view = self._listings.get(listing_id)
+        try:
+            view = self._with_url(listing_id, synced)
+        except WallapopError as exc:
+            return PublishOutcome("", "", False, exc.user_message, error_code=type(exc).__name__)
         if view is None or not view.wallapop_item_id:
             raise ValueError(f"No se encuentra el anuncio {listing_id}.")
+        if not view.url and view.status == "removed":
+            # Al leer la lista de la cuenta ya no estaba: nada que borrar.
+            return PublishOutcome(
+                product_sku=view.product_sku or "",
+                account_ref=view.account_ref,
+                success=True,
+                message="El anuncio ya no estaba en Wallapop.",
+                item_id=view.wallapop_item_id,
+            )
 
         self._wallapop.require(Capability.DELETE_ITEM)
         try:
@@ -601,11 +653,14 @@ class PublishingService:
 
         sleep = sleep or _time.sleep
         outcomes: list[PublishOutcome] = []
+        synced: set[str] = set()  # cada cuenta se lee una sola vez
         for position, listing_id in enumerate(listing_ids):
             if position:
                 sleep(interval_seconds)
             try:
-                outcome = self.delete_listing(listing_id, confirmed=True, actor=actor)
+                outcome = self.delete_listing(
+                    listing_id, confirmed=True, actor=actor, synced=synced
+                )
             except ValueError as exc:
                 outcome = PublishOutcome(
                     product_sku="", account_ref="", success=False, message=str(exc),

@@ -172,6 +172,30 @@ class DeleteConfig:
 
 
 @dataclass(slots=True)
+class EditConfig:
+    """Cambiar precio o título en la página del anuncio (sección `editar`)."""
+
+    menu: list[str] = field(default_factory=list)
+    button: list[str] = field(default_factory=list)
+    save: list[str] = field(default_factory=list)
+    wait_ms: int = 20000
+
+    @property
+    def defined(self) -> bool:
+        return bool(self.button and self.save)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> EditConfig:
+        data = data or {}
+        return cls(
+            menu=[str(x) for x in (data.get("menu") or [])],
+            button=[str(x) for x in (data.get("boton") or [])],
+            save=[str(x) for x in (data.get("guardar") or [])],
+            wait_ms=int(data.get("espera_ms", 20000)),
+        )
+
+
+@dataclass(slots=True)
 class BrowserSiteConfig:
     verified: bool
     visible: bool
@@ -195,6 +219,7 @@ class BrowserSiteConfig:
     keep_open_seconds: int = 900
     stats_patterns: dict[str, str] = field(default_factory=dict)
     delete: DeleteConfig = field(default_factory=DeleteConfig)
+    edit: EditConfig = field(default_factory=EditConfig)
     source: Path | None = None
 
     def url(self, name: str) -> str:
@@ -239,6 +264,7 @@ class BrowserSiteConfig:
                 str(k): str(v) for k, v in (data.get("estadisticas") or {}).items() if v
             },
             delete=DeleteConfig.from_dict(data.get("eliminar")),
+            edit=EditConfig.from_dict(data.get("editar")),
             source=source,
         )
 

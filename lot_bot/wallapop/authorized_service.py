@@ -381,7 +381,13 @@ class AuthorizedWallapopService(WallapopService):
             data=fields,
         )
 
-    def update_item(self, account_ref: str, item_id: str, changes: dict[str, Any]) -> OperationResult:
+    def update_item(
+        self,
+        account_ref: str,
+        item_id: str,
+        changes: dict[str, Any],
+        item_url: str | None = None,
+    ) -> OperationResult:
         params: dict[str, Any] = {"item_id": item_id}
         params.update(changes)
         payload = self._call(
@@ -403,7 +409,9 @@ class AuthorizedWallapopService(WallapopService):
         self._call(Capability.DELETE_ITEM, account_ref, {"item_id": item_id})
         return OperationResult(success=True, message="Anuncio eliminado.", item_id=item_id)
 
-    def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
+    def update_item_price(
+        self, account_ref: str, item_id: str, price: float, item_url: str | None = None
+    ) -> OperationResult:
         if self.supports(Capability.UPDATE_ITEM_PRICE):
             self._call(
                 Capability.UPDATE_ITEM_PRICE,

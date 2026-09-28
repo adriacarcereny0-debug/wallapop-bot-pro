@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 pytest.importorskip("PySide6")
@@ -94,3 +96,83 @@ def test_anadir_fotografias_admite_varias(qapp, app_with_data, tmp_path, monkeyp
     dialogo = images_dialog.ImagesDialog(images_dialog.master_adapter(app_with_data, key))
     dialogo._add()  # el usuario elige las 4 de golpe en la ventana
     assert len(app_with_data.master_ads.get(key).images) == antes + 4
+
+
+def _fotos_distintas(carpeta, n, prefijo):
+    from PIL import Image
+
+    carpeta.mkdir(parents=True, exist_ok=True)
+    rutas = []
+    for i in range(n):
+        ruta = carpeta / f"{prefijo}{i}.jpg"
+        # Contenido al azar: nunca coincide con fotos de otras pruebas.
+        pequena = Image.frombytes("RGB", (12, 9), os.urandom(12 * 9 * 3))
+        pequena.resize((900, 700), Image.Resampling.NEAREST).save(ruta)
+        rutas.append(ruta)
+    (carpeta / "nota.txt").write_text("no es una foto")
+    return rutas
+
+
+def _soltar(widget, rutas):
+    """Arrastrar y soltar desde el Explorador de Windows (evento real de Qt)."""
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
+
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(r)) for r in rutas])
+    evento = QDropEvent(
+        QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+    widget.dropEvent(evento)
+
+
+def test_arrastrar_fotos_y_carpetas_a_fotografias(qapp, app_with_data, tmp_path, monkeypatch):
+    from lot_bot.ui.widgets import images_dialog
+
+    monkeypatch.setattr(images_dialog, "info_box", lambda *a, **k: None)
+    key = app_with_data.master_ads.get(None).key
+    dialogo = images_dialog.ImagesDialog(images_dialog.master_adapter(app_with_data, key))
+    assert dialogo.acceptDrops()
+    antes = len(app_with_data.master_ads.get(key).images)
+
+    sueltas = _fotos_distintas(tmp_path / "sueltas", 3, "s")
+    _soltar(dialogo, sueltas)  # 3 fotos sueltas
+    carpeta = tmp_path / "carpeta"
+    _fotos_distintas(carpeta, 4, "c")
+    _soltar(dialogo, [carpeta])  # una carpeta entera (el .txt se ignora)
+    assert len(app_with_data.master_ads.get(key).images) == antes + 7
+
+
+def test_anadir_carpeta_completa(qapp, app_with_data, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    from lot_bot.ui.widgets import images_dialog
+
+    carpeta = tmp_path / "fotos"
+    _fotos_distintas(carpeta, 5, "f")
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(carpeta)))
+    monkeypatch.setattr(images_dialog, "info_box", lambda *a, **k: None)
+    key = app_with_data.master_ads.get(None).key
+    antes = len(app_with_data.master_ads.get(key).images)
+    dialogo = images_dialog.ImagesDialog(images_dialog.master_adapter(app_with_data, key))
+    dialogo._add_folder()
+    assert len(app_with_data.master_ads.get(key).images) == antes + 5
+
+
+def test_imagenes_ia_carpeta_y_arrastrar(qapp, app_with_data, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QFileDialog
+
+    from lot_bot.ui.views import image_studio
+
+    monkeypatch.setattr(image_studio, "ask_confirmation", lambda *a, **k: True)
+    monkeypatch.setattr(image_studio, "info_box", lambda *a, **k: None)
+    view = image_studio.ImageStudioView(app_with_data, _runner())
+    assert view.acceptDrops()
+    antes = len(app_with_data.master_ads.get(None).images)
+    carpeta = tmp_path / "estudio"
+    _fotos_distintas(carpeta, 3, "e")
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", staticmethod(lambda *a, **k: str(carpeta)))
+    view._upload_folder()
+    _soltar(view, _fotos_distintas(tmp_path / "mas", 2, "m"))
+    assert len(app_with_data.master_ads.get(None).images) == antes + 5

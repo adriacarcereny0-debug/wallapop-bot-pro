@@ -302,7 +302,12 @@ document.getElementById('subir').addEventListener('click', () => {
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
   };
   fetch('/publicar', {method:'POST', body: JSON.stringify(data)})
-    .then(r => r.json()).then(j => { location.href = '/item/' + j.id; });
+    .then(r => r.json()).then(j => {
+      // ?sinurl=1: como el Wallapop real, tras publicar NO se ve la dirección
+      // del anuncio (se vuelve a «Tus productos»… sin enlace al nuevo).
+      if (params.get('sinurl')) { document.body.innerHTML = '<h1>Producto subido</h1><p>Tu producto ya está a la venta.</p>'; }
+      else { location.href = '/item/' + j.id; }
+    });
 });
 </script>
 </body></html>

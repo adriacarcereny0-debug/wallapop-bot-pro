@@ -37,6 +37,10 @@ urls:
   subir: "https://es.wallapop.com/app/catalog/upload"
   # Patrón de la dirección pública de un anuncio.
   anuncio_regex: "https://es\\.wallapop\\.com/item/[A-Za-z0-9\\-_%]+"
+  # Lista de TUS productos en venta (de aquí se sacan las direcciones de los
+  # anuncios para sincronizar, eliminar y cambiar precio o título).
+  # SIN VERIFICAR contra la web real: si no es esta, cámbiala aquí.
+  mis_anuncios: "https://es.wallapop.com/app/catalog/published"
 
 sesion:
   # Elementos que SOLO aparecen con la sesión iniciada. Son una señal más,
@@ -116,6 +120,25 @@ eliminar:
     - "text=/(se ha eliminado|has eliminado|anuncio eliminado|producto eliminado)/i"
     - "text=/(no existe|ya no está disponible|no se ha encontrado|no encontrado)/i"
   espera_ms: 15000
+
+# -----------------------------------------------------------------------------
+# EDITAR (cambiar precio o título). Se abre el anuncio, se pulsa «Editar», se
+# cambia el campo (los mismos del formulario de publicar: «precio» y
+# «titulo_revision»/«titulo»), se guarda y se COMPRUEBA en la página del
+# anuncio. SIN VERIFICAR contra la web real.
+# -----------------------------------------------------------------------------
+editar:
+  menu:
+    - "role=button[name=/^(Más opciones|Opciones|Más acciones)$/i]"
+  boton:
+    - "role=button[name=/^Editar( producto| anuncio)?$/i]"
+    - "role=link[name=/^Editar( producto| anuncio)?$/i]"
+    - "role=menuitem[name=/^Editar( producto| anuncio)?$/i]"
+    - "text=/^\\s*Editar( producto| anuncio)?\\s*$/i"
+  guardar:
+    - "role=button[name=/^(Guardar cambios|Guardar|Actualizar( producto)?|Actualizar anuncio)$/i]"
+    - "role=button[name=/^(Subir producto|Publicar)$/i]"
+  espera_ms: 20000
 
 # -----------------------------------------------------------------------------
 # PUBLICAR. LOT Bot hace TODO el formulario con estos métodos, en este orden:

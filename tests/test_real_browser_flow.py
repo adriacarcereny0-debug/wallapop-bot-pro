@@ -303,3 +303,86 @@ def test_navegador_real_sin_direccion_no_se_elimina_nada(servicio):
         service.delete_item("cuenta-1", "navegador-123")
     assert "a mano" in info.value.user_message
     assert web.deleted == set()
+
+
+# ---------------------------------------------------------------------------
+# Todo desde LOT Bot como en tu captura: Wallapop NO muestra la dirección del
+# anuncio al publicar. Eliminar, cambiar precio y título deben funcionar igual.
+# ---------------------------------------------------------------------------
+@pytest.fixture()
+def lotbot(tmp_path, monkeypatch):
+    import sys
+
+    monkeypatch.setenv("LOT_BOT_BROWSER_EXECUTABLE", CHROMIUM)
+    monkeypatch.setenv("LOT_BOT_BROWSER_SANDBOX", "0")
+    monkeypatch.setenv("LOT_BOT_DATA_DIR", str(tmp_path / "datos"))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+    import prueba_publicar_canape as guion
+
+    from lot_bot.bootstrap import create_application
+    from lot_bot.config.settings import reload_settings
+
+    reload_settings()  # base de datos nueva para cada prueba
+    app = create_application(start_scheduler=False)
+    app.set_integration_mode("navegador")
+    web, alias = guion._prepare_simulated(app)
+    app.wallapop.site.visible = os.environ.get("LOT_BOT_VISIBLE_TESTS") == "1"
+    app.wallapop.site.success_timeout_ms = 15000
+    app.wallapop.site.urls["subir"] += "?sinurl=1"
+    ref = app.accounts.resolve_ref(alias)
+    try:
+        yield app, web, ref
+    finally:
+        app.shutdown()
+        web.__exit__(None, None, None)
+
+
+def _publicar(app, ref, veces):
+    for _ in range(veces):
+        resultado = app.master_ads.publish_single(None, ref, {}, confirmed=True)
+        assert resultado.success, resultado.message
+
+
+def test_lotbot_elimina_cambia_precio_y_titulo_sin_direccion_al_publicar(lotbot):
+    from lot_bot.publishing.listings import ListingFilter
+
+    app, web, ref = lotbot
+    _publicar(app, ref, 3)
+    anuncios = app.listings.search(ListingFilter(account_ref=ref))
+    assert len(anuncios) == 3 and all(not a.url for a in anuncios)  # como en tu captura
+
+    # Cambiar precio de uno: busca su dirección en «Tus productos» y lo edita.
+    precio = app.publishing.update_prices([anuncios[0].id], 95.5, confirmed=True)
+    assert precio[0].success, precio[0].message
+    assert {"95.5", "95.50"} & {e["precio"] for e in web.edits}
+    # Ya tienen su dirección guardada (las 3, de una sola lectura).
+    assert all(a.url for a in app.listings.search(ListingFilter(account_ref=ref)))
+
+    # Cambiar título.
+    titulo = app.publishing.update_listing(
+        anuncios[1].id, {"title": "Canapé abatible nuevo"}, confirmed=True
+    )
+    assert titulo.success, titulo.message
+    assert web.edits[-1]["titulo"] == "Canapé abatible nuevo"
+
+    # Eliminar los 3 de golpe («Seleccionar todos» + «Eliminar seleccionados»).
+    borrados = app.publishing.delete_listings(
+        [a.id for a in anuncios], confirmed=True, sleep=lambda s: None
+    )
+    assert [b.success for b in borrados] == [True, True, True], [b.message for b in borrados]
+    assert len(web.deleted) == 3
+    assert {app.listings.get(a.id).status for a in anuncios} == {"removed"}
+
+
+def test_lotbot_sincronizar_lee_tus_productos(lotbot):
+    from lot_bot.publishing.listings import ListingFilter
+
+    app, web, ref = lotbot
+    _publicar(app, ref, 2)
+    resultado = app.listings.sync_account(ref)
+    assert resultado["nuevos"] == 0 and resultado["actualizados"] == 2
+    activos = [
+        a for a in app.listings.search(ListingFilter(account_ref=ref)) if a.status == "active"
+    ]
+    assert len(activos) == 2
+    assert all(a.url and a.url.startswith(web.base + "/item/") for a in activos)

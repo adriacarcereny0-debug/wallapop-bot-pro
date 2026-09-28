@@ -83,6 +83,48 @@ def parse_count(pattern: str, text: str) -> int | None:
         return None
 
 
+def _norm(text: str) -> str:
+    """Minúsculas, sin acentos ni espacios repetidos (para comparar textos)."""
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", text or "")
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    return " ".join(plain.lower().split())
+
+
+_PRICE_RE = re.compile(r"(\d{1,3}(?:[.\s]\d{3})*(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)\s*€")
+
+
+def _card_price(text: str) -> float | None:
+    match = _PRICE_RE.search((text or "").replace("\xa0", " "))
+    if not match:
+        return None
+    raw = match.group(1).replace(" ", "")
+    if "," in raw:
+        raw = raw.replace(".", "").replace(",", ".")
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _card_title(text: str) -> str:
+    """El renglón más largo de la ficha que no es un precio."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    lines = [ln for ln in lines if not _PRICE_RE.fullmatch(ln.replace("\xa0", " "))]
+    return max(lines, key=len) if lines else ""
+
+
+def _shows_price(text: str, price: float) -> bool:
+    """¿La página muestra ese precio? (100 €, 100,00 €, 11,44 €, 11.44 €…)"""
+    flat = (text or "").replace("\xa0", " ")
+    return any(
+        abs(float(m.group(1).replace(" ", "").replace(".", "").replace(",", ".")
+                  if "," in m.group(1) else m.group(1).replace(" ", "")) - price) < 0.005
+        for m in _PRICE_RE.finditer(flat)
+    )
+
+
 def format_price(price: float, style: str) -> str:
     text = f"{price:.2f}"
     if text.endswith(".00"):
@@ -127,6 +169,9 @@ class BrowserWallapopService(WallapopService):
             Capability.CREATE_ITEM,
             Capability.ITEM_STATS,
             Capability.DELETE_ITEM,
+            Capability.LIST_ITEMS,
+            Capability.UPDATE_ITEM,
+            Capability.UPDATE_ITEM_PRICE,
         }
 
     def _unavailable(self, capability: Capability):
@@ -399,7 +444,7 @@ class BrowserWallapopService(WallapopService):
             success=True,
             message="Publicado en Wallapop y confirmado."
             + ("" if report.url else " Wallapop no ha mostrado la dirección del anuncio."),
-            item_id=report.item_id or f"navegador-{int(time.time())}",
+            item_id=report.item_id or f"navegador-{time.time_ns()}",
             data=detail,
         )
 
@@ -407,7 +452,45 @@ class BrowserWallapopService(WallapopService):
     # Lo que la integración por navegador no hace
     # ------------------------------------------------------------------
     def list_items(self, account_ref: str, limit: int = 100, offset: int = 0) -> list[Item]:
-        self._unavailable(Capability.LIST_ITEMS)
+        """Tus anuncios en venta, leídos de la lista «Tus productos».
+
+        Solo se toma lo que se ve: la dirección del anuncio y el texto de su
+        ficha (título y precio). Nada se inventa ni se deduce.
+        """
+        pattern = self.site.item_url_regex
+        if not pattern or not self.site.urls.get("mis_anuncios"):
+            raise ConfigurationError("wallapop_browser.yaml no dice dónde está la lista de tus productos.")
+
+        def read(page: BrowserPage) -> list[dict[str, str]]:
+            page.goto(self.site.url("mis_anuncios"))
+            page.wait(2500)
+            if self.site.verification and page.first_visible(self.site.verification, 0):
+                raise VerificationRequiredError("Wallapop pide una verificación al leer tus productos.")
+            # Se baja hasta que no cargan más anuncios.
+            cards = page.item_cards(pattern)
+            for _ in range(30):
+                page.scroll_to_end()
+                page.wait(1200)
+                more = page.item_cards(pattern)
+                if len(more) <= len(cards):
+                    break
+                cards = more
+            return cards
+
+        cards = self._in_browser(account_ref, read, timeout=300)
+        items = []
+        for card in cards[offset: offset + limit if limit else None]:
+            url = card["href"]
+            text = card.get("text") or ""
+            items.append(
+                Item(
+                    item_id=url.rstrip("/").rsplit("/", 1)[-1],
+                    title=_card_title(text),
+                    price=_card_price(text),
+                    raw={"parcial": True, "url": url, "texto": text},
+                )
+            )
+        return items
 
     def get_item(self, account_ref: str, item_id: str) -> Item:
         self._unavailable(Capability.GET_ITEM)
@@ -415,8 +498,92 @@ class BrowserWallapopService(WallapopService):
     def search_items(self, account_ref: str, query: ItemSearchQuery) -> list[Item]:
         self._unavailable(Capability.SEARCH_ITEMS)
 
-    def update_item(self, account_ref: str, item_id: str, changes: dict[str, Any]) -> OperationResult:
-        self._unavailable(Capability.UPDATE_ITEM)
+    def update_item(
+        self,
+        account_ref: str,
+        item_id: str,
+        changes: dict[str, Any],
+        item_url: str | None = None,
+    ) -> OperationResult:
+        """Cambia el TÍTULO y/o el PRECIO en «Editar» y lo comprueba."""
+        unsupported = set(changes) - {"title", "price"}
+        if unsupported:
+            raise NotAvailableWithCurrentAPIError(
+                Capability.UPDATE_ITEM.value,
+                "Por navegador solo se cambian el título y el precio.",
+            )
+        return self._edit(account_ref, item_id, item_url, changes)
+
+    def _item_url(self, item_id: str, item_url: str | None) -> str:
+        url = item_url or (item_id if str(item_id).startswith("http") else "")
+        if not url:
+            error = BrowserStepError("Buscar el anuncio", "Sin dirección del anuncio.")
+            error.user_message = (
+                "Este anuncio no aparece en la lista de tus productos de Wallapop (puede que "
+                "ya no exista). Pulsa «Sincronizar» para actualizar la lista."
+            )
+            raise error
+        return url
+
+    def _edit(
+        self, account_ref: str, item_id: str, item_url: str | None, changes: dict[str, Any]
+    ) -> OperationResult:
+        cfg = self.site.edit
+        form = self.site.form
+        if not cfg.defined:
+            raise ConfigurationError("wallapop_browser.yaml no define cómo editar anuncios.")
+        url = self._item_url(item_id, item_url)
+        timeout = self.site.timeout_ms
+
+        def edit(page: BrowserPage) -> None:
+            def fail(step: str, detail: str) -> BrowserStepError:
+                shot = self._screenshot(page, account_ref, f"editar-{step}")
+                return BrowserStepError(f"Editar ({step})", detail, shot)
+
+            page.goto(url)
+            if self.site.verification and page.first_visible(self.site.verification, 3000):
+                raise VerificationRequiredError("Wallapop pide una verificación al editar.")
+            button = page.first_visible(cfg.button, min(timeout, 8000))
+            if button is None and cfg.menu:
+                menu = page.first_visible(cfg.menu, 3000)
+                if menu:
+                    page.click(menu)
+                    button = page.first_visible(cfg.button, 5000)
+            if button is None:
+                raise fail("botón", "No aparece el botón «Editar» en la página del anuncio.")
+            page.click(button)
+            if "price" in changes:
+                field_ = page.first_visible(form.price.targets, cfg.wait_ms)
+                if field_ is None:
+                    raise fail("precio", "No aparece el campo del precio al editar.")
+                page.fill(field_, format_price(float(changes["price"]), self.site.price_format))
+            if "title" in changes:
+                targets = form.final_title.targets + form.title.targets
+                field_ = page.first_visible(targets, cfg.wait_ms)
+                if field_ is None:
+                    raise fail("título", "No aparece el campo del título al editar.")
+                page.fill(field_, str(changes["title"]))
+            save = page.first_visible(cfg.save, cfg.wait_ms)
+            if save is None:
+                raise fail("guardar", "No aparece el botón para guardar los cambios.")
+            page.click(save)
+            page.wait(2500)
+            # Comprobación: se vuelve a abrir el anuncio y se lee.
+            page.goto(url)
+            page.wait(1500)
+            text = page.body_text()
+            if "price" in changes and not _shows_price(text, float(changes["price"])):
+                raise fail("comprobar", f"El anuncio no muestra el precio {changes['price']} € tras guardar.")
+            if "title" in changes and _norm(str(changes["title"])) not in _norm(text):
+                raise fail("comprobar", "El anuncio no muestra el título nuevo tras guardar.")
+
+        self._in_browser(account_ref, edit, timeout=600)
+        what = " y ".join(
+            (["precio"] if "price" in changes else []) + (["título"] if "title" in changes else [])
+        )
+        return OperationResult(
+            success=True, message=f"Cambiado el {what} en Wallapop y comprobado.", item_id=item_id
+        )
 
     def delete_item(
         self, account_ref: str, item_id: str, item_url: str | None = None
@@ -426,14 +593,7 @@ class BrowserWallapopService(WallapopService):
         cfg = self.site.delete
         if not cfg.defined:
             raise ConfigurationError("wallapop_browser.yaml no define cómo eliminar anuncios.")
-        url = item_url or (item_id if str(item_id).startswith("http") else "")
-        if not url:
-            error = BrowserStepError("Eliminar", "Sin dirección del anuncio.")
-            error.user_message = (
-                "No se sabe la dirección de este anuncio (Wallapop no la mostró al "
-                "publicarlo). Elimínalo a mano en Wallapop."
-            )
-            raise error
+        url = self._item_url(item_id, item_url)
         timeout = self.site.timeout_ms
 
         def gone(page: BrowserPage) -> bool:
@@ -496,8 +656,10 @@ class BrowserWallapopService(WallapopService):
             item_id=item_id,
         )
 
-    def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
-        self._unavailable(Capability.UPDATE_ITEM_PRICE)
+    def update_item_price(
+        self, account_ref: str, item_id: str, price: float, item_url: str | None = None
+    ) -> OperationResult:
+        return self._edit(account_ref, item_id, item_url, {"price": price})
 
     def update_item_images(
         self, account_ref: str, item_id: str, image_urls: list[str]

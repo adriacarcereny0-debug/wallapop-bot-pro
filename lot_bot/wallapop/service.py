@@ -89,7 +89,11 @@ class WallapopService(ABC):
 
     @abstractmethod
     def update_item(
-        self, account_ref: str, item_id: str, changes: dict[str, Any]
+        self,
+        account_ref: str,
+        item_id: str,
+        changes: dict[str, Any],
+        item_url: str | None = None,
     ) -> OperationResult:
         ...
 
@@ -100,7 +104,9 @@ class WallapopService(ABC):
         ...
 
     @abstractmethod
-    def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
+    def update_item_price(
+        self, account_ref: str, item_id: str, price: float, item_url: str | None = None
+    ) -> OperationResult:
         ...
 
     @abstractmethod
