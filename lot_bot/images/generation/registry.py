@@ -333,6 +333,27 @@ class ImageGenerationService:
             row = session.get(GeneratedImage, image_id)
             return _row_dict(row) if row else None
 
+    def delete_images(self, image_ids: list[int]) -> int:
+        """Borra imágenes de la lista (y su fichero, SOLO si está en la carpeta
+        de LOT Bot: las fotos originales de tu ordenador nunca se tocan).
+        Las que ya se usan en tus anuncios no se ven afectadas: allí hay una copia."""
+        base = self._dir.resolve()
+        removed = 0
+        with self._db.session_scope() as session:
+            for image_id in image_ids:
+                row = session.get(GeneratedImage, image_id)
+                if row is None:
+                    continue
+                path = Path(row.path)
+                try:
+                    if path.resolve().is_relative_to(base):
+                        path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                session.delete(row)
+                removed += 1
+        return removed
+
     def history(self, limit: int = 50) -> list[dict]:
         with self._db.session_scope() as session:
             rows = session.scalars(

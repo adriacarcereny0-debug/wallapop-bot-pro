@@ -75,8 +75,20 @@ class ImageStudioView(BaseView):
         list_card = Card()
         list_card.add(SectionTitle("Imágenes"))
         self.images = QListWidget()
+        # Varias a la vez: arrastrar con el ratón, Ctrl/Shift + clic o Ctrl+A.
+        self.images.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         self.images.currentItemChanged.connect(self._show_selected)
+        self.images.itemSelectionChanged.connect(self._update_delete)
         list_card.add(self.images)
+        list_buttons = QHBoxLayout()
+        self.select_all_button = QPushButton("Seleccionar todas")
+        self.select_all_button.clicked.connect(self.images.selectAll)
+        list_buttons.addWidget(self.select_all_button)
+        self.delete_button = QPushButton("Borrar seleccionadas")
+        self.delete_button.setObjectName("Danger")
+        self.delete_button.clicked.connect(self._delete_selected)
+        list_buttons.addWidget(self.delete_button)
+        list_card.body.addLayout(list_buttons)
         columns.addWidget(list_card, 2)
 
         right = QVBoxLayout()
@@ -179,10 +191,38 @@ class ImageStudioView(BaseView):
             if info["id"] == current:
                 self.images.setCurrentItem(item)
         self._show_selected()
+        self._update_delete()
 
     def _selected(self) -> dict | None:
         item = self.images.currentItem()
         return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def selected_ids(self) -> list[int]:
+        return [i.data(Qt.ItemDataRole.UserRole)["id"] for i in self.images.selectedItems()]
+
+    def _update_delete(self) -> None:
+        count = len(self.images.selectedItems())
+        self.delete_button.setEnabled(count > 0)
+        self.delete_button.setText(
+            f"Borrar seleccionadas ({count})" if count else "Borrar seleccionadas"
+        )
+
+    def _delete_selected(self) -> None:
+        ids = self.selected_ids()
+        if not ids:
+            return
+        if not ask_confirmation(
+            self,
+            "Borrar imágenes",
+            f"Se borrarán {len(ids)} imagen(es) de esta lista.\n\n"
+            "Las fotos originales de tu ordenador NO se borran, y las que ya usas en tus "
+            "anuncios siguen allí.",
+            destructive=True,
+        ):
+            return
+        removed = self.app.image_generation.delete_images(ids)
+        self.app.audit.record_success("Imágenes borradas", detail=f"{removed} imagen(es)")
+        self.refresh()
 
     def _selected_id(self) -> int | None:
         info = self._selected() if hasattr(self, "images") else None

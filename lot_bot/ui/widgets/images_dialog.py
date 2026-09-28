@@ -101,6 +101,10 @@ class ImagesDialog(QDialog):
         self.gallery.setIconSize(QSize(170, 130))
         self.gallery.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.gallery.setMovement(QListWidget.Movement.Static)
+        # Varias a la vez: arrastrar con el ratón (recuadro), Ctrl/Shift + clic
+        # o «Seleccionar todas».
+        self.gallery.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.gallery.setSelectionRectVisible(True)
         self.gallery.setSpacing(10)
         self.gallery.itemSelectionChanged.connect(self._update_buttons)
         # Las fotos se sueltan en la ventana (la galería no se las queda).
@@ -135,6 +139,9 @@ class ImagesDialog(QDialog):
         self.use_button.setVisible(adapter.set_enabled is not None)
         row.addWidget(self.use_button)
         row.addStretch(1)
+        self.select_all_button = QPushButton("Seleccionar todas")
+        self.select_all_button.clicked.connect(self.gallery.selectAll)
+        row.addWidget(self.select_all_button)
         self.remove_button = QPushButton("Quitar")
         self.remove_button.setObjectName("Danger")
         self.remove_button.clicked.connect(self._remove)
@@ -169,26 +176,40 @@ class ImagesDialog(QDialog):
         self._update_buttons()
 
     def _selected(self) -> int | None:
-        item = self.gallery.currentItem()
-        return item.data(Qt.ItemDataRole.UserRole) if item else None
+        """La foto elegida cuando hay UNA sola seleccionada (mover, principal)."""
+        chosen = self.selected_indexes()
+        return chosen[0] if len(chosen) == 1 else None
+
+    def selected_indexes(self) -> list[int]:
+        return sorted(i.data(Qt.ItemDataRole.UserRole) for i in self.gallery.selectedItems())
 
     def _update_buttons(self) -> None:
-        index = self._selected()
-        has = index is not None
+        chosen = self.selected_indexes()
+        one = len(chosen) == 1
+        index = chosen[0] if one else None
         count = self.gallery.count()
-        self.left_button.setEnabled(has and index > 0)
-        self.right_button.setEnabled(has and index < count - 1)
-        self.primary_button.setEnabled(has)
-        self.use_button.setEnabled(has)
-        self.remove_button.setEnabled(has)
+        # Mover y «principal»: de una en una. Usar y quitar: varias a la vez.
+        self.left_button.setEnabled(one and index > 0)
+        self.right_button.setEnabled(one and index < count - 1)
+        self.primary_button.setEnabled(one)
+        self.use_button.setEnabled(bool(chosen))
+        self.remove_button.setEnabled(bool(chosen))
+        self.remove_button.setText(f"Quitar ({len(chosen)})" if len(chosen) > 1 else "Quitar")
 
     def _toggle_use(self) -> None:
-        index = self._selected()
-        if index is None or self.adapter.set_enabled is None:
+        chosen = self.selected_indexes()
+        if not chosen or self.adapter.set_enabled is None:
             return
-        current = self.adapter.list_images()[index].get("enabled", True)
-        self.adapter.set_enabled(index, not current)
-        self.refresh(select=index)
+        images = self.adapter.list_images()
+        # Si alguna no se usa, se marcan todas; si todas se usan, se desmarcan.
+        value = not all(images[i].get("enabled", True) for i in chosen)
+        for index in chosen:
+            self.adapter.set_enabled(index, value)
+        self.refresh()
+        for index in chosen:
+            item = self.gallery.item(index)
+            if item is not None:
+                item.setSelected(True)
 
     # ------------------------------------------------------------------
     def _add(self) -> None:
@@ -250,17 +271,18 @@ class ImagesDialog(QDialog):
         self.refresh(select=index)
 
     def _remove(self) -> None:
-        index = self._selected()
-        if index is None:
+        chosen = self.selected_indexes()
+        if not chosen:
             return
         if not ask_confirmation(
             self,
-            "Quitar fotografía",
-            "Se quitará la fotografía de este elemento. El fichero original de tu "
-            "ordenador no se borra.",
+            "Quitar fotografías",
+            f"Se quitarán {len(chosen)} fotografía(s). Los ficheros originales de tu "
+            "ordenador no se borran.",
         ):
             return
-        self.adapter.remove(index)
+        for index in sorted(chosen, reverse=True):  # de atrás adelante: no se mueven
+            self.adapter.remove(index)
         self.refresh()
 
 

@@ -176,3 +176,71 @@ def test_imagenes_ia_carpeta_y_arrastrar(qapp, app_with_data, tmp_path, monkeypa
     view._upload_folder()
     _soltar(view, _fotos_distintas(tmp_path / "mas", 2, "m"))
     assert len(app_with_data.master_ads.get(None).images) == antes + 5
+
+
+def _dialogo_con_fotos(app_with_data, tmp_path, monkeypatch, n):
+    from lot_bot.ui.widgets import images_dialog
+
+    monkeypatch.setattr(images_dialog, "info_box", lambda *a, **k: None)
+    monkeypatch.setattr(images_dialog, "ask_confirmation", lambda *a, **k: True)
+    key = app_with_data.master_ads.get(None).key
+    dialogo = images_dialog.ImagesDialog(images_dialog.master_adapter(app_with_data, key))
+    dialogo.add_paths([str(r) for r in _fotos_distintas(tmp_path / "g", n, "g")])
+    return dialogo, key
+
+
+def test_fotografias_arrastrar_el_raton_selecciona_varias(qapp, app_with_data, tmp_path, monkeypatch):
+    """Mantener el clic y arrastrar sobre las fotos las selecciona todas."""
+    from PySide6.QtCore import QPoint, Qt
+    from PySide6.QtTest import QTest
+
+    dialogo, _ = _dialogo_con_fotos(app_with_data, tmp_path, monkeypatch, 4)
+    dialogo.resize(1100, 700)
+    dialogo.show()
+    qapp.processEvents()
+    vista = dialogo.gallery.viewport()
+    rects = [dialogo.gallery.visualItemRect(dialogo.gallery.item(i)) for i in range(4)]
+    desde = QPoint(2, 2)
+    hasta = QPoint(max(r.right() for r in rects) + 4, max(r.bottom() for r in rects) + 4)
+    QTest.mousePress(vista, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, desde)
+    for paso in range(1, 11):  # movimiento real, poco a poco
+        punto = desde + (hasta - desde) * paso / 10
+        QTest.mouseMove(vista, punto)
+        qapp.processEvents()
+    QTest.mouseRelease(vista, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, hasta)
+    assert len(dialogo.selected_indexes()) == 4
+    assert dialogo.remove_button.isEnabled() and "(4)" in dialogo.remove_button.text()
+    dialogo.close()
+
+
+def test_fotografias_quitar_varias_de_golpe(qapp, app_with_data, tmp_path, monkeypatch):
+    dialogo, key = _dialogo_con_fotos(app_with_data, tmp_path, monkeypatch, 5)
+    total = len(app_with_data.master_ads.get(key).images)
+    for fila in (0, 2, 4):
+        dialogo.gallery.item(fila).setSelected(True)
+    dialogo._remove()
+    assert len(app_with_data.master_ads.get(key).images) == total - 3
+
+    dialogo.select_all_button.click()
+    assert len(dialogo.selected_indexes()) == total - 3
+    dialogo._toggle_use()  # todas «no usar» (o «usar») de una vez
+    estados = {i.get("enabled", True) for i in app_with_data.master_ads.get(key).images}
+    assert len(estados) == 1
+
+
+def test_imagenes_ia_borrar_varias(qapp, app_with_data, tmp_path, monkeypatch):
+    from lot_bot.ui.views import image_studio
+
+    monkeypatch.setattr(image_studio, "ask_confirmation", lambda *a, **k: True)
+    monkeypatch.setattr(image_studio, "info_box", lambda *a, **k: None)
+    view = image_studio.ImageStudioView(app_with_data, _runner())
+    view.upload_files([str(r) for r in _fotos_distintas(tmp_path / "b", 4, "b")], use_in_ads=False)
+    view.refresh()
+    antes = view.images.count()
+    view.select_all_button.click()
+    assert len(view.selected_ids()) == antes >= 4
+    assert "(" in view.delete_button.text()
+    view._delete_selected()
+    assert view.images.count() == 0
+    # Los originales de tu ordenador siguen ahí.
+    assert all(p.exists() for p in (tmp_path / "b").glob("*.jpg"))
