@@ -137,6 +137,41 @@ class ListingFormConfig:
 
 
 @dataclass(slots=True)
+class DeleteConfig:
+    """Pasos para eliminar un anuncio en su página (sección `eliminar` del YAML)."""
+
+    #: Menú que hay que abrir antes (si el botón está dentro de «…»).
+    menu: list[str] = field(default_factory=list)
+    button: list[str] = field(default_factory=list)
+    #: Motivo que pide Wallapop (se pulsa el primero que aparezca).
+    reasons: list[str] = field(default_factory=list)
+    confirm: list[str] = field(default_factory=list)
+    #: Textos que indican que el anuncio ya no existe o se ha eliminado.
+    gone: list[str] = field(default_factory=list)
+    wait_ms: int = 15000
+
+    @property
+    def defined(self) -> bool:
+        return bool(self.button)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> DeleteConfig:
+        data = data or {}
+
+        def strs(key: str) -> list[str]:
+            return [str(x) for x in (data.get(key) or [])]
+
+        return cls(
+            menu=strs("menu"),
+            button=strs("boton"),
+            reasons=strs("motivos"),
+            confirm=strs("confirmar"),
+            gone=strs("eliminado"),
+            wait_ms=int(data.get("espera_ms", 15000)),
+        )
+
+
+@dataclass(slots=True)
 class BrowserSiteConfig:
     verified: bool
     visible: bool
@@ -159,6 +194,7 @@ class BrowserSiteConfig:
     check_private: list[str] = field(default_factory=list)
     keep_open_seconds: int = 900
     stats_patterns: dict[str, str] = field(default_factory=dict)
+    delete: DeleteConfig = field(default_factory=DeleteConfig)
     source: Path | None = None
 
     def url(self, name: str) -> str:
@@ -202,6 +238,7 @@ class BrowserSiteConfig:
             stats_patterns={
                 str(k): str(v) for k, v in (data.get("estadisticas") or {}).items() if v
             },
+            delete=DeleteConfig.from_dict(data.get("eliminar")),
             source=source,
         )
 

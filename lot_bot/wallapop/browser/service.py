@@ -42,6 +42,7 @@ from lot_bot.wallapop.dto import (
 )
 from lot_bot.wallapop.errors import (
     AuthenticationError,
+    BrowserStepError,
     ConfigurationError,
     NotAvailableWithCurrentAPIError,
     ProfileInUseError,
@@ -121,7 +122,12 @@ class BrowserWallapopService(WallapopService):
 
     # ------------------------------------------------------------------
     def capabilities(self) -> set[Capability]:
-        return {Capability.ACCOUNT_PROFILE, Capability.CREATE_ITEM, Capability.ITEM_STATS}
+        return {
+            Capability.ACCOUNT_PROFILE,
+            Capability.CREATE_ITEM,
+            Capability.ITEM_STATS,
+            Capability.DELETE_ITEM,
+        }
 
     def _unavailable(self, capability: Capability):
         raise NotAvailableWithCurrentAPIError(
@@ -412,8 +418,83 @@ class BrowserWallapopService(WallapopService):
     def update_item(self, account_ref: str, item_id: str, changes: dict[str, Any]) -> OperationResult:
         self._unavailable(Capability.UPDATE_ITEM)
 
-    def delete_item(self, account_ref: str, item_id: str) -> OperationResult:
-        self._unavailable(Capability.DELETE_ITEM)
+    def delete_item(
+        self, account_ref: str, item_id: str, item_url: str | None = None
+    ) -> OperationResult:
+        """Elimina un anuncio en su página, como lo haría el usuario, y
+        COMPRUEBA que ya no está. Sin la dirección del anuncio no se toca nada."""
+        cfg = self.site.delete
+        if not cfg.defined:
+            raise ConfigurationError("wallapop_browser.yaml no define cómo eliminar anuncios.")
+        url = item_url or (item_id if str(item_id).startswith("http") else "")
+        if not url:
+            error = BrowserStepError("Eliminar", "Sin dirección del anuncio.")
+            error.user_message = (
+                "No se sabe la dirección de este anuncio (Wallapop no la mostró al "
+                "publicarlo). Elimínalo a mano en Wallapop."
+            )
+            raise error
+        timeout = self.site.timeout_ms
+
+        def gone(page: BrowserPage) -> bool:
+            if cfg.gone and page.first_visible(cfg.gone, 0):
+                return True
+            return page.first_visible(cfg.button + cfg.menu, 0) is None
+
+        def remove(page: BrowserPage) -> str:
+            def fail(step: str, detail: str) -> BrowserStepError:
+                shot = self._screenshot(page, account_ref, f"eliminar-{step}")
+                return BrowserStepError(f"Eliminar ({step})", detail, shot)
+
+            page.goto(url)
+            if self.site.verification and page.first_visible(self.site.verification, 3000):
+                raise VerificationRequiredError("Wallapop pide una verificación al eliminar.")
+            if cfg.gone and page.first_visible(cfg.gone, 2000):
+                return "ya no estaba"
+            button = page.first_visible(cfg.button, min(timeout, 8000))
+            if button is None and cfg.menu:
+                menu = page.first_visible(cfg.menu, 3000)
+                if menu:
+                    page.click(menu)
+                    button = page.first_visible(cfg.button, 5000)
+            if button is None:
+                raise fail("botón", "No aparece el botón para eliminar en la página del anuncio.")
+            page.click(button)
+            # Motivo (si lo pide) y confirmación, en el orden en que aparezcan.
+            deadline = time.monotonic() + cfg.wait_ms / 1000
+            reason_done = confirmed = False
+            while time.monotonic() < deadline:
+                if not reason_done and cfg.reasons:
+                    reason = page.first_visible(cfg.reasons, 0)
+                    if reason:
+                        page.click(reason)
+                        reason_done = True
+                        page.wait(300)
+                        continue
+                confirm = page.first_visible(cfg.confirm, 0) if cfg.confirm else None
+                if confirm:
+                    page.click(confirm)
+                    confirmed = True
+                    page.wait(800)
+                    continue
+                if confirmed and gone(page):
+                    break
+                page.wait(300)
+            # Comprobación final: se vuelve a abrir el anuncio.
+            page.goto(url)
+            page.wait(1500)
+            if not gone(page):
+                raise fail("comprobar", "Tras eliminarlo, el anuncio sigue apareciendo en Wallapop.")
+            return "eliminado"
+
+        state = self._in_browser(account_ref, remove, timeout=600)
+        return OperationResult(
+            success=True,
+            message="Eliminado en Wallapop y comprobado."
+            if state == "eliminado"
+            else "El anuncio ya no estaba en Wallapop.",
+            item_id=item_id,
+        )
 
     def update_item_price(self, account_ref: str, item_id: str, price: float) -> OperationResult:
         self._unavailable(Capability.UPDATE_ITEM_PRICE)

@@ -435,7 +435,9 @@ class MockWallapopService(WallapopService):
             data=applied,
         )
 
-    def delete_item(self, account_ref: str, item_id: str) -> OperationResult:
+    def delete_item(
+        self, account_ref: str, item_id: str, item_url: str | None = None
+    ) -> OperationResult:
         with self._lock:
             items = self._account(account_ref)
             if item_id not in items:

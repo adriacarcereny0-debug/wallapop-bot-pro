@@ -15,11 +15,33 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent / "fixtures" / "wallapop_simulado"
 
+#: Página de un anuncio propio: «Eliminar» está dentro del menú «Más
+#: opciones»; pide el motivo y luego confirmar.
+_ITEM_PAGE = """<!doctype html><meta charset=utf-8><title>{slug}</title>
+<h1>Producto subido</h1><p>Tu producto ya está a la venta.</p>
+<a href='/item/{slug}'>Ver anuncio</a>
+<button id=mas aria-label="Más opciones">…</button>
+<div id=menu hidden><button id=eliminar>Eliminar</button></div>
+<div role=dialog id=motivo hidden><p>¿Por qué lo eliminas?</p>
+  <label><input type=radio name=m> Lo he vendido en Wallapop</label>
+  <label id=yano><input type=radio name=m> Ya no lo vendo</label>
+  <button id=ok disabled>Eliminar</button></div>
+<script>
+mas.onclick = () => { menu.hidden = false; };
+eliminar.onclick = () => { motivo.hidden = false; };
+yano.onclick = () => { ok.disabled = false; };
+ok.onclick = async () => {
+  await fetch('/borrar/{slug}', {method: 'POST', body: '{}'});
+  document.body.innerHTML = '<h1>Has eliminado el anuncio</h1>';
+};
+</script>"""
+
 
 class SimulatedWallapop:
     def __init__(self) -> None:
         self.published: list[dict] = []
         self.visited: list[str] = []
+        self.deleted: set[str] = set()
         server = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -40,17 +62,24 @@ class SimulatedWallapop:
                     self._send(200, (ROOT / "app/catalog/upload.html").read_bytes())
                 elif path.startswith("/item/"):
                     slug = path.rsplit("/", 1)[-1]
-                    self._send(
-                        200,
-                        f"<!doctype html><meta charset=utf-8><title>{slug}</title>"
-                        f"<h1>Producto subido</h1><p>Tu producto ya está a la venta.</p>"
-                        f"<a href='/item/{slug}'>Ver anuncio</a>".encode(),
-                    )
+                    if slug in server.deleted:
+                        self._send(
+                            404,
+                            b"<!doctype html><meta charset=utf-8>"
+                            b"<h1>Este anuncio ya no est\xc3\xa1 disponible</h1>",
+                        )
+                        return
+                    self._send(200, _ITEM_PAGE.replace("{slug}", slug).encode())
                 else:
                     self._send(200, b"<!doctype html><meta charset=utf-8><h1>Inicio (simulado)</h1>")
 
             def do_POST(self):
                 length = int(self.headers.get("Content-Length") or 0)
+                if self.path.startswith("/borrar/"):
+                    self.rfile.read(length)
+                    server.deleted.add(self.path.rsplit("/", 1)[-1])
+                    self._send(200, b"{}", "application/json")
+                    return
                 data = json.loads(self.rfile.read(length) or b"{}")
                 server.published.append(data)
                 item_id = f"canape-canape-{700 + len(server.published)}"

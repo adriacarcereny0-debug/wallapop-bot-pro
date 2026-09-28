@@ -397,7 +397,9 @@ class AuthorizedWallapopService(WallapopService):
             data=payload if isinstance(payload, dict) else {},
         )
 
-    def delete_item(self, account_ref: str, item_id: str) -> OperationResult:
+    def delete_item(
+        self, account_ref: str, item_id: str, item_url: str | None = None
+    ) -> OperationResult:
         self._call(Capability.DELETE_ITEM, account_ref, {"item_id": item_id})
         return OperationResult(success=True, message="Anuncio eliminado.", item_id=item_id)
 

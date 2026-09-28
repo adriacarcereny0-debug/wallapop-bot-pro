@@ -557,11 +557,12 @@ class MasterAdService:
                 for i, p in enumerate(only_images)
             ]
         if extra_images:
-            # La imagen generada para este anuncio va la primera (portada).
+            # SOLO la imagen generada para este anuncio: sin añadir las fotos
+            # marcadas, que se repetirían en todos los anuncios.
             data["images"] = [
                 {"path": p, "is_primary": i == 0, "source": "generada"}
                 for i, p in enumerate(extra_images)
-            ] + [{**img, "is_primary": False} for img in data["images"]]
+            ]
         previews: list[ListingPreview] = []
         for ref in self.distribute(account_refs, copies):
             quality = validate_listing_data(

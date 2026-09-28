@@ -278,3 +278,28 @@ def test_navegador_real_ubicacion_va_en_marca_la_localizacion_no_en_el_buscador(
     assert publicado["ubicacion"] == "Madrid"
     assert publicado["buscador_cabecera"] == ""  # la cabecera no se toca
     assert not any("Ubicación" in o for o in resultado.data["omitidos"])
+
+
+def test_navegador_real_elimina_el_anuncio_y_comprueba_que_ya_no_esta(servicio):
+    """Borrado: abre el anuncio, «Más opciones» → «Eliminar», elige el motivo
+    «Ya no lo vendo», confirma y vuelve a abrirlo para COMPROBARLO."""
+    service, web, tmp_path = servicio
+    publicado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert publicado.success
+    url = publicado.data["url"]
+    resultado = service.delete_item("cuenta-1", publicado.item_id, item_url=url)
+    assert resultado.success, resultado.message
+    assert publicado.item_id in web.deleted
+    # Otra vez: ya no está, y se dice sin tocar nada.
+    otra = service.delete_item("cuenta-1", publicado.item_id, item_url=url)
+    assert otra.success and "ya no estaba" in otra.message
+
+
+def test_navegador_real_sin_direccion_no_se_elimina_nada(servicio):
+    from lot_bot.wallapop.errors import BrowserStepError
+
+    service, web, _ = servicio
+    with pytest.raises(BrowserStepError) as info:
+        service.delete_item("cuenta-1", "navegador-123")
+    assert "a mano" in info.value.user_message
+    assert web.deleted == set()

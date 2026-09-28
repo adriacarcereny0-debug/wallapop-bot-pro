@@ -28,7 +28,13 @@ from lot_bot.database.models import Template
 from lot_bot.templates_engine.defaults import TEMPLATE_VARIABLES
 from lot_bot.ui import theme
 from lot_bot.ui.views.base import BaseView
-from lot_bot.ui.widgets.common import Card, SectionTitle, info_box, show_error
+from lot_bot.ui.widgets.common import (
+    Card,
+    SectionTitle,
+    ask_confirmation,
+    info_box,
+    show_error,
+)
 
 MIN_CONTROL_HEIGHT = 34
 
@@ -340,12 +346,21 @@ class SettingsView(BaseView):
             False,
         )
         self.publish_images.addItem(
-            "Mis fotos marcadas, UNA distinta en cada anuncio (van rotando)", "rotar"
+            "Mis fotos marcadas, UNA distinta en cada anuncio (nunca repite una ya publicada)",
+            "rotar",
         )
         self.publish_images.addItem(
-            "Generar una foto distinta por anuncio con FLUX.2 Pro (necesita clave)", True
+            "Generar una foto distinta por anuncio con FLUX.2 Pro (solo esa foto; necesita clave)",
+            True,
         )
+        # Se guarda nada más elegirla (sin pulsar «Aplicar»).
+        self.publish_images.currentIndexChanged.connect(self._save_photo_option)
         form.addRow("Fotos de cada anuncio", self.publish_images)
+        self.used_photos_label = QLabel()
+        self.used_photos_label.setWordWrap(True)
+        reset_used = QPushButton("Volver a usar las fotos ya publicadas")
+        reset_used.clicked.connect(self._reset_used_photos)
+        form.addRow(self.used_photos_label, reset_used)
         _fixed_height(self.integration_mode, self.publish_interval, self.publish_images)
         integration.body.addLayout(form)
         integration_note = QLabel(
@@ -459,12 +474,16 @@ class SettingsView(BaseView):
         self.integration_mode.setCurrentIndex(max(index, 0))
         queue_settings = self.app.publish_queue.settings()
         self.publish_interval.setValue(queue_settings["minimum_publish_interval_seconds"])
+        self.publish_images.blockSignals(True)  # mostrar no es elegir: no se guarda
         if queue_settings["generate_images"]:
             self.publish_images.setCurrentIndex(self.publish_images.findData(True))
         elif queue_settings.get("rotate_photos"):
             self.publish_images.setCurrentIndex(self.publish_images.findData("rotar"))
         else:
             self.publish_images.setCurrentIndex(0)
+        self.publish_images.blockSignals(False)
+        used = len(self.app.publish_queue.used_photos())
+        self.used_photos_label.setText(f"Fotos ya publicadas (no se repiten): {used}")
         from lot_bot.wallapop.browser.config import local_config_path
 
         self.selectors_label.setText(
@@ -607,6 +626,23 @@ class SettingsView(BaseView):
         self.app.set_ai_provider(provider)
         self.app.audit.record_success("Cambio de asistente IA", detail=provider.describe())
         info_box(self, "Asistente actualizado", f"Modo activo: {provider.describe()}")
+        self.refresh()
+
+    def _save_photo_option(self) -> None:
+        choice = self.publish_images.currentData()
+        self.app.publish_queue.save_settings(
+            generate_images=choice is True, rotate_photos=choice == "rotar"
+        )
+
+    def _reset_used_photos(self) -> None:
+        if not ask_confirmation(
+            self,
+            "Volver a usar fotos",
+            "Las fotos ya publicadas se podrán volver a subir. Si publicas la misma foto en "
+            "varios anuncios o cuentas, Wallapop puede verlo como anuncios repetidos.",
+        ):
+            return
+        self.app.publish_queue.reset_used_photos()
         self.refresh()
 
     def _apply_integration(self) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -88,7 +89,14 @@ class ListingsView(BaseView):
         actions.addWidget(self.quality_button)
 
         actions.addStretch(1)
-        self.delete_button = QPushButton("Eliminar anuncio")
+        self.select_account_button = QPushButton("Seleccionar todos (de esta cuenta)")
+        self.select_account_button.setToolTip(
+            "Selecciona todos los anuncios activos de la cuenta elegida arriba "
+            "(o de todas las cuentas)."
+        )
+        self.select_account_button.clicked.connect(self._select_all_active)
+        actions.addWidget(self.select_account_button)
+        self.delete_button = QPushButton("Eliminar seleccionados")
         self.delete_button.setObjectName("Danger")
         self.delete_button.clicked.connect(self._delete)
         actions.addWidget(self.delete_button)
@@ -163,7 +171,7 @@ class ListingsView(BaseView):
         self.price_button.setEnabled(has)
         self.title_button.setEnabled(len(ids) == 1)
         self.detail_button.setEnabled(len(ids) == 1)
-        self.delete_button.setEnabled(len(ids) == 1)
+        self.delete_button.setEnabled(has)
         self.selection_label.setText(
             f"{len(ids)} anuncio(s) seleccionados." if has else "Selecciona uno o varios anuncios."
         )
@@ -341,21 +349,67 @@ class ListingsView(BaseView):
             f"{len(with_errors)} de {len(reports)} anuncios tienen problemas:\n\n{text}",
         )
 
+    def _select_all_active(self) -> None:
+        """Todos los anuncios activos de la lista (la cuenta la elige el filtro)."""
+        active = {v.id for v in self._listings if v.status == "active"}
+        self.table.clearSelection()
+        mode = self.table.selectionMode()
+        self.table.setSelectionMode(self.table.SelectionMode.MultiSelection)
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is not None and int(item.data(Qt.ItemDataRole.UserRole) or 0) in active:
+                self.table.selectRow(row)
+        self.table.setSelectionMode(mode)
+        self._on_selection()
+
     def _delete(self) -> None:
         ids = self._selected_ids()
-        if len(ids) != 1:
+        if not ids:
             return
-        view = self.app.listings.get(ids[0])
+        selected = [v for v in self._listings if v.id in ids]
+        by_account: dict[str, int] = {}
+        for view in selected:
+            by_account[view.account_alias] = by_account.get(view.account_alias, 0) + 1
+        interval = self.app.publish_queue.interval
+        minutes = max(1, round(interval * (len(ids) - 1) / 60)) if len(ids) > 1 else 0
+        titles = "\n".join(f"   · {v.title}" for v in selected[:8])
+        if len(selected) > 8:
+            titles += f"\n   · … y {len(selected) - 8} más"
         if not ask_confirmation(
             self,
-            "Eliminar anuncio de Wallapop",
-            f"Cuenta: {view.account_alias}\nAnuncio: {view.title}\nPrecio: {view.price} €\n\n"
-            f"Esta acción elimina el anuncio en Wallapop y NO se puede deshacer.",
+            "Eliminar anuncios de Wallapop",
+            f"Se van a ELIMINAR {len(ids)} anuncio(s) en Wallapop:\n\n"
+            + "\n".join(f"• {alias}: {count} anuncio(s)" for alias, count in by_account.items())
+            + f"\n\n{titles}\n\n"
+            f"Se eliminan de uno en uno, con {interval} segundos entre cada uno"
+            + (f" (unos {minutes} min en total)" if minutes else "")
+            + ".\nEsta acción NO se puede deshacer.",
             destructive=True,
         ):
             return
+        self.selection_label.setText(
+            f"Eliminando {len(ids)} anuncio(s) de uno en uno… no cierres LOT Bot."
+        )
+        self.delete_button.setEnabled(False)
+
+        def success(outcomes):
+            done = [o for o in outcomes if o.success]
+            failed = [o for o in outcomes if not o.success]
+            message = f"Eliminados: {len(done)} de {len(ids)}."
+            if failed:
+                message += "\n\nNo eliminados:\n" + "\n".join(f"• {o.message}" for o in failed)
+                message += "\n\nHay una captura de cada fallo en la carpeta logs/navegador."
+            if len(outcomes) < len(ids):
+                message += (
+                    f"\n\nSe ha parado antes de terminar: {len(ids) - len(outcomes)} anuncio(s) "
+                    "no se han tocado. Resuelve lo que pide Wallapop y vuelve a intentarlo."
+                )
+            info_box(self, "Resultado", message)
+
         self.run_task(
-            lambda: self.app.publishing.delete_listing(ids[0], confirmed=True, actor="usuario"),
-            on_success=lambda outcome: info_box(self, "Resultado", outcome.message),
+            lambda: self.app.publishing.delete_listings(
+                ids, confirmed=True, actor="usuario", interval_seconds=interval
+            ),
+            on_success=success,
             on_done=self.refresh,
         )

@@ -51,6 +51,13 @@ logger = logging.getLogger(__name__)
 
 MINIMUM_PUBLISH_INTERVAL_SECONDS = 60
 SETTINGS_KEY = "publicacion"
+#: Fotos ya publicadas (para no repetirlas nunca, en ninguna cuenta).
+USED_PHOTOS_KEY = "fotos_usadas"
+NO_PHOTOS_MESSAGE = (
+    "Añade fotos nuevas: ya se han publicado todas las fotos marcadas del Anuncio "
+    "principal y no se repite ninguna. Añádelas en «Anuncio principal» → «Fotografías…» "
+    "(márcalas con «Usar / no usar al publicar») y pulsa «Reanudar»."
+)
 DEFAULT_PUBLISH_SETTINGS: dict[str, Any] = {
     "minimum_publish_interval_seconds": MINIMUM_PUBLISH_INTERVAL_SECONDS,
     "generate_images": True,
@@ -689,8 +696,16 @@ class PublishQueue:
             if service is not None and hasattr(service, "user_gate"):
                 service.user_gate = self._user_gate
             only_images = None
+            photo_key = None
             if not image_path and self.settings().get("rotate_photos"):
-                only_images = self._next_rotating_photo(payload.get("master_key"))
+                photo = self._next_rotating_photo(payload.get("master_key"))
+                if photo is None:
+                    # No quedan fotos sin publicar: se para y se avisa.
+                    self._set_task(task_id, status=PublishTaskStatus.PENDING, attempts=attempts)
+                    self.pause(job_id, NO_PHOTOS_MESSAGE)
+                    return True
+                only_images = [photo["path"]]
+                photo_key = self.photo_key(photo)
             try:
                 outcome = self._app.master_ads.publish_single(
                     payload.get("master_key"),
@@ -710,6 +725,8 @@ class PublishQueue:
 
             if outcome.success:
                 self._consecutive_failures = 0
+                if photo_key:
+                    self.mark_photo_used(photo_key, ref)
                 self._set_task(
                     task_id,
                     status=PublishTaskStatus.PUBLISHED,
@@ -766,22 +783,57 @@ class PublishQueue:
         )
         return str(result.path)
 
-    def _next_rotating_photo(self, master_key: str | None) -> list[str] | None:
-        """La siguiente foto marcada, en orden y volviendo a empezar. El turno
-        se guarda: sigue rotando entre colas y reinicios."""
-        master = self._app.master_ads.get(master_key)
-        photos = [i["path"] for i in self._app.master_ads.effective_images(master)] if master else []
-        if not photos:
-            return None
-        turn = int(self.settings().get("rotation_next", 0) or 0)
-        merged = {**self.settings(), "rotation_next": (turn + 1) % len(photos)}
-        with self._db.session_scope() as session:  # sin auditoría: es solo el turno
-            row = session.get(Setting, SETTINGS_KEY)
+    # ------------------------------------------------------------------
+    # Fotos ya publicadas: NUNCA se repiten (en ninguna cuenta)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def photo_key(image: dict[str, Any]) -> str:
+        """Identifica la foto por su contenido (si se conoce) o por su ruta."""
+        return str(image.get("content_hash") or image.get("path") or "")
+
+    def used_photos(self) -> dict[str, dict[str, Any]]:
+        """{foto: {"cuentas": [...], "fecha": ...}} de las fotos ya publicadas."""
+        with self._db.session_scope() as session:
+            row = session.get(Setting, USED_PHOTOS_KEY)
+            return dict((row.value or {}) if row else {})
+
+    def _save_used(self, used: dict[str, dict[str, Any]]) -> None:
+        with self._db.session_scope() as session:
+            row = session.get(Setting, USED_PHOTOS_KEY)
             if row is None:
-                session.add(Setting(key=SETTINGS_KEY, value=merged))
+                session.add(Setting(key=USED_PHOTOS_KEY, value=used))
             else:
-                row.value = merged
-        return [photos[turn % len(photos)]]
+                row.value = used
+
+    def mark_photo_used(self, key: str, account_ref: str) -> None:
+        used = self.used_photos()
+        entry = dict(used.get(key) or {"cuentas": []})
+        entry["cuentas"] = sorted({*entry.get("cuentas", []), account_ref})
+        entry["fecha"] = datetime.fromtimestamp(self.clock.now()).isoformat(timespec="seconds")
+        used[key] = entry
+        self._save_used(used)
+
+    def reset_used_photos(self) -> None:
+        """Permite volver a usar todas las fotos (lo decide el usuario)."""
+        self._save_used({})
+        self._audit.record_success("Fotos publicadas reiniciadas", actor="usuario")
+
+    def unused_photos(self, master_key: str | None) -> list[dict[str, Any]]:
+        """Fotos marcadas del anuncio principal que aún no se han publicado."""
+        master = self._app.master_ads.get(master_key)
+        if master is None:
+            return []
+        used = self.used_photos()
+        return [
+            i for i in self._app.master_ads.effective_images(master)
+            if i.get("source") != "demo" and self.photo_key(i) not in used
+        ]
+
+    def _next_rotating_photo(self, master_key: str | None) -> dict[str, Any] | None:
+        """La primera foto marcada que todavía no se ha publicado en NINGUNA
+        cuenta (en el orden de «Fotografías…»)."""
+        unused = self.unused_photos(master_key)
+        return unused[0] if unused else None
 
     def _preferred_rooms(self) -> list[str]:
         """Habitaciones que mejor han funcionado (si hay datos suficientes)."""

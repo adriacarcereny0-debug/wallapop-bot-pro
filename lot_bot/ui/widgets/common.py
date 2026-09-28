@@ -383,7 +383,7 @@ LISTING_STATUS_LABELS = {
     "active": "Activo",
     "inactive": "Inactivo",
     "sold": "Vendido",
-    "removed": "Retirado",
+    "removed": "Eliminado",
     "error": "Error",
 }
 

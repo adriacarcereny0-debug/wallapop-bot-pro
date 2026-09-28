@@ -94,7 +94,9 @@ class WallapopService(ABC):
         ...
 
     @abstractmethod
-    def delete_item(self, account_ref: str, item_id: str) -> OperationResult:
+    def delete_item(
+        self, account_ref: str, item_id: str, item_url: str | None = None
+    ) -> OperationResult:
         ...
 
     @abstractmethod

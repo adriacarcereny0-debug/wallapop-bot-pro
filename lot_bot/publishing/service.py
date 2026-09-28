@@ -539,7 +539,9 @@ class PublishingService:
 
         self._wallapop.require(Capability.DELETE_ITEM)
         try:
-            result = self._wallapop.delete_item(view.account_ref, view.wallapop_item_id)
+            result = self._wallapop.delete_item(
+                view.account_ref, view.wallapop_item_id, item_url=view.url
+            )
         except WallapopError as exc:
             self._audit.record_error(
                 "Eliminación de anuncio",
@@ -570,3 +572,48 @@ class PublishingService:
             message=result.message,
             item_id=view.wallapop_item_id,
         )
+
+    #: Errores que paran el borrado en lote: hacen falta el usuario o la web cambió.
+    STOP_DELETING = {
+        "VerificationRequiredError",
+        "AuthenticationError",
+        "RateLimitError",
+        "ProfileInUseError",
+        "WindowClosedError",
+    }
+
+    def delete_listings(
+        self,
+        listing_ids: list[int],
+        *,
+        confirmed: bool,
+        actor: str = "usuario",
+        interval_seconds: float = 60.0,
+        sleep=None,
+        on_progress=None,
+    ) -> list[PublishOutcome]:
+        """Elimina varios anuncios, UNO DETRÁS DE OTRO y con una espera entre
+        cada uno (como al publicar). Si Wallapop pide una verificación o la
+        sesión, se PARA: los que quedan no se tocan."""
+        if not confirmed:
+            raise ConfirmationRequiredError("eliminar anuncios")
+        import time as _time
+
+        sleep = sleep or _time.sleep
+        outcomes: list[PublishOutcome] = []
+        for position, listing_id in enumerate(listing_ids):
+            if position:
+                sleep(interval_seconds)
+            try:
+                outcome = self.delete_listing(listing_id, confirmed=True, actor=actor)
+            except ValueError as exc:
+                outcome = PublishOutcome(
+                    product_sku="", account_ref="", success=False, message=str(exc),
+                    error_code="NO_ENCONTRADO",
+                )
+            outcomes.append(outcome)
+            if on_progress:
+                on_progress(position + 1, len(listing_ids), outcome)
+            if not outcome.success and outcome.error_code in self.STOP_DELETING:
+                break
+        return outcomes

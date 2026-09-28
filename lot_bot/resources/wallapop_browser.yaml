@@ -89,6 +89,35 @@ estadisticas:
   favoritos: "(\\d[\\d.]*)\\s*(?:favoritos|me gusta)"
 
 # -----------------------------------------------------------------------------
+# ELIMINAR un anuncio publicado por LOT Bot. Se abre su página (la dirección
+# guardada al publicarlo), se pulsa eliminar, se elige un motivo si Wallapop lo
+# pide, se confirma y se COMPRUEBA que ya no está. SIN VERIFICAR contra la web
+# real: se buscan los botones por su texto. Si algo no coincide, el bot se para
+# y deja captura en logs/navegador para ajustar esta sección.
+# -----------------------------------------------------------------------------
+eliminar:
+  # Menú «…» que hay que abrir antes (si el botón está dentro).
+  menu:
+    - "role=button[name=/^(Más opciones|Opciones|Más acciones)$/i]"
+  boton:
+    - "role=button[name=/^(Eliminar|Borrar)( (producto|anuncio))?$/i]"
+    - "role=menuitem[name=/^(Eliminar|Borrar)( (producto|anuncio))?$/i]"
+    - "text=/^\\s*(Eliminar|Borrar)( (producto|anuncio))?\\s*$/i"
+  # Si pregunta el motivo, se elige el primero que aparezca.
+  motivos:
+    - "text=/^\\s*Ya no lo vendo\\s*$/i"
+    - "text=/^\\s*Otro motivo\\s*$/i"
+    - "text=/^\\s*Otros?\\s*$/i"
+  confirmar:
+    - "[role=dialog] >> role=button[name=/^(Sí, eliminar|Eliminar|Borrar|Confirmar|Aceptar|Continuar)$/i]"
+    - "role=button[name=/^(Sí, eliminar|Confirmar eliminación)$/i]"
+  # Textos que indican que el anuncio ya no existe / se ha eliminado.
+  eliminado:
+    - "text=/(se ha eliminado|has eliminado|anuncio eliminado|producto eliminado)/i"
+    - "text=/(no existe|ya no está disponible|no se ha encontrado|no encontrado)/i"
+  espera_ms: 15000
+
+# -----------------------------------------------------------------------------
 # PUBLICAR. LOT Bot hace TODO el formulario con estos métodos, en este orden:
 #   open_create_listing → tipo de anuncio → fill_title → select_category →
 #   fill_attributes → fill_description → fill_price → upload_photos →

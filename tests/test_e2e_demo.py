@@ -129,6 +129,40 @@ def test_eliminar_anuncio_exige_confirmacion(app_with_data):
     assert app_with_data.listings.get(anuncio.id).status == "removed"
 
 
+def test_eliminar_varios_de_uno_en_uno_con_espera(app_with_data):
+    anuncios = app_with_data.listings.search(ListingFilter(limit=3))
+    ids = [a.id for a in anuncios]
+    with pytest.raises(ConfirmationRequiredError):
+        app_with_data.publishing.delete_listings(ids, confirmed=False)
+    esperas, avance = [], []
+    resultados = app_with_data.publishing.delete_listings(
+        ids, confirmed=True, interval_seconds=60, sleep=esperas.append,
+        on_progress=lambda hecho, total, _o: avance.append((hecho, total)),
+    )
+    assert all(r.success for r in resultados)
+    assert esperas == [60, 60]  # una espera ENTRE cada uno
+    assert avance == [(1, 3), (2, 3), (3, 3)]
+    assert {app_with_data.listings.get(i).status for i in ids} == {"removed"}
+
+
+def test_eliminar_varios_se_para_si_wallapop_pide_verificacion(app_with_data, monkeypatch):
+    from lot_bot.wallapop.errors import VerificationRequiredError
+
+    anuncios = app_with_data.listings.search(ListingFilter(limit=3))
+    ids = [a.id for a in anuncios]
+    llamadas = []
+
+    def falla(account_ref, item_id, item_url=None):
+        llamadas.append(item_id)
+        raise VerificationRequiredError("captcha")
+
+    monkeypatch.setattr(app_with_data.publishing._wallapop, "delete_item", falla)
+    resultados = app_with_data.publishing.delete_listings(ids, confirmed=True, sleep=lambda s: None)
+    assert len(resultados) == 1 and not resultados[0].success  # los demás, sin tocar
+    assert len(llamadas) == 1
+    assert {app_with_data.listings.get(i).status for i in ids[1:]} != {"removed"}
+
+
 def test_error_de_wallapop_se_muestra_sin_ocultarlo(app_with_data):
     """Un fallo de Wallapop debe llegar al usuario con mensaje entendible."""
     producto = app_with_data.catalog.create_product(

@@ -237,6 +237,14 @@ def _publish_master_ad(context: ToolContext, args: dict[str, Any]) -> ToolResult
             f"publicaciones (también entre cuentas distintas)."
         )
         lines.append(images[1])
+        if not images[0] and queue.settings().get("rotate_photos"):
+            unused = len(queue.unused_photos(master.key))
+            if unused < len(previews):
+                lines.append(
+                    f"⚠ Vas a publicar {len(previews)} anuncios y solo tienes {unused} "
+                    f"fotos sin usar. Las fotos ya publicadas no se repiten: la cola se "
+                    f"parará al acabarse y te avisará para que añadas fotos nuevas."
+                )
         return confirm_first(
             "publish_master_ad",
             {**args, "cuentas": refs, "copias": copies},
@@ -383,6 +391,11 @@ def _will_generate_images(context: ToolContext) -> tuple[bool, str]:
 
     app = context.app
     if not app.publish_queue.settings()["generate_images"]:
+        if app.publish_queue.settings().get("rotate_photos"):
+            return False, (
+                "Fotografías: UNA de las tuyas en cada anuncio, sin repetir nunca una foto "
+                "ya publicada (en ninguna cuenta)."
+            )
         return False, "Fotografías: las tuyas, del anuncio principal."
     if app.demo_mode:
         return True, (

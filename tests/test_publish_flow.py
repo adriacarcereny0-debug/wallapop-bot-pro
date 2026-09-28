@@ -278,15 +278,16 @@ def test_si_cierras_la_ventana_no_se_abre_otra_ni_se_reintenta(listo):
     assert progreso.status == "paused"
 
 
-def _fotos(app, tmp_path, n):
+def _fotos(app, tmp_path, n, prefix="foto"):
     from PIL import Image
 
+    tmp_path.mkdir(parents=True, exist_ok=True)
     infos = []
     for i in range(n):
-        foto = tmp_path / f"foto{i}.jpg"
+        foto = tmp_path / f"{prefix}{i}.jpg"
         Image.new("RGB", (900, 700), (40 * i, 90, 120)).save(foto)
         infos.append({"path": str(foto), "file_format": "JPEG", "width": 900, "height": 700,
-                      "content_hash": f"hash-{i}"})
+                      "content_hash": f"hash-{prefix}-{i}"})
     app.master_ads.add_images(None, infos)
     return [i["path"] for i in app.master_ads.get(None).images]
 
@@ -303,18 +304,60 @@ def test_solo_se_suben_las_fotos_marcadas(listo, tmp_path):
     assert all(Path(r).stem in " ".join(enviadas) for r in rutas[1:])
 
 
-def test_rotando_cada_anuncio_lleva_una_foto_distinta(listo, tmp_path):
+def test_una_foto_por_anuncio_sin_repetir_nunca_y_se_para_al_acabarse(listo, tmp_path):
+    """Tu cliente: las fotos se repetían. Ahora una foto ya publicada no se
+    vuelve a usar; cuando se acaban, la cola se para y pide fotos nuevas."""
     app, world, _ = listo
     _fotos(app, tmp_path, 2)  # 3 fotos marcadas en total
     app.publish_queue.save_settings(rotate_photos=True)
     r = app.agent.ask("Empieza a subir 4 anuncios en la cuenta Mi tienda")
+    plan = " ".join(r.pending.request.lines)
+    assert "Vas a publicar 4 anuncios y solo tienes 3 fotos sin usar" in plan
     app.agent.confirm(r.pending.token)
+    app.publish_queue.run_until_idle()
+    progreso = app.publish_queue.progress()
+    assert progreso.published == 3 and progreso.status == "paused"
+    assert "Añade fotos nuevas" in progreso.pause_reason
+    envios = [e[2] for e in world["pages"][0].log if e[0] == "files"]
+    assert [len(e) for e in envios] == [1, 1, 1]  # una foto por anuncio
+    nombres = [Path(e[0]).stem for e in envios]
+    assert len(set(nombres)) == 3  # ninguna repetida
+
+    # Añade una foto nueva y reanuda: el 4.º sale con ella.
+    _fotos(app, tmp_path / "nuevas", 1, prefix="nueva")
+    app.publish_queue.resume(progreso.job_id)
     app.publish_queue.run_until_idle()
     assert app.publish_queue.progress().published == 4
     envios = [e[2] for e in world["pages"][0].log if e[0] == "files"]
-    assert [len(e) for e in envios] == [1, 1, 1, 1]  # una foto por anuncio
-    nombres = [Path(e[0]).stem.split("-")[-1] for e in envios]
-    assert nombres[0] != nombres[1] != nombres[2] and nombres[3] == nombres[0]  # rota
+    assert len({Path(e[0]).stem for e in envios}) == 4
+
+    # En otra cola (u otra cuenta) tampoco se repiten: no queda ninguna.
+    assert app.publish_queue.unused_photos(None) == []
+    usadas = app.publish_queue.used_photos()
+    assert len(usadas) == 4 and all(v["cuentas"] for v in usadas.values())
+
+
+def test_con_foto_generada_solo_se_sube_esa(listo, tmp_path):
+    """FLUX: solo la foto generada; las marcadas no se añaden (se repetirían)."""
+    app, _, _ = listo
+    _fotos(app, tmp_path, 3)
+    generada = tmp_path / "generada.jpg"
+    generada.write_bytes(Path(app.master_ads.get(None).images[-1]["path"]).read_bytes())
+    master = app.master_ads.get(None)
+    ref = app.accounts.list_accounts()[0].internal_ref
+    preview = app.master_ads.build_previews(
+        master.key, [ref], None, {}, extra_images=[str(generada)]
+    )[0]
+    assert [Path(p).name for p in preview.image_paths] == ["generada.jpg"]
+
+
+def test_volver_a_usar_fotos_lo_decide_el_usuario(listo, tmp_path):
+    app, _, _ = listo
+    app.publish_queue.save_settings(rotate_photos=True)
+    app.publish_queue.mark_photo_used("x", "acc")
+    assert app.publish_queue.used_photos()
+    app.publish_queue.reset_used_photos()
+    assert app.publish_queue.used_photos() == {}
 
 
 def test_todo_lo_que_se_sube_sale_del_anuncio_principal(listo):
