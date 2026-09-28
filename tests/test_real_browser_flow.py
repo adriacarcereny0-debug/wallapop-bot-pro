@@ -301,7 +301,7 @@ def test_navegador_real_sin_direccion_no_se_elimina_nada(servicio):
     service, web, _ = servicio
     with pytest.raises(BrowserStepError) as info:
         service.delete_item("cuenta-1", "navegador-123")
-    assert "a mano" in info.value.user_message
+    assert "Sincronizar" in info.value.user_message
     assert web.deleted == set()
 
 
