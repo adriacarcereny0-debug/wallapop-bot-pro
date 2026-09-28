@@ -310,24 +310,49 @@ class ImageStudioView(BaseView):
             info_box(self, "Ya estaba", "Esa imagen ya está entre las fotos de tus anuncios.")
 
     def _upload(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Subir foto propia", "", "Imágenes (*.jpg *.jpeg *.png *.webp)"
+        # Varias a la vez: Ctrl/Shift + clic, o Ctrl+A para toda la carpeta.
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Subir fotos propias (puedes elegir varias)", "",
+            "Imágenes (*.jpg *.jpeg *.png *.webp)",
         )
-        if not path:
+        if not paths:
             return
-        try:
-            result = self.app.image_generation.add_own_image(Path(path))
-        except GenerationError as exc:
-            show_error(self, exc.user_message)
-            return
-        except Exception as exc:
-            show_error(self, "No es una imagen válida.", type(exc).__name__)
-            return
-        self.app.audit.record_success("Foto propia añadida", detail=f"imagen {result.image_id}")
-        info_box(
+        use = ask_confirmation(
             self,
-            "Foto guardada",
-            f"Imagen #{result.image_id} guardada. Pulsa «Usar en mis anuncios» para publicar con "
-            f"ella, o úsala como referencia para crear otras.",
+            "Usar en mis anuncios",
+            f"Has elegido {len(paths)} foto(s). ¿Quieres usarlas también en tus anuncios "
+            f"(Anuncio principal → Fotografías)?",
         )
+        saved, used, problems = self.upload_files(paths, use_in_ads=use)
+        message = f"{saved} foto(s) guardadas."
+        if use:
+            message += f" {used} añadidas a tus anuncios."
+        if problems:
+            message += "\n\nNo se han podido añadir:\n" + "\n".join(f"• {p}" for p in problems)
+        info_box(self, "Fotos propias", message)
         self.refresh()
+
+    def upload_files(self, paths: list[str], *, use_in_ads: bool) -> tuple[int, int, list[str]]:
+        """Guarda cada foto (y, si se pide, la añade a los anuncios). Una foto
+        que falla no impide subir las demás."""
+        saved = used = 0
+        problems: list[str] = []
+        for path in paths:
+            name = Path(path).name
+            try:
+                result = self.app.image_generation.add_own_image(Path(path))
+            except GenerationError as exc:
+                problems.append(f"{name}: {exc.user_message}")
+                continue
+            except Exception as exc:
+                problems.append(f"{name}: no es una imagen válida ({type(exc).__name__})")
+                continue
+            saved += 1
+            self.app.audit.record_success("Foto propia añadida", detail=f"imagen {result.image_id}")
+            if use_in_ads:
+                try:
+                    if use_image_in_ads(self.app, str(result.path)):
+                        used += 1
+                except Exception as exc:
+                    problems.append(f"{name}: no se ha podido añadir a los anuncios ({exc})")
+        return saved, used, problems
