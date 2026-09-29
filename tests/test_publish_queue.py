@@ -396,6 +396,11 @@ def test_al_llegar_al_maximo_se_eliminan_los_mas_antiguos(app):
     eliminados = [v for v in antes if app.listings.get(v.id).status == "removed"]
     assert len(eliminados) == 2  # uno por cada anuncio nuevo
     assert queue.progress().status == "completed"
+    # Los eliminados son los MÁS ANTIGUOS: ninguno que quede es más viejo.
+    quedan = [app.listings.get(v.id) for v in antes if app.listings.get(v.id).status == "active"]
+    fechas = [v.published_at for v in quedan if v.published_at]
+    for viejo in (app.listings.get(v.id) for v in eliminados):
+        assert viejo.published_at is None or all(viejo.published_at <= f for f in fechas)
 
 
 def test_sin_limite_no_se_elimina_nada(app):
@@ -431,3 +436,32 @@ def test_ventana_cerrada_en_una_cuenta_no_para_la_cadena(app, monkeypatch):
     progreso = queue.progress(job)
     assert progreso.status == "completed"
     assert progreso.failed == 1 and progreso.published == 3
+
+
+def test_sin_fecha_el_mas_abajo_de_tus_productos_es_el_mas_antiguo(app, monkeypatch):
+    """Leídos de «Tus productos» (de más nuevo a más antiguo, sin fecha): se
+    borra primero el que estaba más abajo en la lista."""
+    from lot_bot.database.models import Account, Listing, ListingStatus
+
+    queue = app.publish_queue
+    ref = refs(app)[0]
+    with app.db.session_scope() as session:
+        cuenta = session.query(Account).filter_by(internal_ref=ref).one()
+        for listing in session.query(Listing).filter_by(account_id=cuenta.id):
+            listing.status = ListingStatus.REMOVED
+        nuevos = []
+        for n, titulo in enumerate(["nuevo", "medio", "viejo"]):  # orden de la lista
+            fila = Listing(account_id=cuenta.id, wallapop_item_id=f"lista-{n}", title=titulo,
+                           status=ListingStatus.ACTIVE, published_at=None)
+            session.add(fila)
+            nuevos.append(fila)
+        session.flush()
+        ids = {f.title: f.id for f in nuevos}
+    queue.save_settings(max_listings_per_account=3)
+    queue._room_synced = {(0, ref)}  # sin leer la lista (ya está al día)
+    elegidos = []
+    monkeypatch.setattr(
+        app.publishing, "delete_listings", lambda lista, **k: elegidos.extend(lista) or []
+    )
+    queue._make_room(0, ref)
+    assert elegidos == [ids["viejo"]]  # solo el más antiguo

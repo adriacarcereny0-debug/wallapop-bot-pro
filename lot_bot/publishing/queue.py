@@ -680,7 +680,16 @@ class PublishQueue:
                     return True
 
             # 2. Esperar el intervalo mínimo (desde cualquier publicación anterior).
+            #    Mientras tanto se hace sitio (si la cuenta está al máximo) y se
+            #    deja preparada la ventana de la cuenta: al acabar la espera se
+            #    empieza a rellenar enseguida.
             self._set_task(task_id, status=PublishTaskStatus.WAITING)
+            service = getattr(self._app, "wallapop", None)
+            if service is not None and hasattr(service, "user_gate"):
+                service.user_gate = self._user_gate
+            self._current_job = job_id
+            self._make_room(job_id, ref)
+            self._prepare_account(ref)
             wait = self.next_allowed_ts(interval, attempts) - self.clock.now()
             while wait > 0:
                 self.clock.sleep(min(wait, 1.0), self._stop)
@@ -706,7 +715,6 @@ class PublishQueue:
             service = getattr(self._app, "wallapop", None)
             if service is not None and hasattr(service, "user_gate"):
                 service.user_gate = self._user_gate
-            self._make_room(job_id, ref)
             only_images = None
             photo_key = None
             if not image_path and self.settings().get("rotate_photos"):
@@ -766,6 +774,17 @@ class PublishQueue:
                 )
             return True
 
+    def _prepare_account(self, account_ref: str) -> None:
+        """Durante la espera, abre (en segundo plano) la ventana de la cuenta
+        con el formulario cargado. No entra en ningún anuncio publicado."""
+        service = getattr(self._app, "wallapop", None)
+        prepare = getattr(service, "prepare_account", None)
+        if prepare is None or not self.clock.is_real:
+            return
+        threading.Thread(
+            target=prepare, args=(account_ref,), name="lotbot-preparar", daemon=True
+        ).start()
+
     #: Espera entre borrados para hacer sitio (no son publicaciones).
     ROOM_DELETE_WAIT_S = 8.0
 
@@ -797,9 +816,15 @@ class PublishQueue:
         if excess <= 0:
             return
         # Más antiguos primero: fecha de publicación (sin fecha = más antiguo).
+        # Sin fecha (leídos de «Tus productos», que va de más nuevo a más
+        # antiguo): cuanto más abajo en la lista (id mayor), más antiguo.
         oldest = sorted(
             active,
-            key=lambda v: (v.published_at is not None, v.published_at or datetime.min, v.id),
+            key=lambda v: (
+                v.published_at is not None,
+                v.published_at or datetime.min,
+                -v.id if v.published_at is None else v.id,
+            ),
         )[:excess]
         logger.info(
             "%s tiene %d anuncios (máximo %d): se eliminan %d antiguos.",

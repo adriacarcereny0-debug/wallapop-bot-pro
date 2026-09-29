@@ -409,3 +409,15 @@ def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
 
     activos = [a for a in app.listings.search(ListingFilter(account_ref=ref)) if a.status == "active"]
     assert any(a.url and "/item/" in a.url for a in activos)  # ya está en «Anuncios»
+
+
+def test_navegador_real_ventana_preparada_en_la_espera_publica_sin_recargar(servicio):
+    """Mientras la cola espera los 60 s, la ventana de la cuenta queda con el
+    formulario cargado; al publicar se empieza a rellenar sin volver a cargarlo."""
+    service, web, tmp_path = servicio
+    service.prepare_account("cuenta-1")
+    cargas = web.visited.count("/app/catalog/upload")
+    assert cargas == 1
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    assert web.visited.count("/app/catalog/upload") == cargas  # ni una carga más
