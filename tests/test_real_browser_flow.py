@@ -394,6 +394,10 @@ def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
     app, web, ref = lotbot
     app.wallapop.site.urls["subir"] += "&mudo=1"
     app.wallapop.site.success_timeout_ms = 1500
+    from lot_bot.publishing.listings import ListingFilter as _Filtro
+
+    for viejo in app.listings.search(_Filtro(account_ref=ref)):  # restos de otras pruebas
+        app.listings.mark_removed(viejo.id)
     cola = app.publish_queue
     cola.save_settings(generate_images=False, rotate_photos=False)
     trabajo = cola.enqueue_master(None, [ref], copies=1, generate_images=False)
