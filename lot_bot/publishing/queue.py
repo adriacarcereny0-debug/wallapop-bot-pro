@@ -65,6 +65,9 @@ DEFAULT_PUBLISH_SETTINGS: dict[str, Any] = {
     # distinta en cada anuncio, rotando entre las marcadas.
     "rotate_photos": False,
     "automatic_retries": 0,  # «una vez» es una vez: sin reintentos automáticos
+    # Máximo de anuncios por cuenta (0 = sin límite). Al llegar, se eliminan
+    # los MÁS ANTIGUOS para dejar sitio al nuevo.
+    "max_listings_per_account": 0,
 }
 
 #: Solo lo que tiene que hacer una PERSONA pausa la cola y pide «Continuar»
@@ -82,7 +85,6 @@ PAUSING_ERRORS = {
     "ProfileInUseError",
     "BrowserUnavailable",
     "PublishCancelledError",
-    "WindowClosedError",
 }
 #: Fallos de UN anuncio (un paso del formulario, un dato, sin confirmación):
 #: ese anuncio queda marcado y la cola SIGUE sola con el siguiente.
@@ -91,6 +93,9 @@ SKIPPING_ERRORS = {
     "ImageUploadError",
     "BrowserStepError",
     "RESULTADO_NO_CONFIRMADO",
+    # Se cerró la ventana de una cuenta: ese anuncio no se repite, pero la
+    # cadena sigue (para el siguiente se abre otra ventana).
+    "WindowClosedError",
 }
 #: Errores que no se arreglan reintentando.
 NON_RETRYABLE = {
@@ -701,6 +706,7 @@ class PublishQueue:
             service = getattr(self._app, "wallapop", None)
             if service is not None and hasattr(service, "user_gate"):
                 service.user_gate = self._user_gate
+            self._make_room(job_id, ref)
             only_images = None
             photo_key = None
             if not image_path and self.settings().get("rotate_photos"):
@@ -759,6 +765,61 @@ class PublishQueue:
                     task_id, job_id, attempts + 1, outcome.error_code or "ERROR", outcome.message
                 )
             return True
+
+    #: Espera entre borrados para hacer sitio (no son publicaciones).
+    ROOM_DELETE_WAIT_S = 8.0
+
+    def _make_room(self, job_id: int, account_ref: str) -> None:
+        """Si la cuenta ha llegado al máximo de anuncios, elimina los MÁS
+        ANTIGUOS (los que hagan falta) antes de publicar el nuevo. Nunca toca
+        nada si el límite está desactivado (0)."""
+        limit = int(self.settings().get("max_listings_per_account") or 0)
+        listings = getattr(self._app, "listings", None)
+        publishing = getattr(self._app, "publishing", None)
+        if limit <= 0 or listings is None or publishing is None:
+            return
+        from lot_bot.publishing.listings import ListingFilter
+
+        # La primera vez en esta cola se lee la lista real de la cuenta (solo
+        # se mira la lista «Tus productos»; no se entra en ningún anuncio).
+        synced = self.__dict__.setdefault("_room_synced", set())
+        if (job_id, account_ref) not in synced:
+            synced.add((job_id, account_ref))
+            try:
+                listings.sync_account(account_ref)
+            except Exception as exc:
+                logger.warning("No se ha podido leer la lista de %s: %s", account_ref, exc)
+        active = [
+            v for v in listings.search(ListingFilter(account_ref=account_ref, limit=5000))
+            if v.status == "active"
+        ]
+        excess = len(active) - limit + 1
+        if excess <= 0:
+            return
+        # Más antiguos primero: fecha de publicación (sin fecha = más antiguo).
+        oldest = sorted(
+            active,
+            key=lambda v: (v.published_at is not None, v.published_at or datetime.min, v.id),
+        )[:excess]
+        logger.info(
+            "%s tiene %d anuncios (máximo %d): se eliminan %d antiguos.",
+            account_ref, len(active), limit, len(oldest),
+        )
+        outcomes = publishing.delete_listings(
+            [v.id for v in oldest],
+            confirmed=True,
+            actor="LOT Bot (límite de anuncios)",
+            interval_seconds=self.ROOM_DELETE_WAIT_S,
+            sleep=lambda s: self.clock.sleep(s, self._stop),
+        )
+        failed = [o for o in outcomes if not o.success]
+        self._audit.record_success(
+            "Sitio hecho para publicar",
+            account_ref=account_ref,
+            detail=f"Eliminados {len(outcomes) - len(failed)} anuncio(s) antiguos (máximo {limit}).",
+        )
+        if failed:
+            logger.warning("No se han podido eliminar %d antiguos: %s", len(failed), failed[0].message)
 
     def _appears_in_catalog(self, task_id: int, account_ref: str) -> bool:
         """¿El anuncio sin confirmar está en la lista «Tus productos»? Se

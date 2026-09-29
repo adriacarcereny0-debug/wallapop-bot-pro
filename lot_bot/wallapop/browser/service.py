@@ -249,7 +249,10 @@ class BrowserWallapopService(WallapopService):
                 return SessionCheck(
                     False, "error", f"No se ha podido abrir Wallapop ({type(exc).__name__})."
                 )
-            page.wait(site.check_wait_ms)
+            # Se sigue en cuanto la página está lista (antes: espera fija).
+            ready = site.verification + site.logged_out + site.check_private + site.logged_in
+            if not ready or page.first_visible(ready, site.check_wait_ms) is None:
+                page.wait(300)
         if site.verification and page.first_visible(site.verification, 0):
             logger.info("Verificación de Wallapop. Diagnóstico: %s", page.diagnostics())
             return SessionCheck(False, "verificacion", "Wallapop pide una verificación.")

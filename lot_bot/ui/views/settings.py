@@ -361,6 +361,17 @@ class SettingsView(BaseView):
         reset_used = QPushButton("Volver a usar las fotos ya publicadas")
         reset_used.clicked.connect(self._reset_used_photos)
         form.addRow(self.used_photos_label, reset_used)
+        self.max_listings = QSpinBox()
+        self.max_listings.setRange(0, 5000)
+        self.max_listings.setSpecialValueText("Sin límite")
+        self.max_listings.setToolTip(
+            "Si una cuenta llega a este número de anuncios, antes de publicar uno nuevo se "
+            "eliminan los MÁS ANTIGUOS que hagan falta. 0 = no se elimina nada."
+        )
+        self.max_listings.valueChanged.connect(
+            lambda value: self.app.publish_queue.save_settings(max_listings_per_account=value)
+        )
+        form.addRow("Máximo de anuncios por cuenta\n(borra los más antiguos)", self.max_listings)
         _fixed_height(self.integration_mode, self.publish_interval, self.publish_images)
         integration.body.addLayout(form)
         integration_note = QLabel(
@@ -482,6 +493,9 @@ class SettingsView(BaseView):
         else:
             self.publish_images.setCurrentIndex(0)
         self.publish_images.blockSignals(False)
+        self.max_listings.blockSignals(True)
+        self.max_listings.setValue(int(queue_settings.get("max_listings_per_account") or 0))
+        self.max_listings.blockSignals(False)
         used = len(self.app.publish_queue.used_photos())
         self.used_photos_label.setText(f"Fotos ya publicadas (no se repiten): {used}")
         from lot_bot.wallapop.browser.config import local_config_path

@@ -359,7 +359,7 @@ class _PlaywrightPage(BrowserPage):
         locator.scroll_into_view_if_needed(timeout=5000)
         locator.focus(timeout=5000)
         locator.fill("", timeout=5000)
-        locator.press_sequentially(text, delay=60)
+        locator.press_sequentially(text, delay=30)
 
     def click(self, target: str) -> None:
         self._page.locator(target).first.click()

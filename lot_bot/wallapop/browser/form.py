@@ -452,7 +452,19 @@ class ListingForm:
     # Pasos
     # ------------------------------------------------------------------
     def open_create_listing(self) -> None:
-        self._do("Abrir crear anuncio", lambda: self.page.goto(self.site.url(self.form.open_url)))
+        url = self.site.url(self.form.open_url)
+
+        def open_() -> None:
+            # Si la comprobación de sesión ya dejó abierto el formulario (misma
+            # dirección), no se vuelve a cargar: un viaje menos por anuncio.
+            try:
+                current = self.page.current_url()
+            except Exception:
+                current = ""
+            if current.split("#")[0] != url.split("#")[0]:
+                self.page.goto(url)
+
+        self._do("Abrir crear anuncio", open_)
 
     def choose_listing_type(self) -> None:
         spec = self.form.listing_type

@@ -367,3 +367,67 @@ def test_si_wallapop_pide_entrar_la_cola_espera_y_la_cuenta_no_caduca(app, monke
     queue.resume(job)
     queue.run_until_idle()
     assert queue.progress(job).published == 4
+
+
+def test_al_llegar_al_maximo_se_eliminan_los_mas_antiguos(app):
+    """Cuenta llena (p. ej. 199): antes de publicar se borran los más antiguos
+    que hagan falta, y solo esos."""
+    from lot_bot.publishing.listings import ListingFilter
+
+    queue = app.publish_queue
+    ref = refs(app)[0]
+    queue.enqueue_master(None, [ref], copies=3, generate_images=False)
+    queue.run_until_idle()  # 3 publicados, sin límite
+
+    def activos():
+        return sorted(
+            (v for v in app.listings.search(ListingFilter(account_ref=ref)) if v.status == "active"),
+            key=lambda v: v.id,
+        )
+
+    antes = activos()
+    assert len(antes) >= 3
+    limite = len(antes)  # la cuenta está llena
+    queue.save_settings(max_listings_per_account=limite)
+    queue.enqueue_master(None, [ref], copies=2, generate_images=False)
+    queue.run_until_idle()
+    despues = activos()
+    assert len(despues) == limite  # nunca pasa del máximo
+    eliminados = [v for v in antes if app.listings.get(v.id).status == "removed"]
+    assert len(eliminados) == 2  # uno por cada anuncio nuevo
+    assert queue.progress().status == "completed"
+
+
+def test_sin_limite_no_se_elimina_nada(app):
+    from lot_bot.publishing.listings import ListingFilter
+
+    queue = app.publish_queue
+    ref = refs(app)[0]
+    queue.enqueue_master(None, [ref], copies=2, generate_images=False)
+    queue.run_until_idle()
+    assert all(
+        v.status != "removed" for v in app.listings.search(ListingFilter(account_ref=ref))
+    )
+
+
+def test_ventana_cerrada_en_una_cuenta_no_para_la_cadena(app, monkeypatch):
+    """Tu captura: «Has cerrado la ventana del navegador» dejaba la cola en
+    pausa para TODAS las cuentas. Ahora ese anuncio queda marcado y sigue."""
+    from lot_bot.wallapop.errors import WindowClosedError
+
+    original = app.wallapop.create_item
+    llamadas = {"n": 0}
+
+    def a_veces_se_cierra(ref, draft):
+        llamadas["n"] += 1
+        if llamadas["n"] == 1:
+            raise WindowClosedError("Target page, context or browser has been closed")
+        return original(ref, draft)
+
+    monkeypatch.setattr(app.wallapop, "create_item", a_veces_se_cierra)
+    queue = app.publish_queue
+    job = queue.enqueue_master(None, refs(app), copies=4, generate_images=False)
+    queue.run_until_idle()
+    progreso = queue.progress(job)
+    assert progreso.status == "completed"
+    assert progreso.failed == 1 and progreso.published == 3
