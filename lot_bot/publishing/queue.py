@@ -67,7 +67,8 @@ DEFAULT_PUBLISH_SETTINGS: dict[str, Any] = {
     "automatic_retries": 0,  # «una vez» es una vez: sin reintentos automáticos
 }
 
-#: Errores que requieren al usuario: se pausa la cola, sin reintentos.
+#: Solo lo que tiene que hacer una PERSONA pausa la cola y pide «Continuar»
+#: (verificación, iniciar sesión, cerrar Chrome, claves...). Nunca se salta.
 PAUSING_ERRORS = {
     "VerificationRequiredError",
     "AuthenticationError",
@@ -78,14 +79,17 @@ PAUSING_ERRORS = {
     "NO_API_KEY",
     "INVALID_KEY",
     "NO_CREDITS",
-    # Publicación por navegador: hace falta que el usuario mire qué pasa.
     "ProfileInUseError",
-    "FormMismatchError",
-    "ImageUploadError",
-    "BrowserStepError",
     "BrowserUnavailable",
     "PublishCancelledError",
     "WindowClosedError",
+}
+#: Fallos de UN anuncio (un paso del formulario, un dato, sin confirmación):
+#: ese anuncio queda marcado y la cola SIGUE sola con el siguiente.
+SKIPPING_ERRORS = {
+    "FormMismatchError",
+    "ImageUploadError",
+    "BrowserStepError",
     "RESULTADO_NO_CONFIRMADO",
 }
 #: Errores que no se arreglan reintentando.
@@ -101,7 +105,9 @@ RELOGIN_CODE = "INICIAR_SESION"
 #: Máximo que se espera a que el usuario complete una verificación y pulse
 #: «Continuar» antes de dejar la cola en pausa.
 USER_GATE_TIMEOUT_S = 1800.0
-MAX_CONSECUTIVE_FAILURES = 2
+#: Seguridad: si fallan tantos anuncios SEGUIDOS, algo ha cambiado en la web
+#: y no tiene sentido seguir gastando intentos: se pausa y se avisa.
+MAX_CONSECUTIVE_FAILURES = 3
 
 
 def validate_interval(seconds: Any) -> int:
@@ -736,11 +742,58 @@ class PublishQueue:
                     error=None,
                     error_code=None,
                 )
+            elif outcome.error_code == UNCONFIRMED_CODE and self._appears_in_catalog(task_id, ref):
+                # Wallapop no lo confirmó en pantalla, pero está en «Tus productos».
+                self._consecutive_failures = 0
+                self._set_task(
+                    task_id,
+                    status=PublishTaskStatus.PUBLISHED,
+                    published_at=datetime.fromtimestamp(self.clock.now()),
+                    error=None,
+                    error_code=None,
+                )
+                if photo_key:
+                    self.mark_photo_used(photo_key, ref)
             else:
                 self._fail(
                     task_id, job_id, attempts + 1, outcome.error_code or "ERROR", outcome.message
                 )
             return True
+
+    def _appears_in_catalog(self, task_id: int, account_ref: str) -> bool:
+        """¿El anuncio sin confirmar está en la lista «Tus productos»? Se
+        compara cuántos hay con ese título en Wallapop y cuántos conoce LOT
+        Bot: si Wallapop tiene uno más, se publicó (y se registra)."""
+        from lot_bot.publishing.listings import ListingFilter, _norm_text
+        from lot_bot.wallapop.capabilities import Capability
+
+        service = getattr(self._app, "wallapop", None)
+        listings = getattr(self._app, "listings", None)
+        if service is None or listings is None:
+            return False
+        try:
+            if Capability.LIST_ITEMS not in service.capabilities():
+                return False
+            with self._db.session_scope() as session:
+                title = session.get(PublishTask, task_id).title or ""
+            wanted = _norm_text(title)
+            if not wanted:
+                return False
+            remote = sum(
+                1 for item in service.list_items(account_ref, limit=500)
+                if wanted in _norm_text(item.raw.get("texto") or item.title)
+            )
+            local = sum(
+                1 for v in listings.search(ListingFilter(account_ref=account_ref, limit=5000))
+                if v.status != "removed" and _norm_text(v.title) == wanted
+            )
+            if remote <= local:
+                return False
+            listings.sync_account(account_ref)  # queda en «Anuncios» con su dirección
+            return True
+        except Exception as exc:  # comprobar nunca rompe la cola
+            logger.warning("No se ha podido comprobar en «Tus productos»: %s", exc)
+            return False
 
     # ------------------------------------------------------------------
     def _generate_image(
@@ -897,9 +950,12 @@ class PublishQueue:
         elif self._consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
             self.pause(
                 job_id,
-                f"Se han producido {self._consecutive_failures} fallos seguidos. Revisa los "
-                "errores antes de reanudar.",
+                f"Han fallado {self._consecutive_failures} anuncios seguidos (el último: "
+                f"{message[:200]}). Puede que Wallapop haya cambiado algo: revisa el error "
+                "y pulsa «Continuar».",
             )
+        elif code in SKIPPING_ERRORS:
+            logger.info("Anuncio no publicado (%s); la cola sigue con el siguiente.", code)
         self._notify(job_id)
 
     def _user_gate(self, account_ref: str, message: str) -> bool:

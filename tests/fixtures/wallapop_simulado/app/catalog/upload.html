@@ -305,7 +305,9 @@ document.getElementById('subir').addEventListener('click', () => {
     .then(r => r.json()).then(j => {
       // ?sinurl=1: como el Wallapop real, tras publicar NO se ve la dirección
       // del anuncio (se vuelve a «Tus productos»… sin enlace al nuevo).
-      if (params.get('sinurl')) { document.body.innerHTML = '<h1>Producto subido</h1><p>Tu producto ya está a la venta.</p>'; }
+      // ?mudo=1: se publica pero la página no dice nada (sin confirmación).
+      if (params.get('mudo')) { document.body.innerHTML = '<p>…</p>'; }
+      else if (params.get('sinurl')) { document.body.innerHTML = '<h1>Producto subido</h1><p>Tu producto ya está a la venta.</p>'; }
       else { location.href = '/item/' + j.id; }
     });
 });

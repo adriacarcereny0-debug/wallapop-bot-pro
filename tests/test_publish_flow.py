@@ -115,7 +115,26 @@ def test_resultado_no_confirmado_no_cuenta_como_publicado(listo):
     assert tarea["estado"] == "unconfirmed"
     assert tarea["codigo_error"] == "RESULTADO_NO_CONFIRMADO"
     assert world["submits"] == 1  # no se reintenta a ciegas: podría duplicarse
-    assert progreso.status == "paused"
+    assert progreso.status == "completed"  # no pide «Continuar»: queda marcado y sigue
+
+
+def test_cadena_de_anuncios_sigue_sola_si_uno_falla(listo):
+    """Tu cliente: en una cadena tenía que pulsar «Continuar» a cada rato. Un
+    anuncio que falla queda marcado y la cola sigue sola con los demás."""
+    app, world, _ = listo
+    world["missing"] = {"precio"}  # el 1.º falla en un paso del formulario
+    app.wallapop.site.timeout_ms, antes = 300, app.wallapop.site.timeout_ms
+    r = app.agent.ask("Empieza a subir 3 anuncios en la cuenta Mi tienda")
+    app.agent.confirm(r.pending.token)
+    try:
+        app.publish_queue.run_once()
+        world["missing"] = set()  # los siguientes van bien
+        app.publish_queue.run_until_idle()
+    finally:
+        app.wallapop.site.timeout_ms = antes
+    progreso = app.publish_queue.progress()
+    assert progreso.status == "completed" and progreso.pause_reason in (None, "")
+    assert progreso.failed == 1 and progreso.published == 2
 
 
 def test_captcha_pausa_mantiene_el_navegador_y_continuar_sigue(listo):

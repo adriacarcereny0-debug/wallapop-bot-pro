@@ -386,3 +386,22 @@ def test_lotbot_sincronizar_lee_tus_productos(lotbot):
     ]
     assert len(activos) == 2
     assert all(a.url and a.url.startswith(web.base + "/item/") for a in activos)
+
+
+def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
+    """Wallapop publica pero no enseña confirmación: el bot lo busca en «Tus
+    productos», lo da por publicado y la cola sigue sin pedir «Continuar»."""
+    app, web, ref = lotbot
+    app.wallapop.site.urls["subir"] += "&mudo=1"
+    app.wallapop.site.success_timeout_ms = 1500
+    cola = app.publish_queue
+    cola.save_settings(generate_images=False, rotate_photos=False)
+    trabajo = cola.enqueue_master(None, [ref], copies=1, generate_images=False)
+    cola.run_until_idle()
+    progreso = cola.progress(trabajo)
+    assert len(web.published) == 1
+    assert progreso.status == "completed" and progreso.published == 1, progreso.tasks
+    from lot_bot.publishing.listings import ListingFilter
+
+    activos = [a for a in app.listings.search(ListingFilter(account_ref=ref)) if a.status == "active"]
+    assert any(a.url and "/item/" in a.url for a in activos)  # ya está en «Anuncios»
