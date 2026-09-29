@@ -294,7 +294,8 @@ def test_si_cierras_la_ventana_no_se_abre_otra_ni_se_reintenta(listo):
     assert progreso.tasks[0]["estado"] == "failed"
     assert progreso.tasks[0]["codigo_error"] == "WindowClosedError"
     assert len(app.wallapop.launcher.opened) == 1  # una sola ventana, nunca otra
-    assert progreso.status == "paused"
+    # Ese anuncio no se repite, pero la cola no se queda parada esperando.
+    assert progreso.status == "completed"
 
 
 def _fotos(app, tmp_path, n, prefix="foto"):

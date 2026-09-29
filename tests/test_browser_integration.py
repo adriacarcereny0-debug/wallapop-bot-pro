@@ -405,7 +405,9 @@ def test_captcha_a_mitad_espera_al_usuario_y_sigue_desde_el_mismo_paso(profiles,
     assert result.success
     assert avisos == [("acc-1", VerificationRequiredError.user_message)]
     log = launcher.pages[0].log
-    assert [e for e in log if e[0] == "goto"].__len__() == 2  # comprobar sesión + abrir: no reinicia
+    # Una sola carga: la comprobación de sesión deja el formulario abierto y
+    # tras el CAPTCHA se sigue en la misma página (no se reinicia).
+    assert [e for e in log if e[0] == "goto"].__len__() == 1
     titulos = [e for e in log if e[0] == "fill" and e[1] == FORM.title.targets[0]]
     assert len(titulos) == 1  # el título no se vuelve a escribir
     assert list((tmp_path / "shots").glob("*verificacion*.json"))
