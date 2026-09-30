@@ -680,16 +680,13 @@ class PublishQueue:
                     return True
 
             # 2. Esperar el intervalo mínimo (desde cualquier publicación anterior).
-            #    Mientras tanto se hace sitio (si la cuenta está al máximo) y se
-            #    deja preparada la ventana de la cuenta: al acabar la espera se
-            #    empieza a rellenar enseguida.
+            #    Mientras tanto se hace sitio (si la cuenta está al máximo).
             self._set_task(task_id, status=PublishTaskStatus.WAITING)
             service = getattr(self._app, "wallapop", None)
             if service is not None and hasattr(service, "user_gate"):
                 service.user_gate = self._user_gate
             self._current_job = job_id
             self._make_room(job_id, ref)
-            self._prepare_account(ref)
             wait = self.next_allowed_ts(interval, attempts) - self.clock.now()
             while wait > 0:
                 self.clock.sleep(min(wait, 1.0), self._stop)
@@ -774,21 +771,19 @@ class PublishQueue:
                 )
             return True
 
-    def _prepare_account(self, account_ref: str) -> None:
-        """Durante la espera, abre (en segundo plano) la ventana de la cuenta
-        con el formulario cargado. No entra en ningún anuncio publicado."""
-        service = getattr(self._app, "wallapop", None)
-        prepare = getattr(service, "prepare_account", None)
-        if prepare is None or not self.clock.is_real:
-            return
-        threading.Thread(
-            target=prepare, args=(account_ref,), name="lotbot-preparar", daemon=True
-        ).start()
-
     #: Espera entre borrados para hacer sitio (no son publicaciones).
     ROOM_DELETE_WAIT_S = 8.0
 
     def _make_room(self, job_id: int, account_ref: str) -> None:
+        """Hace sitio si hace falta. NUNCA para la cola: si algo falla (p. ej.
+        no se puede leer «Tus productos»), no se borra nada y se publica igual."""
+        try:
+            self._make_room_unsafe(job_id, account_ref)
+        except Exception as exc:
+            logger.warning("Límite de anuncios de %s: no se ha podido comprobar (%s). "
+                           "No se borra nada.", account_ref, exc)
+
+    def _make_room_unsafe(self, job_id: int, account_ref: str) -> None:
         """Si la cuenta ha llegado al máximo de anuncios, elimina los MÁS
         ANTIGUOS (los que hagan falta) antes de publicar el nuevo. Nunca toca
         nada si el límite está desactivado (0)."""
@@ -807,7 +802,10 @@ class PublishQueue:
             try:
                 listings.sync_account(account_ref)
             except Exception as exc:
+                # Sin la lista real no se sabe cuántos hay: no se borra a ciegas.
+                synced.discard((job_id, account_ref))
                 logger.warning("No se ha podido leer la lista de %s: %s", account_ref, exc)
+                return
         active = [
             v for v in listings.search(ListingFilter(account_ref=account_ref, limit=5000))
             if v.status == "active"

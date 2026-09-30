@@ -465,3 +465,27 @@ def test_sin_fecha_el_mas_abajo_de_tus_productos_es_el_mas_antiguo(app, monkeypa
     )
     queue._make_room(0, ref)
     assert elegidos == [ids["viejo"]]  # solo el más antiguo
+
+
+def test_si_no_se_puede_leer_tus_productos_se_publica_igual_sin_borrar(app, monkeypatch):
+    """Tu log: «No se ha podido leer la lista… Target page… closed». La cola no
+    se rompe ni se para, y no se borra nada a ciegas."""
+    from lot_bot.publishing.listings import ListingFilter
+
+    queue = app.publish_queue
+    ref = refs(app)[0]
+    queue.save_settings(max_listings_per_account=1)  # «llena» a propósito
+
+    def falla(*a, **k):
+        raise RuntimeError("Target page, context or browser has been closed")
+
+    monkeypatch.setattr(app.listings, "sync_account", falla)
+    borrados = []
+    monkeypatch.setattr(app.publishing, "delete_listings", lambda ids, **k: borrados.extend(ids) or [])
+    antes = {v.id for v in app.listings.search(ListingFilter(account_ref=ref)) if v.status == "active"}
+    job = queue.enqueue_master(None, [ref], copies=2, generate_images=False)
+    queue.run_until_idle()
+    progreso = queue.progress(job)
+    assert progreso.published == 2 and progreso.status == "completed"
+    assert borrados == []
+    assert all(app.listings.get(i).status == "active" for i in antes)

@@ -161,8 +161,6 @@ class BrowserWallapopService(WallapopService):
         #: gate(cuenta, mensaje) -> bool: espera a que el usuario pulse
         #: «Continuar» (verificaciones, ventana abierta). La pone la cola.
         self.user_gate: UserGate | None = None
-        #: Cuentas cuya ventana ya tiene el formulario recién cargado.
-        self._prepared: set[str] = set()
 
     # ------------------------------------------------------------------
     def capabilities(self) -> set[Capability]:
@@ -209,24 +207,6 @@ class BrowserWallapopService(WallapopService):
             timeout=timeout,
             **self._browser_options(),
         )
-
-    def prepare_account(self, account_ref: str) -> None:
-        """Deja la ventana de la cuenta abierta con el formulario de subir
-        recién cargado (se usa mientras la cola espera el intervalo). Al
-        publicar ya no hay que abrir el navegador ni cargar la página."""
-        if not self._is_connected(account_ref):
-            return
-        url = self.site.url(self.site.check_url)
-
-        def prepare(page: BrowserPage) -> None:
-            page.goto(url)
-            self._prepared.add(account_ref)
-
-        try:
-            self._in_browser(account_ref, prepare, timeout=120)
-        except Exception as exc:  # preparar nunca rompe nada: se hará al publicar
-            self._prepared.discard(account_ref)
-            logger.info("No se ha podido preparar la ventana de %s: %s", account_ref, exc)
 
     def release(self, account_ref: str) -> None:
         """Cierra el navegador abierto de una cuenta (p. ej. antes de iniciar sesión)."""
@@ -406,13 +386,7 @@ class BrowserWallapopService(WallapopService):
                 gate=self.user_gate,
             )
             form.guard("Comprobar sesión")
-            # Si la ventana se preparó durante la espera (formulario recién
-            # cargado), no se vuelve a cargar: se comprueba en la misma página.
-            prepared = account_ref in self._prepared
-            self._prepared.discard(account_ref)
-            check = self.verify_session(page, navigate=not prepared)
-            if prepared and not check.ok:
-                check = self.verify_session(page)  # por si acaso, la de siempre
+            check = self.verify_session(page)
             if check.state == "verificacion":
                 # El usuario completa la verificación; se vuelve a comprobar
                 # en la MISMA página, sin recargarla.
