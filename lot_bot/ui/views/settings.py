@@ -372,7 +372,9 @@ class SettingsView(BaseView):
             lambda value: self.app.publish_queue.save_settings(max_listings_per_account=value)
         )
         form.addRow("Máximo de anuncios por cuenta\n(borra los más antiguos)", self.max_listings)
-        _fixed_height(self.integration_mode, self.publish_interval, self.publish_images)
+        _fixed_height(
+            self.integration_mode, self.publish_interval, self.publish_images, self.max_listings
+        )
         integration.body.addLayout(form)
         integration_note = QLabel(
             "Con la integración por navegador tú inicias sesión en Wallapop y LOT Bot "
