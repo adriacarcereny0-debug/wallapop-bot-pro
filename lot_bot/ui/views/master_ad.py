@@ -143,6 +143,10 @@ class MasterAdView(BaseView):
         self.attr_uso = QLineEdit()
         self.attr_color = QLineEdit()
         self.attr_material = QLineEdit()
+        self.attr_brand = QLineEdit()
+        self.attr_brand.setPlaceholderText(
+            "Marca del producto (p. ej. Pikolin). Vacío = el anuncio se publica sin marca"
+        )
         self.active_box = QCheckBox("Anuncio activo: el bot lo publica (desmárcalo para pausarlo)")
         self.location = QLineEdit()
         self.location.setPlaceholderText("Ciudad donde se publica, p. ej. Barcelona, Madrid, Valencia…")
@@ -186,6 +190,7 @@ class MasterAdView(BaseView):
         form.addRow("Categoría / uso", self.attr_uso)
         form.addRow("Color", self.attr_color)
         form.addRow("Material", self.attr_material)
+        form.addRow("Marca", self.attr_brand)
         form.addRow("Ubicación", self.location)
         form.addRow("", self.active_box)
         form.addRow("Categoría", self.category)
@@ -280,6 +285,7 @@ class MasterAdView(BaseView):
         self.attr_uso.setText(str(master.attributes.get("uso") or ""))
         self.attr_color.setText(str(master.attributes.get("color") or ""))
         self.attr_material.setText(str(master.attributes.get("material") or ""))
+        self.attr_brand.setText(str(master.attributes.get("marca") or ""))
         self.location.setText(str(master.attributes.get("ubicacion") or ""))
         self.active_box.setChecked(str(master.attributes.get("activo") or "sí") != "no")
         self.locked_box.setChecked(master.locked)
@@ -387,6 +393,7 @@ class MasterAdView(BaseView):
                 "uso": self.attr_uso.text().strip(),
                 "color": self.attr_color.text().strip(),
                 "material": self.attr_material.text().strip(),
+                "marca": self.attr_brand.text().strip(),
                 "ubicacion": self.location.text().strip(),
                 "activo": "sí" if self.active_box.isChecked() else "no",
             },

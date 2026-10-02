@@ -58,7 +58,9 @@ logger = logging.getLogger(__name__)
 #: False si cancela o se agota el tiempo.
 UserGate = Callable[[str, str], bool]
 
-ATTRIBUTE_LABELS = {"estado": "Estado", "uso": "Uso", "color": "Color", "material": "Material"}
+ATTRIBUTE_LABELS = {
+    "estado": "Estado", "uso": "Uso", "color": "Color", "material": "Material", "marca": "Marca",
+}
 
 
 def normalize(text: str) -> str:
@@ -505,7 +507,10 @@ class ListingForm:
             # Si no se puede poner, NO para el resto (precio, envío, ubicación
             # y «Publicar» se hacen igual). Si queda OTRO valor, sí para.
             try:
-                chosen = self._choose(label, spec, value, alternatives)
+                if key == "marca":
+                    chosen = self._fill_brand(label, spec, value)
+                else:
+                    chosen = self._choose(label, spec, value, alternatives)
             except BrowserStepError as exc:
                 if getattr(exc, "wrong_value", False):
                     raise
@@ -516,6 +521,48 @@ class ListingForm:
                 continue
             if chosen:
                 self.attributes_filled[key] = chosen
+
+    def _fill_brand(self, label: str, spec: FormField, brand: str) -> str | None:
+        """Marca del Anuncio principal. Si el campo es para ESCRIBIR, se escribe
+        y se elige la sugerencia que coincide (si Wallapop la ofrece); si es un
+        desplegable, se elige como el color o el material. Siempre se comprueba."""
+        target = self._find(label, spec, wait=False)
+        if target is None:
+            target = self.page.first_visible(spec.targets, min(self.timeout, self.QUICK_MS))
+        if target is None:
+            if spec.optional:
+                self.skipped.append(f"{label} (el formulario no tiene este campo)")
+                return None
+            raise self._fail(label, f"No aparece ningún elemento de: {spec.targets}")
+        try:
+            current = self.page.value_of(target)
+        except Exception:
+            current = ""
+        if current and contains_text(brand, current):
+            self.steps.append(f"{label} (ya estaba: {brand})")
+            return brand
+        if not self.page.is_text_input(target):
+            return self._choose(label, spec, brand, [])
+
+        def action() -> None:
+            self.page.type_text(target, brand)
+            # Sugerencia con esa marca (si la hay); si no, se queda lo escrito.
+            self.page.click_suggestion(brand, min(self.timeout, 3000))
+            self.close_open_lists()
+            shown = ""
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                try:
+                    shown = self.page.value_of(target)
+                except Exception:
+                    shown = ""
+                if contains_text(brand, shown):
+                    return
+                self.page.wait(200)
+            raise self._fail(label, f"Tras escribir «{brand}» el campo muestra «{shown}».")
+
+        self._do(label, action)
+        return brand
 
     def wait_until_details_ready(self) -> None:
         """Tras la categoría, Wallapop se queda «preparando» el resto del

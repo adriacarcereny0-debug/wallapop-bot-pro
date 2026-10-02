@@ -48,7 +48,7 @@ class FormField:
 
 
 #: Características del anuncio, en el orden en que se rellenan.
-ATTRIBUTE_KEYS = ("estado", "uso", "color", "material")
+ATTRIBUTE_KEYS = ("estado", "uso", "color", "material", "marca")
 
 
 @dataclass(slots=True)

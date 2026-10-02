@@ -50,7 +50,7 @@ input,textarea{width:100%;padding:6px;font-size:14px}
   <h3>Información del producto</h3>
   <p><b>Revisa la información</b> Hemos rellenado algunos detalles por ti.</p>
   <label>Marca</label>
-  <div class="combo"><button type="button" role="combobox" aria-label="Marca" data-options="IKEA|Pikolin">Marca</button></div>
+  <div class="combo" id="marca-combo"><button type="button" role="combobox" aria-label="Marca" data-options="IKEA|Pikolin|Flex|Pikolin Home">Marca</button></div>
   <label>Color*</label>
   <div class="combo"><button type="button" role="combobox" aria-label="Color*" data-multi="1" data-options="Marrón|Beige|Gris|Blanco|Negro">Color*</button></div>
   <label>Material*</label>
@@ -290,6 +290,21 @@ document.getElementById('ubic-busca')?.addEventListener('input', e => {
       ul.appendChild(li);
     });
 });
+if (params.get('marca') === 'texto') {
+  // Variante: «Marca» es un campo para ESCRIBIR con sugerencias.
+  document.getElementById('marca-combo').outerHTML =
+    '<input id="marca" aria-label="Marca" autocomplete="off"><div id="marca-sug"></div>';
+}
+document.getElementById('marca')?.addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  const sug = document.getElementById('marca-sug'); sug.innerHTML = '';
+  ['Pikolin', 'Pikolin Home', 'Flex', 'Ikea'].filter(m => q && m.toLowerCase().startsWith(q))
+    .forEach(m => {
+      const d = document.createElement('div'); d.setAttribute('role', 'option'); d.textContent = m;
+      d.addEventListener('click', () => { e.target.value = m; sug.innerHTML = ''; });
+      sug.appendChild(d);
+    });
+});
 document.getElementById('subir').addEventListener('click', () => {
   const data = {
     titulo: document.getElementById('title').value,
@@ -299,6 +314,8 @@ document.getElementById('subir').addEventListener('click', () => {
     buscador_cabecera: document.getElementById('buscador').value,
     envio: document.getElementById('envio') ? document.getElementById('envio').checked : null,
     precio: document.getElementById('sale_price').value,
+    marca: document.getElementById('marca') ? document.getElementById('marca').value
+      : ((b => b && b.textContent !== 'Marca' ? b.textContent : '')(document.querySelector('[aria-label=Marca]'))),
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
   };
   fetch('/publicar', {method:'POST', body: JSON.stringify(data)})

@@ -244,3 +244,34 @@ def test_imagenes_ia_borrar_varias(qapp, app_with_data, tmp_path, monkeypatch):
     assert view.images.count() == 0
     # Los originales de tu ordenador siguen ahí.
     assert all(p.exists() for p in (tmp_path / "b").glob("*.jpg"))
+
+
+def test_anuncio_principal_guarda_la_marca_y_la_publica(qapp, app_with_data, monkeypatch):
+    """«Marca» en Anuncio principal se guarda y es lo que se manda a publicar."""
+    from lot_bot.ui.views import master_ad as pantalla
+
+    monkeypatch.setattr(pantalla, "ask_confirmation", lambda *a, **k: True)
+    monkeypatch.setattr(pantalla, "info_box", lambda *a, **k: None)
+    view = pantalla.MasterAdView(app_with_data, _runner())
+    view.refresh()
+    view.attr_brand.setText("Pikolin")
+    view._save()
+    master = app_with_data.master_ads.get(None)
+    assert master.attributes.get("marca") == "Pikolin"
+    otra = pantalla.MasterAdView(app_with_data, _runner())
+    otra.refresh()
+    assert otra.attr_brand.text() == "Pikolin"  # al volver a abrir sigue ahí
+    # Lo que recibe el navegador al publicar lleva la marca.
+    from lot_bot.wallapop.browser.service import BrowserWallapopService
+    from lot_bot.wallapop.dto import ItemDraft
+
+    datos = app_with_data.master_ads.render(master)
+    borrador = ItemDraft(
+        title=datos["title"], description=datos["description"], price=datos["price"],
+        attributes=datos.get("attributes") or master.attributes, image_paths=[],
+    )
+    servicio = BrowserWallapopService.__new__(BrowserWallapopService)
+    from lot_bot.wallapop.browser import load_site_config
+
+    servicio.site = load_site_config()
+    assert servicio.listing_data(borrador).attributes.get("marca") == "Pikolin"

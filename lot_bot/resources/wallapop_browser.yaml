@@ -241,6 +241,18 @@ publicar:
           - "main >> role=button[name=/^(Material)/i]"
           - "role=combobox[name=/^(Material)/i]"
           - "role=button[name=/^(Material)/i]"
+      # Marca del Anuncio principal (vacía = no se toca). Puede ser un campo para
+      # escribir (con sugerencias) o un desplegable. Solo el campo llamado
+      # EXACTAMENTE «Marca»: nunca «Marca la localización» (la ubicación).
+      marca:
+        opcional: true
+        objetivos:
+          - "main >> role=combobox[name=/^Marca(\\s*\\*|\\s*\\(opcional\\))?$/i]"
+          - "main >> role=textbox[name=/^Marca(\\s*\\*|\\s*\\(opcional\\))?$/i]"
+          - "main >> role=button[name=/^Marca(\\s*\\*|\\s*\\(opcional\\))?$/i]"
+          - "role=combobox[name=/^Marca(\\s*\\*|\\s*\\(opcional\\))?$/i]"
+          - "role=textbox[name=/^Marca(\\s*\\*|\\s*\\(opcional\\))?$/i]"
+          - "input[name='brand']"
     # Pantalla «Revisa la información»: Wallapop rellena el título con su IA
     # («Canapé de madera con almacenaje»); se vuelve a poner el de la plantilla.
     titulo_revision:

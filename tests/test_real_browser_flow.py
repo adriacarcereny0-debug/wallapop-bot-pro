@@ -410,3 +410,46 @@ def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
     activos = [a for a in app.listings.search(ListingFilter(account_ref=ref)) if a.status == "active"]
     assert any(a.url and "/item/" in a.url for a in activos)  # ya está en «Anuncios»
 
+
+
+@pytest.mark.parametrize(
+    "variante, marca, esperado",
+    [
+        ("", "Pikolin", "Pikolin"),  # desplegable (como en tu Wallapop)
+        ("", "pikolin", "Pikolin"),  # da igual mayúsculas
+        ("?marca=texto", "Pikolin", "Pikolin"),  # campo para escribir: sugerencia
+        ("?marca=texto", "Marca Propia Canapés", "Marca Propia Canapés"),  # sin sugerencia
+    ],
+)
+def test_navegador_real_pone_la_marca_del_anuncio_principal(servicio, variante, marca, esperado):
+    """La marca escrita en «Anuncio principal» se pone en el campo «Marca».
+    La ubicación («Marca la localización») no se confunde con la marca."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += variante
+    datos = borrador(tmp_path)
+    datos.attributes = {**datos.attributes, "marca": marca}
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    publicado = web.published[0]
+    assert publicado["marca"] == esperado, resultado.data["omitidos"]
+    assert publicado["ubicacion"] == "Madrid"
+    assert any(p.startswith("Característica Marca") for p in resultado.data["pasos"])
+
+
+def test_navegador_real_marca_que_no_esta_en_la_lista_publica_igual_y_avisa(servicio):
+    """Si la marca no existe en el desplegable de Wallapop, NO se elige otra:
+    se publica sin marca y el resultado lo dice."""
+    service, web, tmp_path = servicio
+    datos = borrador(tmp_path)
+    datos.attributes = {**datos.attributes, "marca": "Marca Que No Existe"}
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    assert web.published[0]["marca"] == ""
+    assert any("Marca" in o for o in resultado.data["omitidos"])
+
+
+def test_navegador_real_sin_marca_no_toca_el_campo(servicio):
+    service, web, tmp_path = servicio
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    assert web.published[0]["marca"] == ""

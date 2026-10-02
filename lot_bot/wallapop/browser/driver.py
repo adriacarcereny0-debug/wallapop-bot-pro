@@ -62,6 +62,10 @@ class BrowserPage(ABC):
     @abstractmethod
     def links_matching(self, pattern: str) -> list[str]: ...
 
+    def is_text_input(self, target: str) -> bool:
+        """¿Es un campo para escribir (input, textarea o editable)?"""
+        return False
+
     def item_cards(self, pattern: str) -> list[dict[str, str]]:
         """Fichas de anuncios de la página: [{href, text}] (una por dirección)."""
         return []
@@ -632,6 +636,17 @@ class _PlaywrightPage(BrowserPage):
         regex = re.compile(pattern)
         hrefs = self._page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
         return [h for h in hrefs if regex.search(h or "")]
+
+    def is_text_input(self, target: str) -> bool:
+        try:
+            return bool(self._page.locator(target).first.evaluate(
+                "e => (e.tagName === 'INPUT' && !['checkbox','radio','button','submit','file']"
+                ".includes((e.type || '').toLowerCase())) || e.tagName === 'TEXTAREA' "
+                "|| e.isContentEditable",
+                timeout=3000,
+            ))
+        except Exception:
+            return False
 
     def item_cards(self, pattern: str) -> list[dict[str, str]]:
         regex = re.compile(pattern)
