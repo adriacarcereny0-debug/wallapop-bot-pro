@@ -40,12 +40,17 @@ for package in ("keyring",):
 
 # Playwright (integración por navegador): incluye su «driver». Los navegadores
 # NO se empaquetan: se usa el Chrome o Edge ya instalado en Windows.
+# Sin Playwright el .exe solo funcionaría en DEMO: se para y se avisa.
 try:
-    from PyInstaller.utils.hooks import collect_data_files
+    import playwright  # noqa: F401
+except ImportError as exc:
+    raise SystemExit(
+        "Falta Playwright: el .exe no podría usar el navegador (se quedaría en DEMO). "
+        "Instala las dependencias (pip install -r requirements.txt) y vuelve a generarlo."
+    ) from exc
+from PyInstaller.utils.hooks import collect_data_files
 
-    datas += collect_data_files("playwright")
-except Exception:  # Playwright no instalado: el programa funciona en DEMO
-    pass
+datas += collect_data_files("playwright")
 
 docs = PROJECT_ROOT / "docs" / "cliente"
 if docs.is_dir():
