@@ -127,7 +127,7 @@ class MasterAdView(BaseView):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         container = QWidget()
-        container.setObjectName("Content")
+        container.setObjectName("CardContent")
         form = QFormLayout(container)
         form.setSpacing(9)
 

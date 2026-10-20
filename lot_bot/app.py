@@ -58,6 +58,9 @@ def main(argv: list[str] | None = None) -> int:
     qt_app.setApplicationName(APP_NAME)
     qt_app.setApplicationVersion(__version__)
     qt_app.setOrganizationName(ORG_NAME)
+    # «Fusion»: el tema se ve igual en todos los Windows (el estilo nativo
+    # ignora parte de la hoja de estilos: flechas, casillas, desplegables).
+    qt_app.setStyle("Fusion")
     qt_app.setStyleSheet(stylesheet())
 
     _install_exception_hook()

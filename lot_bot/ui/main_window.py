@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from lot_bot import APP_NAME
-from lot_bot.ui import theme
+from lot_bot.ui import icons, theme
 from lot_bot.ui.views import (
     AccountsView,
     AssistantView,
@@ -46,20 +46,22 @@ logger = logging.getLogger(__name__)
 #: (etiqueta, icono textual, clase de la vista)
 NAVIGATION = [
     # --- Lo principal ---
-    ("Asistente IA", "✦", AssistantView),
-    ("Cuentas de Wallapop", "◉", AccountsView),
-    ("Publicación automática", "⇪", PublishQueueView),
-    ("Anuncios (eliminar)", "☷", ListingsView),
-    ("Estadísticas", "▲", StatisticsView),
-    ("Imágenes / IA", "▣", ImageStudioView),
-    ("Anuncio principal", "★", MasterAdView),
-    ("Configuración", "⚙", SettingsView),
+    ("Asistente IA", "asistente", AssistantView),
+    ("Cuentas de Wallapop", "cuentas", AccountsView),
+    ("Publicación automática", "publicacion", PublishQueueView),
+    ("Anuncios (eliminar)", "anuncios", ListingsView),
+    ("Estadísticas", "estadisticas", StatisticsView),
+    ("Imágenes / IA", "imagenes", ImageStudioView),
+    ("Anuncio principal", "principal", MasterAdView),
+    ("Configuración", "configuracion", SettingsView),
     # --- Más ---
-    ("Panel", "▦", DashboardView),
-    ("Productos", "▤", ProductsView),
-    ("Historial", "☰", HistoryView),
-    ("Logs y errores", "⚠", LogsView),
+    ("Panel", "panel", DashboardView),
+    ("Productos", "productos", ProductsView),
+    ("Historial", "historial", HistoryView),
+    ("Logs y errores", "logs", LogsView),
 ]
+#: Primera pantalla del grupo «Más» del menú.
+MORE_SECTION_START = "Panel"
 
 
 class MainWindow(QMainWindow):
@@ -91,10 +93,7 @@ class MainWindow(QMainWindow):
         # Franja fija: en DEMO debe ser imposible no darse cuenta.
         self.demo_banner = QLabel()
         self.demo_banner.setWordWrap(True)
-        self.demo_banner.setStyleSheet(
-            f"background: {theme.WARNING}; color: #1a1300; font-weight: 700; "
-            f"padding: 8px 18px;"
-        )
+        self.demo_banner.setObjectName("DemoBanner")
         right.addWidget(self.demo_banner)
         self.stack = QStackedWidget()
         self.stack.setObjectName("Content")
@@ -131,22 +130,40 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 12)
         layout.setSpacing(0)
 
+        # Logo + nombre
+        header = QHBoxLayout()
+        header.setContentsMargins(22, 22, 18, 10)
+        header.setSpacing(12)
+        logo = QLabel()
+        logo.setPixmap(_logo_pixmap(36))
+        logo.setFixedSize(36, 36)
+        header.addWidget(logo)
+        names = QVBoxLayout()
+        names.setSpacing(1)
         brand = QLabel(APP_NAME)
         brand.setObjectName("Brand")
-        layout.addWidget(brand)
-
+        names.addWidget(brand)
         self.brand_sub = QLabel()
         self.brand_sub.setObjectName("BrandSub")
-        layout.addWidget(self.brand_sub)
+        names.addWidget(self.brand_sub)
+        header.addLayout(names, 1)
+        layout.addLayout(header)
 
         self.nav_group = QButtonGroup(self)
         self.nav_group.setExclusive(True)
         self.nav_buttons: list[QPushButton] = []
         for index, (label, icon, _view) in enumerate(NAVIGATION):
-            button = QPushButton(f"  {icon}   {label}")
+            if index == 0 or label == MORE_SECTION_START:
+                section = QLabel("PRINCIPAL" if index == 0 else "MÁS")
+                section.setObjectName("NavSection")
+                layout.addWidget(section)
+            button = QPushButton(f"  {label}")
             button.setObjectName("NavButton")
             button.setCheckable(True)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
+            if icon in icons.SHAPES:
+                button.setIcon(icons.nav_icon(icon, theme.TEXT_MUTED, theme.ACCENT))
+                button.setIconSize(icons.icon_size(18))
             button.clicked.connect(lambda _=False, i=index: self._go_to(i))
             self.nav_group.addButton(button, index)
             self.nav_buttons.append(button)
@@ -156,9 +173,7 @@ class MainWindow(QMainWindow):
 
         self.mode_label = QLabel()
         self.mode_label.setWordWrap(True)
-        self.mode_label.setStyleSheet(
-            f"color: {theme.TEXT_FAINT}; font-size: 11px; padding: 10px 18px;"
-        )
+        self.mode_label.setObjectName("SidebarFooter")
         layout.addWidget(self.mode_label)
         return sidebar
 
@@ -241,6 +256,32 @@ def _error_placeholder(label: str) -> QWidget:
     return widget
 
 
+def _logo_pixmap(size: int) -> QPixmap:
+    """Logo (la linterna) para la barra lateral, nítido en pantallas HiDPI."""
+    from lot_bot.config.paths import get_paths
+
+    resources = get_paths().resources
+    svg = resources / "logo" / ("lotbot-logo-pequeno.svg" if size <= 32 else "lotbot-logo.svg")
+    ratio = 2.0
+    if svg.is_file():
+        from PySide6.QtGui import QImage, QPainter
+        from PySide6.QtSvg import QSvgRenderer
+
+        image = QImage(int(size * ratio), int(size * ratio), QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        QSvgRenderer(str(svg)).render(painter)
+        painter.end()
+        pixmap = QPixmap.fromImage(image)
+        pixmap.setDevicePixelRatio(ratio)
+        return pixmap
+    png = resources / "lot_bot.png"
+    pixmap = QPixmap(str(png)) if png.is_file() else QPixmap()
+    return pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation) if not pixmap.isNull() else pixmap
+
+
 def _build_icon() -> QIcon:
     """Icono de la aplicacion.
 
@@ -267,7 +308,7 @@ def _build_icon() -> QIcon:
     painter.setBrush(QColor(theme.ACCENT))
     painter.setPen(Qt.PenStyle.NoPen)
     painter.drawRoundedRect(8, 8, 48, 48, 12, 12)
-    painter.setPen(QColor("#05201b"))
+    painter.setPen(QColor(theme.ACCENT_TEXT))
     font = painter.font()
     font.setBold(True)
     font.setPointSize(22)

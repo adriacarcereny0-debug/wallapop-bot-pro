@@ -74,6 +74,8 @@ hiddenimports = [
     "apscheduler.schedulers.background",
     "apscheduler.triggers.interval",
     "apscheduler.executors.pool",
+    # Logo e iconos del menú (SVG)
+    "PySide6.QtSvg",
 ]
 hiddenimports += collect_submodules("lot_bot")
 try:
