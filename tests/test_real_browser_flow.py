@@ -412,6 +412,31 @@ def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
 
 
 
+def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio):
+    """Tu caso: al escribir «Barcelona» salen antes «L'Hospitalet de
+    Llobregat, Barcelona» y «Sant Feliu de Llobregat, Barcelona»."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?ubic=boton"
+    datos = borrador(tmp_path)
+    datos.attributes = {**datos.attributes, "ubicacion": "Barcelona"}
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    assert web.published[0]["ubicacion"] == "Barcelona"
+    assert not any("Ubicación" in o for o in resultado.data["omitidos"])
+
+
+def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servicio):
+    """Tu caso: el bot marcaba Color y Material, el campo tardaba en mostrarlo,
+    lo volvía a pulsar y así lo QUITABA (y faltaban esos dos campos)."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?multilento=1"
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    publicado = web.published[0]
+    assert publicado["color"] == "Gris", resultado.data["omitidos"]
+    assert publicado["material"] == "Madera", resultado.data["omitidos"]
+
+
 @pytest.mark.parametrize(
     "variante, marca, esperado",
     [

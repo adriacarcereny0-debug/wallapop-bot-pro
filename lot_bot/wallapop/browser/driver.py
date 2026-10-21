@@ -226,6 +226,36 @@ def contains_text(needle: str, haystack: str) -> bool:
     return bool(re.search(pattern, _plain(" ".join((haystack or "").split())), re.IGNORECASE))
 
 
+def suggestion_rank(text: str, suggestion: str) -> int:
+    """Lo bien que encaja una sugerencia con lo escrito (0 = la mejor).
+
+    Al escribir «Barcelona» salen «L'Hospitalet de Llobregat, Barcelona» y
+    «Barcelona, Barcelona»: lo que cuenta es el NOMBRE (antes de la coma), no
+    la provincia. 4 = el texto solo aparece después (otra ciudad)."""
+    wanted = _plain(" ".join(text.split()))
+    name = _plain(" ".join(re.split(r"[,\n]", suggestion or "", maxsplit=1)[0].split()))
+    if not wanted:
+        return 4
+    if name == wanted:
+        return 0
+    if re.match(rf"{re.escape(wanted)}\b", name):
+        return 1
+    if re.search(rf"\b{re.escape(wanted)}\b", name):
+        return 2
+    if wanted in name:
+        return 3
+    return 4
+
+
+def only_as_province(city: str, shown: str) -> bool:
+    """True si `shown` nombra OTRA ciudad de esa provincia («Sant Feliu de
+    Llobregat, Barcelona» al pedir «Barcelona»): la ciudad solo sale tras una coma."""
+    city = (city or "").split(",")[0].strip()
+    flat = _plain(" ".join((shown or "").split()))
+    places = [m.start() for m in re.finditer(rf"\b{re.escape(_plain(city))}\b", flat)] if city else []
+    return bool(places) and all(re.search(r",\s*$", flat[:p]) for p in places)
+
+
 class _PlaywrightPage(BrowserPage):
     MAX_EVENTS = 15
 
@@ -418,6 +448,10 @@ class _PlaywrightPage(BrowserPage):
             # Primero lo que está DENTRO de una lista (la opción de verdad).
             for _, _, item in sorted(usable, key=lambda u: (u[0], u[1])):
                 try:
+                    if self._option_selected(item):
+                        # Ya marcada (p. ej. Color, que admite varias): pulsarla
+                        # otra vez la QUITARÍA. Se da por elegida.
+                        return True
                     item.scroll_into_view_if_needed(timeout=2000)
                     item.click(timeout=5000, position=self._text_point(item))
                     return True
@@ -426,6 +460,25 @@ class _PlaywrightPage(BrowserPage):
             if time.monotonic() >= deadline:
                 return False
             self._page.wait_for_timeout(150)
+
+    @staticmethod
+    def _option_selected(item) -> bool:
+        """¿La opción está ya marcada en la lista (aria-selected/aria-checked o
+        su casilla marcada)? Si no se puede saber, False (se pulsa como siempre)."""
+        try:
+            return bool(item.evaluate(
+                """e => {
+                  const on = el => !!el && ['aria-selected', 'aria-checked', 'aria-pressed']
+                    .some(a => el.getAttribute(a) === 'true');
+                  const row = e.closest('[role=option],[role=menuitemcheckbox],[role=checkbox],li,label');
+                  if (on(e) || on(row)) return true;
+                  if (!row) return false;
+                  const boxes = row.querySelectorAll('input[type=checkbox],input[type=radio]');
+                  return boxes.length === 1 && boxes[0].checked;
+                }"""
+            ))
+        except Exception:
+            return False
 
     @staticmethod
     def _text_point(item) -> dict | None:
@@ -523,19 +576,29 @@ class _PlaywrightPage(BrowserPage):
         texts = self._page.get_by_text(starts)
         deadline = time.monotonic() + max(timeout_ms, 0) / 1000
         while True:
+            # La que MEJOR encaja, no la primera: al escribir «Barcelona» la
+            # primera puede ser «L'Hospitalet de Llobregat, Barcelona».
+            found: list[tuple[int, int, object]] = []
             try:
-                if options.count():
-                    options.first.click(timeout=5000)
-                    return True
+                for index in range(min(options.count(), 15)):
+                    item = options.nth(index)
+                    found.append((suggestion_rank(text, item.inner_text(timeout=1000)), index, item))
                 for index in range(min(texts.count(), 10)):
                     item = texts.nth(index)
                     tag = (item.evaluate("e => e.tagName") or "").lower()
                     if tag in ("input", "textarea") or not item.is_visible():
                         continue
-                    item.click(timeout=5000)
-                    return True
+                    found.append((suggestion_rank(text, item.inner_text(timeout=1000)), 100 + index, item))
             except Exception:
                 pass
+            for rank, _, item in sorted(found, key=lambda f: (f[0], f[1])):
+                if rank > 3:
+                    break  # solo otras ciudades con ese nombre de provincia
+                try:
+                    item.click(timeout=5000)
+                    return True
+                except Exception:
+                    continue
             if time.monotonic() >= deadline:
                 return False
             self._page.wait_for_timeout(150)

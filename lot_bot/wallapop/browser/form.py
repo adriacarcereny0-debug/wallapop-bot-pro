@@ -42,7 +42,13 @@ from lot_bot.wallapop.browser.category import (
     debug_enabled,
 )
 from lot_bot.wallapop.browser.config import ATTRIBUTE_KEYS, BrowserSiteConfig, FormField
-from lot_bot.wallapop.browser.driver import BrowserPage, contains_text, safe_url, same_text
+from lot_bot.wallapop.browser.driver import (
+    BrowserPage,
+    contains_text,
+    only_as_province,
+    safe_url,
+    same_text,
+)
 from lot_bot.wallapop.browser.driver import _inside as _inside_box
 from lot_bot.wallapop.errors import (
     BrowserStepError,
@@ -633,7 +639,7 @@ class ListingForm:
             self.skipped.append(f"Ubicación «{city}» (el formulario no muestra el campo)")
             return
         try:
-            if contains_text(city, self.page.value_of(opener)):
+            if self._shows_city(city, self.page.value_of(opener)):
                 self.steps.append(f"Ubicación {city} (ya estaba)")
                 return
         except Exception:
@@ -667,12 +673,18 @@ class ListingForm:
                         shown = self.page.value_of(where)
                     except Exception:
                         continue
-                    if shown and contains_text(city, shown):
+                    if self._shows_city(city, shown):
                         return
                 self.page.wait(250)
             raise self._fail("Ubicación", f"Tras escribir «{city}» se muestra «{shown}».")
 
         self._do(f"Ubicación {city}", action)
+
+    @staticmethod
+    def _shows_city(city: str, shown: str | None) -> bool:
+        """¿Muestra esa ciudad? «Sant Feliu de Llobregat, Barcelona» NO es
+        «Barcelona» (es otra ciudad de la provincia)."""
+        return bool(shown) and contains_text(city, shown) and not only_as_province(city, shown)
 
     def refill_if_overwritten(self) -> None:
         """Wallapop puede rellenar título y descripción con su IA DESPUÉS de

@@ -192,13 +192,20 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
     const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
     btn.dataset.options.split('|').forEach(o => {
       const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
+      const marcadas = () => new Set((btn.dataset.sel || '').split('|').filter(Boolean));
+      if (btn.dataset.multi) li.setAttribute('aria-selected', marcadas().has(o) ? 'true' : 'false');
       li.addEventListener('click', () => {
         if (btn.dataset.multi) {
           // Varias opciones (como Color en Wallapop): marca/desmarca y la lista
           // SE QUEDA ABIERTA, tapando los campos de debajo.
-          const sel = new Set(btn.textContent.split(', ').filter(x => btn.dataset.options.split('|').includes(x)));
+          const sel = marcadas();
           sel.has(o) ? sel.delete(o) : sel.add(o);
-          btn.textContent = [...sel].join(', ') || btn.getAttribute('aria-label');
+          btn.dataset.sel = [...sel].join('|');
+          li.setAttribute('aria-selected', sel.has(o) ? 'true' : 'false');
+          const texto = [...sel].join(', ') || btn.getAttribute('aria-label');
+          // ?multilento=1: el campo tarda en mostrar lo marcado (como el real).
+          if (params.get('multilento')) setTimeout(() => { btn.textContent = texto; }, 4500);
+          else btn.textContent = texto;
           return;
         }
         btn.textContent = o; ul.remove();
@@ -277,9 +284,11 @@ if (params.get('modo') === 'boton') {
 document.getElementById('ubic-busca')?.addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   const ul = document.getElementById('ubic-sug'); ul.innerHTML = '';
-  ['Madrid, Madrid', 'Valencia, Valencia', 'Barcelona, Barcelona', 'Sevilla, Sevilla']
+  // Como el real: al escribir «Barcelona» salen ANTES otras ciudades de la provincia.
+  ['Madrid, Madrid', 'Valencia, Valencia', "L'Hospitalet de Llobregat, Barcelona",
+   'Sant Feliu de Llobregat, Barcelona', 'Barcelona, Barcelona', 'Sevilla, Sevilla']
     .filter(c => q && c.toLowerCase().includes(q)).forEach(c => {
-      const li = document.createElement('div'); li.className = 'sug'; li.textContent = c;
+      const li = document.createElement('div'); li.className = 'sug'; li.setAttribute('role', 'option'); li.textContent = c;
       li.addEventListener('click', () => {
         document.getElementById('ubic').textContent = c.split(',')[0];
         document.getElementById('ubic-busca').value = c;
@@ -317,6 +326,8 @@ document.getElementById('subir').addEventListener('click', () => {
     marca: document.getElementById('marca') ? document.getElementById('marca').value
       : ((b => b && b.textContent !== 'Marca' ? b.textContent : '')(document.querySelector('[aria-label=Marca]'))),
     fotos: document.querySelectorAll('[data-testid=image-preview]').length,
+    color: (document.querySelector('[aria-label="Color*"]')?.dataset.sel || '').split('|').filter(Boolean).join(', '),
+    material: (document.querySelector('[aria-label="Material*"]')?.dataset.sel || '').split('|').filter(Boolean).join(', '),
   };
   fetch('/publicar', {method:'POST', body: JSON.stringify(data)})
     .then(r => r.json()).then(j => {
