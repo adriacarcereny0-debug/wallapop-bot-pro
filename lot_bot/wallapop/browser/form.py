@@ -349,26 +349,32 @@ class ListingForm:
             target = self._require(step, spec)
             box = self.page.bbox(target)  # ANTES de abrir la lista
             current = None
-            # UN SOLO clic en la opción. En Color/Material (varias opciones)
-            # pulsarla otra vez la QUITA: si el campo tarda en mostrarla, se
-            # espera; si al final no está, lo completa la revisión final.
-            picked = pick(target, box)
-            if picked is None:
-                # El clic puede haber funcionado aunque no se confirme
-                # (lista que se cierra sola): si el campo YA lo muestra, vale.
+            for attempt in range(2):
+                picked = pick(target, box)
+                if picked is None:
+                    # El clic puede haber funcionado aunque no se confirme
+                    # (lista que se cierra sola): si el campo YA lo muestra, vale.
+                    self.close_open_lists()
+                    for candidate in candidates:
+                        ok, current = shows(target, candidate, 2)
+                        if ok and current:
+                            chosen.append(candidate)
+                            return
+                    self._dump_field_html(step, target)
+                    raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+                # Lista que sigue abierta tras el clic = de VARIAS opciones
+                # (Color, Material): pulsar otra vez la opción la QUITARÍA. Ahí
+                # se espera más y no se repite; si al final no está, lo
+                # completa la revisión final.
+                multi = self.page.first_visible(self.OPEN_LISTS, 0) is not None
                 self.close_open_lists()
-                for candidate in candidates:
-                    ok, current = shows(target, candidate, 2)
-                    if ok and current:
-                        chosen.append(candidate)
-                        return
-                self._dump_field_html(step, target)
-                raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
-            self.close_open_lists()
-            ok, current = shows(target, picked, 8)
-            if ok:
-                chosen.append(picked)
-                return
+                ok, current = shows(target, picked, 8 if multi else (3 if attempt == 0 else 6))
+                if ok:
+                    chosen.append(picked)
+                    return
+                if multi:
+                    break
+                logger.info("%s: «%s» no ha quedado puesto (intento %d); se repite.", step, picked, attempt + 1)
             logger.info("%s: «%s» pulsado pero el campo muestra «%s».", step, picked, current)
             self._dump_field_html(step, target)
             error = self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
