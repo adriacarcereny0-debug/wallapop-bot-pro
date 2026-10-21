@@ -349,27 +349,27 @@ class ListingForm:
             target = self._require(step, spec)
             box = self.page.bbox(target)  # ANTES de abrir la lista
             current = None
-            # Hasta 2 intentos: si el clic no llega a la opción (la lista aún se
-            # abría, u otro texto igual), se reabre y se vuelve a elegir.
-            for attempt in range(2):
-                picked = pick(target, box)
-                if picked is None:
-                    # El clic puede haber funcionado aunque no se confirme
-                    # (lista que se cierra sola): si el campo YA lo muestra, vale.
-                    self.close_open_lists()
-                    for candidate in candidates:
-                        ok, current = shows(target, candidate, 2)
-                        if ok and current:
-                            chosen.append(candidate)
-                            return
-                    self._dump_field_html(step, target)
-                    raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+            # UN SOLO clic en la opción. En Color/Material (varias opciones)
+            # pulsarla otra vez la QUITA: si el campo tarda en mostrarla, se
+            # espera; si al final no está, lo completa la revisión final.
+            picked = pick(target, box)
+            if picked is None:
+                # El clic puede haber funcionado aunque no se confirme
+                # (lista que se cierra sola): si el campo YA lo muestra, vale.
                 self.close_open_lists()
-                ok, current = shows(target, picked, 3 if attempt == 0 else 6)
-                if ok:
-                    chosen.append(picked)
-                    return
-                logger.info("%s: «%s» no ha quedado puesto (intento %d); se repite.", step, picked, attempt + 1)
+                for candidate in candidates:
+                    ok, current = shows(target, candidate, 2)
+                    if ok and current:
+                        chosen.append(candidate)
+                        return
+                self._dump_field_html(step, target)
+                raise self._fail(step, f"No aparece la opción «{option}» (probado: {candidates}).")
+            self.close_open_lists()
+            ok, current = shows(target, picked, 8)
+            if ok:
+                chosen.append(picked)
+                return
+            logger.info("%s: «%s» pulsado pero el campo muestra «%s».", step, picked, current)
             self._dump_field_html(step, target)
             error = self._fail(step, f"Se ha elegido «{candidates[0]}» pero el campo muestra «{current}».")
             # Otro valor de verdad (no vacío ni el nombre del campo): no se
@@ -680,6 +680,66 @@ class ListingForm:
 
         self._do(f"Ubicación {city}", action)
 
+    def review_and_complete(self) -> None:
+        """Revisión final antes de publicar: si algún campo del Anuncio
+        principal ha quedado vacío (p. ej. Color o Material), se vuelve a
+        poner. Lo que ya está bien NO se toca (pulsarlo otra vez lo quitaría)."""
+        self.close_open_lists()
+        for key in ATTRIBUTE_KEYS:
+            value = self.data.attributes.get(key, "")
+            spec = self.form.attributes.get(key)
+            if not value or spec is None or not spec.targets:
+                continue
+            label = f"Característica {ATTRIBUTE_LABELS.get(key, key)}"
+            if self._find(label, spec, wait=False) is None:
+                continue  # el formulario no tiene este campo
+            expected = [self.attributes_filled.get(key), value,
+                        *((self.form.equivalents.get(key) or {}).get(value) or [])]
+            if self._field_has(spec, [e for e in expected if e], wait_s=3):
+                continue
+            shown = (self._read(spec) or "").strip().rstrip("*").strip()
+            if shown and not contains_text(ATTRIBUTE_LABELS.get(key, key), shown):
+                continue  # muestra OTRO valor: lo decide la comprobación final
+            logger.info("Revisión final: «%s» está vacío; se vuelve a poner «%s».", label, value)
+            self.attributes_filled.pop(key, None)
+
+            def again(key=key, label=label, spec=spec, value=value) -> None:
+                if key == "marca":
+                    chosen = self._fill_brand(f"{label} (revisión)", spec, value)
+                else:
+                    alternatives = (self.form.equivalents.get(key) or {}).get(value) or []
+                    chosen = self._choose(f"{label} (revisión)", spec, value, alternatives)
+                if chosen:
+                    self.attributes_filled[key] = chosen
+
+            self._not_blocking(f"{label} (revisión)", again)
+            if key in self.attributes_filled:
+                # Ya está: fuera el aviso de que no se pudo la primera vez.
+                self.skipped[:] = [
+                    s for s in self.skipped if not (s.startswith(label) and "NO se ha podido" in s)
+                ]
+        price = self._read(self.form.price)
+        value = parse_price(price or "")
+        if self.form.price.targets and (value is None or abs(value - float(self.data.price)) > 0.001):
+            logger.info("Revisión final: el precio muestra «%s»; se vuelve a poner.", price)
+            self._not_blocking("Precio (revisión)", self.fill_price)
+        # Ubicación y envío: solo si la primera vez NO se pudieron hacer.
+        for name, step in (("Ubicación", self.set_location), ("Envío", self.set_shipping)):
+            failed = [x for x in self.skipped if x.startswith(f"{name}:") and "NO se ha podido" in x]
+            if failed:
+                self.skipped[:] = [x for x in self.skipped if x not in failed]
+                self._not_blocking(f"{name} (revisión)", step)
+
+    def _field_has(self, spec: FormField, values: list[str], wait_s: float) -> bool:
+        deadline = time.monotonic() + wait_s
+        while True:
+            current = self._read(spec)
+            if current and any(contains_text(v, current) for v in values):
+                return True
+            if time.monotonic() > deadline:
+                return False
+            self.page.wait(250)
+
     @staticmethod
     def _shows_city(city: str, shown: str | None) -> bool:
         """¿Muestra esa ciudad? «Sant Feliu de Llobregat, Barcelona» NO es
@@ -920,6 +980,7 @@ class ListingForm:
         # ahí, se publica igual y el resultado dice qué no se pudo hacer.
         self._not_blocking("Envío", self.set_shipping)
         self._not_blocking("Ubicación", self.set_location)
+        self.review_and_complete()
         self.refill_if_overwritten()
         self.verify_form()
         self.submit_listing()

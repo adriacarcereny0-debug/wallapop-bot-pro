@@ -425,16 +425,32 @@ def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio):
     assert not any("Ubicación" in o for o in resultado.data["omitidos"])
 
 
-def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servicio):
+@pytest.mark.parametrize("variante", ["?multilento=1", "?multilento=1&sinestado=1"])
+def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servicio, variante):
     """Tu caso: el bot marcaba Color y Material, el campo tardaba en mostrarlo,
-    lo volvía a pulsar y así lo QUITABA (y faltaban esos dos campos)."""
+    lo volvía a pulsar y así lo QUITABA (y faltaban esos dos campos). También
+    cuando la lista no dice qué está marcado."""
     service, web, tmp_path = servicio
-    service.site.urls["subir"] += "?multilento=1"
+    service.site.urls["subir"] += variante
     resultado = service.create_item("cuenta-1", borrador(tmp_path))
     assert resultado.success, resultado.message
     publicado = web.published[0]
     assert publicado["color"] == "Gris", resultado.data["omitidos"]
     assert publicado["material"] == "Madera", resultado.data["omitidos"]
+
+
+def test_navegador_real_revision_final_completa_lo_que_quedo_vacio(servicio):
+    """Si un clic no llega (Color y Material se quedan vacíos), la revisión
+    final antes de publicar lo detecta y los vuelve a poner."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?primerclicnulo=1&sinestado=1"
+    resultado = service.create_item("cuenta-1", borrador(tmp_path))
+    assert resultado.success, resultado.message
+    publicado = web.published[0]
+    assert publicado["color"] == "Gris", resultado.data["omitidos"]
+    assert publicado["material"] == "Madera", resultado.data["omitidos"]
+    assert any("(revisión)" in p for p in resultado.data["pasos"])
+    assert not any("NO se ha podido" in o for o in resultado.data["omitidos"])
 
 
 @pytest.mark.parametrize(

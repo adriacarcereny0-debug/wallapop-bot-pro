@@ -193,15 +193,21 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
     btn.dataset.options.split('|').forEach(o => {
       const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
       const marcadas = () => new Set((btn.dataset.sel || '').split('|').filter(Boolean));
-      if (btn.dataset.multi) li.setAttribute('aria-selected', marcadas().has(o) ? 'true' : 'false');
+      // ?sinestado=1: la lista NO dice qué opciones están marcadas.
+      const conEstado = !params.get('sinestado');
+      if (btn.dataset.multi && conEstado) li.setAttribute('aria-selected', marcadas().has(o) ? 'true' : 'false');
       li.addEventListener('click', () => {
+        if (btn.dataset.multi && params.get('primerclicnulo') && !btn.dataset.ignorado) {
+          btn.dataset.ignorado = '1';  // el primer clic no llega (la lista aún se abría)
+          return;
+        }
         if (btn.dataset.multi) {
           // Varias opciones (como Color en Wallapop): marca/desmarca y la lista
           // SE QUEDA ABIERTA, tapando los campos de debajo.
           const sel = marcadas();
           sel.has(o) ? sel.delete(o) : sel.add(o);
           btn.dataset.sel = [...sel].join('|');
-          li.setAttribute('aria-selected', sel.has(o) ? 'true' : 'false');
+          if (conEstado) li.setAttribute('aria-selected', sel.has(o) ? 'true' : 'false');
           const texto = [...sel].join(', ') || btn.getAttribute('aria-label');
           // ?multilento=1: el campo tarda en mostrar lo marcado (como el real).
           if (params.get('multilento')) setTimeout(() => { btn.textContent = texto; }, 4500);
