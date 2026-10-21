@@ -326,10 +326,14 @@ class ListingForm:
                 for candidate in candidates:
                     if not option_showing(candidate, box):
                         self.page.click(target)
+                        cleared = False  # lista abierta de nuevo: se vuelve a vaciar
                     if not cleared and self.form.list_clear:
                         # Lista de varias opciones: se vacía primero («Borrar»)
                         # para que el clic MARQUE (si ya estaba, lo quitaría).
-                        cleared = self.page.click_text_near(self.form.list_clear, box, 700)
+                        # Posición del campo AHORA (al abrir, la página se desplaza).
+                        cleared = self.page.click_text_near(
+                            self.form.list_clear, self.page.bbox(target) or box, 700
+                        )
                         if cleared:
                             self.page.wait(250)
                     # Espera acotada: si no aparece, se falla rápido (con
@@ -383,7 +387,9 @@ class ListingForm:
                 # El «Seleccionar» de ESTA lista (la que cuelga del campo), no
                 # el de otra lista de la página.
                 if self.form.list_confirm_texts:
-                    self.page.click_text_near(self.form.list_confirm_texts, box, 0, below=900)
+                    self.page.click_text_near(
+                        self.form.list_confirm_texts, self.page.bbox(target) or box, 0, below=900
+                    )
                 self.close_open_lists()
                 ok, current = shows(target, picked, 8 if multi else (3 if attempt == 0 else 6))
                 if ok:

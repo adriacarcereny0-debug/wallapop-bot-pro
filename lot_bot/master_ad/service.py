@@ -408,7 +408,10 @@ class MasterAdService:
                 "source": "import",
             }
             for info in infos
-            if info.get("content_hash") not in {i.get("content_hash") for i in view.images}
+            # Repetida = mismo contenido. Sin huella conocida no se descarta
+            # (antes, dos fotos sin huella contaban como la misma).
+            if not info.get("content_hash")
+            or info.get("content_hash") not in {i.get("content_hash") for i in view.images}
         ]
         return self._save_images(view.key, images)
 
