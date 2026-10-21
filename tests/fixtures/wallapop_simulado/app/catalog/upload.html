@@ -189,6 +189,10 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
   btn.addEventListener('click', () => {
     document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
     btn.dataset.antes = btn.textContent;
+    delete btn.dataset.pend;
+    // ?seleccionar=1: como el Wallapop real (tu vídeo), Color y Material solo
+    // se guardan al pulsar el botón verde «Seleccionar» de la lista.
+    const conBoton = btn.dataset.multi && params.get('seleccionar');
     const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
     btn.dataset.options.split('|').forEach(o => {
       const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
@@ -199,6 +203,13 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
       li.addEventListener('click', () => {
         if (btn.dataset.multi && params.get('primerclicnulo') && !btn.dataset.ignorado) {
           btn.dataset.ignorado = '1';  // el primer clic no llega (la lista aún se abría)
+          return;
+        }
+        if (conBoton) {
+          const pend = new Set((btn.dataset.pend ?? btn.dataset.sel ?? '').split('|').filter(Boolean));
+          pend.has(o) ? pend.delete(o) : pend.add(o);
+          btn.dataset.pend = [...pend].join('|');
+          btn.textContent = [...pend].join(', ') || btn.getAttribute('aria-label');
           return;
         }
         if (btn.dataset.multi) {
@@ -218,6 +229,16 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
       });
       ul.appendChild(li);
     });
+    if (conBoton) {
+      const ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Seleccionar';
+      ok.addEventListener('click', ev => {
+        ev.stopPropagation();
+        btn.dataset.sel = btn.dataset.pend ?? btn.dataset.sel ?? '';
+        delete btn.dataset.pend;
+        ul.remove();
+      });
+      ul.appendChild(ok);
+    }
     btn.parentElement.appendChild(ul);
   });
 });
@@ -257,7 +278,15 @@ document.addEventListener('keydown', e => {
 // Clic fuera: cierra la lista y CONSERVA lo elegido.
 document.addEventListener('click', e => {
   if (e.target.closest('.combo')) return;
-  document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
+  document.querySelectorAll('.combo ul:not(.pre)').forEach(u => {
+    // Sin pulsar «Seleccionar», lo marcado se PIERDE (como en el real).
+    const b = u.parentElement.querySelector('[role=combobox]');
+    if (b && b.dataset.pend !== undefined) {
+      b.textContent = (b.dataset.sel || '').split('|').filter(Boolean).join(', ') || b.getAttribute('aria-label');
+      delete b.dataset.pend;
+    }
+    u.remove();
+  });
   document.querySelectorAll('.combo .pre').forEach(u => u.style.display = 'none');
 });
 function mostrarFotos(e) {

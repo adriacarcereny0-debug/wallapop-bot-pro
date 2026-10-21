@@ -304,6 +304,10 @@ publicar:
     # aceptar (si lo tiene) o un clic en un título del formulario.
     listas_aceptar:
       - "role=button[name=/^(Aplicar|Aceptar|Hecho|Listo|Confirmar)$/i]"
+      # Color y Material (varias opciones): el botón verde «Seleccionar» del
+      # final de la lista. Sin pulsarlo, Wallapop olvida lo marcado.
+      - "role=button[name=/^\\s*Seleccionar\\s*$/i]"
+      - "text=/^\\s*Seleccionar\\s*$/i"
     clic_fuera:
       - "text=/^Información del producto$/"
       - "text=/^Revisa la información$/"

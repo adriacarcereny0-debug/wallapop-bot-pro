@@ -425,7 +425,16 @@ def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio):
     assert not any("Ubicación" in o for o in resultado.data["omitidos"])
 
 
-@pytest.mark.parametrize("variante", ["?multilento=1", "?multilento=1&sinestado=1"])
+@pytest.mark.parametrize(
+    "variante",
+    [
+        "?multilento=1",
+        "?multilento=1&sinestado=1",
+        # Tu vídeo: la lista tiene un botón verde «Seleccionar»; sin pulsarlo
+        # Wallapop olvida el color y el material.
+        "?seleccionar=1&sinestado=1",
+    ],
+)
 def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servicio, variante):
     """Tu caso: el bot marcaba Color y Material, el campo tardaba en mostrarlo,
     lo volvía a pulsar y así lo QUITABA (y faltaban esos dos campos). También
