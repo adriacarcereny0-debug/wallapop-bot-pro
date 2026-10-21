@@ -127,6 +127,12 @@ class BrowserPage(ABC):
         escribir «Madrid» aparece «Madrid, Madrid»)."""
         return self.click_option(text, timeout_ms)
 
+    def click_text_near(self, texts: list[str], box: dict | None, timeout_ms: int) -> bool:
+        """Pulsa un elemento visible cuyo texto es EXACTAMENTE uno de `texts` y
+        que está junto al campo `box` (p. ej. «Borrar» en la lista abierta de
+        Color). False si no hay ninguno."""
+        return False
+
     def mark_existing(self, texts: list[str]) -> int:
         """Marca los elementos con esos textos que YA están en la página antes
         de abrir una lista: nunca serán opciones de esa lista."""
@@ -182,6 +188,15 @@ class BrowserLauncher(ABC):
 def safe_url(url: str) -> str:
     """URL sin parámetros ni fragmento (pueden llevar tokens)."""
     return re.split(r"[?#]", url or "", maxsplit=1)[0]
+
+
+def _close_to(item: dict, field: dict) -> bool:
+    """¿`item` está en la cabecera de la lista abierta de ese campo (justo
+    DEBAJO del campo y en su misma columna)? Nunca algo de más arriba (fotos)."""
+    left, right = field["x"] - 150, field["x"] + field["width"] + 150
+    top, bottom = field["y"], field["y"] + field["height"] + 160
+    cx = item["x"] + item["width"] / 2
+    return left <= cx <= right and top <= item["y"] <= bottom
 
 
 def _inside(box: dict, outer: dict) -> bool:
@@ -602,6 +617,33 @@ class _PlaywrightPage(BrowserPage):
             if time.monotonic() >= deadline:
                 return False
             self._page.wait_for_timeout(150)
+
+    def click_text_near(self, texts: list[str], box: dict | None, timeout_ms: int) -> bool:
+        if not box or not texts:
+            return False
+        deadline = time.monotonic() + max(timeout_ms, 0) / 1000
+        while True:
+            for text in texts:
+                items = self._page.get_by_text(tolerant_pattern(text))
+                try:
+                    count = min(items.count(), 10)
+                except Exception:
+                    count = 0
+                for index in range(count):
+                    item = items.nth(index)
+                    try:
+                        if not item.is_visible():
+                            continue
+                        near = item.bounding_box()
+                        if not near or not _close_to(near, box):
+                            continue
+                        item.click(timeout=3000)
+                        return True
+                    except Exception:
+                        continue
+            if time.monotonic() >= deadline:
+                return False
+            self._page.wait_for_timeout(100)
 
     def mark_existing(self, texts: list[str]) -> int:
         marked = 0

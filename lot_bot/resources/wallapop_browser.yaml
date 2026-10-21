@@ -308,6 +308,11 @@ publicar:
       # final de la lista. Sin pulsarlo, Wallapop olvida lo marcado.
       - "role=button[name=/^\\s*Seleccionar\\s*$/i]"
       - "text=/^\\s*Seleccionar\\s*$/i"
+    # Lista de varias opciones (Color, Material): texto del botón de su
+    # cabecera que quita todo lo marcado. Se pulsa ANTES de marcar, así marcar
+    # nunca puede desmarcar algo que ya estaba (Wallapop o su IA lo marcan).
+    listas_borrar:
+      - "Borrar"
     clic_fuera:
       - "text=/^Información del producto$/"
       - "text=/^Revisa la información$/"

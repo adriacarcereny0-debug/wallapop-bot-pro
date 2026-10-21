@@ -185,6 +185,17 @@ document.querySelectorAll('[data-prerender]').forEach(btn => {
     ul.style.display = ul.style.display === 'none' ? 'block' : 'none';
   });
 });
+// Lo marcado en Color/Material. ?valorfuera=1: como el real, el valor se ve
+// en el recuadro del campo pero FUERA del botón (que solo dice «Color*»).
+function mostrar(btn, texto) {
+  if (!params.get('valorfuera')) { btn.textContent = texto || btn.getAttribute('aria-label'); return; }
+  let valor = btn.parentElement.querySelector('.valor');
+  if (!valor) {
+    valor = document.createElement('span'); valor.className = 'valor';
+    btn.insertAdjacentElement('afterend', valor);
+  }
+  valor.textContent = texto;
+}
 document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.combo ul:not(.pre)').forEach(u => u.remove());
@@ -194,6 +205,16 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
     // se guardan al pulsar el botón verde «Seleccionar» de la lista.
     const conBoton = btn.dataset.multi && params.get('seleccionar');
     const ul = document.createElement('ul'); ul.setAttribute('role','listbox');
+    if (conBoton) {
+      // Cabecera como la real: «Selecciona hasta 2 colores   Borrar».
+      const borrar = document.createElement('button'); borrar.type = 'button'; borrar.textContent = 'Borrar';
+      borrar.addEventListener('click', ev => {
+        ev.stopPropagation();
+        btn.dataset.pend = '';
+        mostrar(btn, '');
+      });
+      ul.appendChild(borrar);
+    }
     btn.dataset.options.split('|').forEach(o => {
       const li = document.createElement('li'); li.setAttribute('role','option'); li.textContent = o;
       const marcadas = () => new Set((btn.dataset.sel || '').split('|').filter(Boolean));
@@ -209,7 +230,7 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
           const pend = new Set((btn.dataset.pend ?? btn.dataset.sel ?? '').split('|').filter(Boolean));
           pend.has(o) ? pend.delete(o) : pend.add(o);
           btn.dataset.pend = [...pend].join('|');
-          btn.textContent = [...pend].join(', ') || btn.getAttribute('aria-label');
+          mostrar(btn, [...pend].join(', '));
           return;
         }
         if (btn.dataset.multi) {
@@ -219,10 +240,10 @@ document.querySelectorAll('[role=combobox]:not(#cat):not([data-prerender])').for
           sel.has(o) ? sel.delete(o) : sel.add(o);
           btn.dataset.sel = [...sel].join('|');
           if (conEstado) li.setAttribute('aria-selected', sel.has(o) ? 'true' : 'false');
-          const texto = [...sel].join(', ') || btn.getAttribute('aria-label');
+          const texto = [...sel].join(', ');
           // ?multilento=1: el campo tarda en mostrar lo marcado (como el real).
-          if (params.get('multilento')) setTimeout(() => { btn.textContent = texto; }, 4500);
-          else btn.textContent = texto;
+          if (params.get('multilento')) setTimeout(() => { mostrar(btn, texto); }, 4500);
+          else mostrar(btn, texto);
           return;
         }
         btn.textContent = o; ul.remove();
@@ -265,6 +286,13 @@ if (params.get('extras') === 'no') {
   document.querySelector('.fila').remove();
   document.getElementById('ubic-busca').remove();
 }
+// ?iaprevio=1: la IA de Wallapop ya ha marcado «Gris» en la lista de Color,
+// pero el campo todavía no lo muestra.
+if (params.get('iaprevio')) {
+  const color = document.querySelector('[aria-label="Color*"]');
+  color.dataset.sel = 'Gris';
+  if (params.get('valorfuera')) mostrar(color, 'Gris');
+}
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   // Como Wallapop: Escape CANCELA lo elegido en la lista abierta.
@@ -282,7 +310,7 @@ document.addEventListener('click', e => {
     // Sin pulsar «Seleccionar», lo marcado se PIERDE (como en el real).
     const b = u.parentElement.querySelector('[role=combobox]');
     if (b && b.dataset.pend !== undefined) {
-      b.textContent = (b.dataset.sel || '').split('|').filter(Boolean).join(', ') || b.getAttribute('aria-label');
+      mostrar(b, (b.dataset.sel || '').split('|').filter(Boolean).join(', '));
       delete b.dataset.pend;
     }
     u.remove();

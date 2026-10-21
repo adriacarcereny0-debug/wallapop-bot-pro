@@ -433,6 +433,12 @@ def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio):
         # Tu vídeo: la lista tiene un botón verde «Seleccionar»; sin pulsarlo
         # Wallapop olvida el color y el material.
         "?seleccionar=1&sinestado=1",
+        # Wallapop (su IA) ya había marcado el color sin mostrarlo: pulsarlo lo
+        # quitaba. Ahora se pulsa antes «Borrar» de la lista.
+        "?seleccionar=1&sinestado=1&iaprevio=1",
+        # Como el real: lo elegido se ve en el recuadro, fuera del botón «Color*».
+        "?seleccionar=1&sinestado=1&iaprevio=1&valorfuera=1",
+        "?seleccionar=1&sinestado=1&valorfuera=1",
     ],
 )
 def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servicio, variante):

@@ -297,7 +297,7 @@ class ListingForm:
         current_target = self._find(step, spec, wait=False)
         if current_target is not None:
             try:
-                current = self.page.value_of(current_target)
+                current = self._field_text(current_target)
             except Exception:
                 current = ""
             already = next((c for c in candidates if contains_text(c, current)), None)
@@ -320,9 +320,16 @@ class ListingForm:
             """Abre la lista (si no se ve ya la opción) y pulsa la opción."""
             self.page.mark_existing(candidates)
             try:
+                cleared = False
                 for candidate in candidates:
                     if not option_showing(candidate, box):
                         self.page.click(target)
+                    if not cleared and self.form.list_clear:
+                        # Lista de varias opciones: se vacía primero («Borrar»)
+                        # para que el clic MARQUE (si ya estaba, lo quitaría).
+                        cleared = self.page.click_text_near(self.form.list_clear, box, 700)
+                        if cleared:
+                            self.page.wait(250)
                     # Espera acotada: si no aparece, se falla rápido (con
                     # diagnóstico) en vez de quedarse parado.
                     wait = min(self.timeout, 8000) if len(candidates) == 1 else min(self.timeout, 2500)
@@ -336,7 +343,7 @@ class ListingForm:
             deadline = time.monotonic() + seconds
             while True:
                 try:
-                    current = self.page.value_of(target)
+                    current = self._field_text(target)
                 except Exception:
                     current = None
                 if current is None or contains_text(value, current):
@@ -703,7 +710,7 @@ class ListingForm:
                         *((self.form.equivalents.get(key) or {}).get(value) or [])]
             if self._field_has(spec, [e for e in expected if e], wait_s=3):
                 continue
-            shown = (self._read(spec) or "").strip().rstrip("*").strip()
+            shown = (self._read_choice(spec) or "").strip().rstrip("*").strip()
             if shown and not contains_text(ATTRIBUTE_LABELS.get(key, key), shown):
                 continue  # muestra OTRO valor: lo decide la comprobación final
             logger.info("Revisión final: «%s» está vacío; se vuelve a poner «%s».", label, value)
@@ -739,7 +746,7 @@ class ListingForm:
     def _field_has(self, spec: FormField, values: list[str], wait_s: float) -> bool:
         deadline = time.monotonic() + wait_s
         while True:
-            current = self._read(spec)
+            current = self._read_choice(spec)
             if current and any(contains_text(v, current) for v in values):
                 return True
             if time.monotonic() > deadline:
@@ -881,6 +888,26 @@ class ListingForm:
     # ------------------------------------------------------------------
     # Comprobación antes de publicar
     # ------------------------------------------------------------------
+    def _field_text(self, target: str) -> str:
+        """Lo que muestra un desplegable: su texto y el de su recuadro. En
+        Wallapop lo elegido en Color/Material se ve en el recuadro, FUERA del
+        botón (que solo dice «Color*»): sin esto el bot lo creía vacío."""
+        own = self.page.value_of(target)
+        try:
+            around = self.page.value_of(f"{target} >> xpath=..")
+        except Exception:
+            around = ""
+        return own if not around or around == own else f"{own} {around}"
+
+    def _read_choice(self, spec: FormField) -> str | None:
+        for target in (spec.readback or spec.targets):
+            try:
+                if self.page.first_visible([target], 0):
+                    return self._field_text(target)
+            except Exception:
+                continue
+        return None
+
     def _read(self, spec: FormField) -> str | None:
         for target in (spec.readback or spec.targets):
             try:
@@ -912,7 +939,7 @@ class ListingForm:
             problems["Categoría"] = f"se esperaba «{leaf}», hay «{category}»"
         for key, expected in self.attributes_filled.items():
             spec = self.form.attributes[key]
-            current = self._read(spec)
+            current = self._read_choice(spec)
             if current is None or not contains_text(expected, current):
                 problems[ATTRIBUTE_LABELS.get(key, key)] = f"se esperaba «{expected}», hay «{current}»"
         thumbs = self.form.photo_thumbnails
@@ -986,8 +1013,10 @@ class ListingForm:
         # ahí, se publica igual y el resultado dice qué no se pudo hacer.
         self._not_blocking("Envío", self.set_shipping)
         self._not_blocking("Ubicación", self.set_location)
-        self.review_and_complete()
+        # Primero se corrigen título y descripción (si Wallapop los cambió) y
+        # DESPUÉS la revisión de campos: lo último que se toca antes de publicar.
         self.refill_if_overwritten()
+        self.review_and_complete()
         self.verify_form()
         self.submit_listing()
         signal = self.wait_for_publish_confirmation()
