@@ -374,6 +374,10 @@ class ListingForm:
                 # se espera más y no se repite; si al final no está, lo
                 # completa la revisión final.
                 multi = self.page.first_visible(self.OPEN_LISTS, 0) is not None
+                # El «Seleccionar» de ESTA lista (la que cuelga del campo), no
+                # el de otra lista de la página.
+                if self.form.list_confirm_texts:
+                    self.page.click_text_near(self.form.list_confirm_texts, box, 0, below=900)
                 self.close_open_lists()
                 ok, current = shows(target, picked, 8 if multi else (3 if attempt == 0 else 6))
                 if ok:

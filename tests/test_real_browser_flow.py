@@ -412,11 +412,13 @@ def test_lotbot_sin_confirmacion_lo_comprueba_en_tus_productos_y_sigue(lotbot):
 
 
 
-def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio):
+@pytest.mark.parametrize("variante", ["?ubic=boton", "?ubic=boton&ubicicono=1"])
+def test_navegador_real_ubicacion_barcelona_no_elige_llobregat(servicio, variante):
     """Tu caso: al escribir «Barcelona» salen antes «L'Hospitalet de
-    Llobregat, Barcelona» y «Sant Feliu de Llobregat, Barcelona»."""
+    Llobregat, Barcelona» y «Sant Feliu de Llobregat, Barcelona». También
+    cuando cada sugerencia empieza con un icono («location_on»)."""
     service, web, tmp_path = servicio
-    service.site.urls["subir"] += "?ubic=boton"
+    service.site.urls["subir"] += variante
     datos = borrador(tmp_path)
     datos.attributes = {**datos.attributes, "ubicacion": "Barcelona"}
     resultado = service.create_item("cuenta-1", datos)

@@ -76,6 +76,8 @@ class ListingFormConfig:
     list_confirm: list[str] = field(default_factory=list)
     #: Textos del botón que vacía una lista de varias opciones («Borrar»).
     list_clear: list[str] = field(default_factory=list)
+    #: Textos del botón que guarda lo marcado en esa lista («Seleccionar»).
+    list_confirm_texts: list[str] = field(default_factory=list)
     neutral_click: list[str] = field(default_factory=list)
     location: FormField = field(default_factory=FormField)
     location_input: list[str] = field(default_factory=list)
@@ -120,6 +122,7 @@ class ListingFormConfig:
             location_confirm=[str(x) for x in ((data.get("ubicacion") or {}).get("confirmar") or [])],
             list_confirm=[str(x) for x in (data.get("listas_aceptar") or [])],
             list_clear=[str(x) for x in (data.get("listas_borrar") or [])],
+            list_confirm_texts=[str(x) for x in (data.get("listas_guardar") or [])],
             neutral_click=[str(x) for x in (data.get("clic_fuera") or [])],
             prepare_wait_ms=int((data.get("categoria") or {}).get("espera_preparacion_ms", 60000)),
             category_paths={

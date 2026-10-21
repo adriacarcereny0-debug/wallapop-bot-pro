@@ -313,6 +313,10 @@ publicar:
     # nunca puede desmarcar algo que ya estaba (Wallapop o su IA lo marcan).
     listas_borrar:
       - "Borrar"
+    # Botón que GUARDA lo marcado en esa misma lista (se busca el que cuelga
+    # del campo que se está rellenando, no el de otra lista).
+    listas_guardar:
+      - "Seleccionar"
     clic_fuera:
       - "text=/^Información del producto$/"
       - "text=/^Revisa la información$/"

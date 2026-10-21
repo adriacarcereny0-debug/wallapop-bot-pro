@@ -127,7 +127,9 @@ class BrowserPage(ABC):
         escribir «Madrid» aparece «Madrid, Madrid»)."""
         return self.click_option(text, timeout_ms)
 
-    def click_text_near(self, texts: list[str], box: dict | None, timeout_ms: int) -> bool:
+    def click_text_near(
+        self, texts: list[str], box: dict | None, timeout_ms: int, below: int = 160
+    ) -> bool:
         """Pulsa un elemento visible cuyo texto es EXACTAMENTE uno de `texts` y
         que está junto al campo `box` (p. ej. «Borrar» en la lista abierta de
         Color). False si no hay ninguno."""
@@ -190,11 +192,11 @@ def safe_url(url: str) -> str:
     return re.split(r"[?#]", url or "", maxsplit=1)[0]
 
 
-def _close_to(item: dict, field: dict) -> bool:
+def _close_to(item: dict, field: dict, below: int = 160) -> bool:
     """¿`item` está en la cabecera de la lista abierta de ese campo (justo
     DEBAJO del campo y en su misma columna)? Nunca algo de más arriba (fotos)."""
     left, right = field["x"] - 150, field["x"] + field["width"] + 150
-    top, bottom = field["y"], field["y"] + field["height"] + 160
+    top, bottom = field["y"], field["y"] + field["height"] + below
     cx = item["x"] + item["width"] / 2
     return left <= cx <= right and top <= item["y"] <= bottom
 
@@ -248,7 +250,12 @@ def suggestion_rank(text: str, suggestion: str) -> int:
     «Barcelona, Barcelona»: lo que cuenta es el NOMBRE (antes de la coma), no
     la provincia. 4 = el texto solo aparece después (otra ciudad)."""
     wanted = _plain(" ".join(text.split()))
-    name = _plain(" ".join(re.split(r"[,\n]", suggestion or "", maxsplit=1)[0].split()))
+    # El nombre es la primera línea con texto de verdad (no el nombre de un
+    # icono como «location_on»), hasta la coma.
+    lines = [ln.strip() for ln in (suggestion or "").splitlines()]
+    lines = [ln for ln in lines if ln and not re.fullmatch(r"[a-z_]+", ln)]
+    first = lines[0] if lines else ""
+    name = _plain(" ".join(first.split(",", 1)[0].split()))
     if not wanted:
         return 4
     if name == wanted:
@@ -344,6 +351,12 @@ class _PlaywrightPage(BrowserPage):
                 try:
                     if self._page.locator(target).first.is_visible():
                         return target
+                    # El primero puede ser uno OCULTO (p. ej. el «Seleccionar»
+                    # de la lista de Color, ya cerrada, al abrir la de Material):
+                    # entonces, el que se ve.
+                    visible = f"{target} >> visible=true"
+                    if self._page.locator(visible).count():
+                        return visible
                 except Exception:  # selector no válido en esta página
                     continue
             if waited >= timeout_ms:
@@ -594,18 +607,36 @@ class _PlaywrightPage(BrowserPage):
             # La que MEJOR encaja, no la primera: al escribir «Barcelona» la
             # primera puede ser «L'Hospitalet de Llobregat, Barcelona».
             found: list[tuple[int, int, object]] = []
+            seen: list[str] = []
+            # Cada sugerencia por separado: si una cambia mientras se lee (la
+            # lista se rehace al escribir), las demás se miran igual.
             try:
-                for index in range(min(options.count(), 15)):
-                    item = options.nth(index)
-                    found.append((suggestion_rank(text, item.inner_text(timeout=1000)), index, item))
-                for index in range(min(texts.count(), 10)):
-                    item = texts.nth(index)
-                    tag = (item.evaluate("e => e.tagName") or "").lower()
+                n_options = min(options.count(), 15)
+            except Exception:
+                n_options = 0
+            for index in range(n_options):
+                item = options.nth(index)
+                try:
+                    label = item.inner_text(timeout=1000)
+                except Exception:
+                    continue
+                seen.append(label)
+                found.append((suggestion_rank(text, label), index, item))
+            try:
+                n_texts = min(texts.count(), 10)
+            except Exception:
+                n_texts = 0
+            for index in range(n_texts):
+                item = texts.nth(index)
+                try:
+                    tag = (item.evaluate("e => e.tagName", timeout=1000) or "").lower()
                     if tag in ("input", "textarea") or not item.is_visible():
                         continue
-                    found.append((suggestion_rank(text, item.inner_text(timeout=1000)), 100 + index, item))
-            except Exception:
-                pass
+                    label = item.inner_text(timeout=1000)
+                except Exception:
+                    continue
+                seen.append(label)
+                found.append((suggestion_rank(text, label), 100 + index, item))
             for rank, _, item in sorted(found, key=lambda f: (f[0], f[1])):
                 if rank > 3:
                     break  # solo otras ciudades con ese nombre de provincia
@@ -615,10 +646,14 @@ class _PlaywrightPage(BrowserPage):
                 except Exception:
                     continue
             if time.monotonic() >= deadline:
+                logger.info("Sugerencias para «%s» (ninguna encaja): %s", text,
+                            [" ".join(x.split())[:80] for x in seen][:10])
                 return False
             self._page.wait_for_timeout(150)
 
-    def click_text_near(self, texts: list[str], box: dict | None, timeout_ms: int) -> bool:
+    def click_text_near(
+        self, texts: list[str], box: dict | None, timeout_ms: int, below: int = 160
+    ) -> bool:
         if not box or not texts:
             return False
         deadline = time.monotonic() + max(timeout_ms, 0) / 1000
@@ -635,7 +670,7 @@ class _PlaywrightPage(BrowserPage):
                         if not item.is_visible():
                             continue
                         near = item.bounding_box()
-                        if not near or not _close_to(near, box):
+                        if not near or not _close_to(near, box, below):
                             continue
                         item.click(timeout=3000)
                         return True
