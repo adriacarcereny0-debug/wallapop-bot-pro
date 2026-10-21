@@ -456,18 +456,32 @@ def test_navegador_real_color_y_material_no_se_desmarcan_si_el_campo_tarda(servi
     assert publicado["material"] == "Madera", resultado.data["omitidos"]
 
 
-def test_navegador_real_revision_final_completa_lo_que_quedo_vacio(servicio):
-    """Si un clic no llega (Color y Material se quedan vacíos), la revisión
-    final antes de publicar lo detecta y los vuelve a poner."""
+def test_navegador_real_revision_final_no_desmarca_lo_ya_elegido(servicio):
+    """Tu vídeo: Blanco y Madera quedaban bien puestos, pero la revisión final
+    no los veía, los volvía a pulsar y los DESMARCABA. Ahora un campo ya
+    elegido no se vuelve a tocar nunca."""
     service, web, tmp_path = servicio
-    service.site.urls["subir"] += "?primerclicnulo=1&sinestado=1"
+    service.site.urls["subir"] += "?seleccionar=1&sinestado=1&valorlejos=1"
     resultado = service.create_item("cuenta-1", borrador(tmp_path))
     assert resultado.success, resultado.message
     publicado = web.published[0]
     assert publicado["color"] == "Gris", resultado.data["omitidos"]
     assert publicado["material"] == "Madera", resultado.data["omitidos"]
-    assert any("(revisión)" in p for p in resultado.data["pasos"])
-    assert not any("NO se ha podido" in o for o in resultado.data["omitidos"])
+    assert not any(p.startswith("Característica") and "revisión" in p for p in resultado.data["pasos"])
+
+
+def test_navegador_real_ubicacion_con_codigo_postal_no_se_repite(servicio):
+    """Tu vídeo: la cuenta ya tenía «08007, Barcelona» y el bot no lo daba por
+    Barcelona: lo escribía una y otra vez."""
+    service, web, tmp_path = servicio
+    service.site.urls["subir"] += "?ubic=boton&ubicinicial=1"
+    datos = borrador(tmp_path)
+    datos.attributes = {**datos.attributes, "ubicacion": "Barcelona"}
+    resultado = service.create_item("cuenta-1", datos)
+    assert resultado.success, resultado.message
+    assert web.published[0]["ubicacion"] == "Barcelona"
+    assert "Ubicación Barcelona (ya estaba)" in resultado.data["pasos"], resultado.data["pasos"]
+    assert not any("Ubicación" in o for o in resultado.data["omitidos"])
 
 
 @pytest.mark.parametrize(

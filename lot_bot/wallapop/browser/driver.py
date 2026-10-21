@@ -275,7 +275,18 @@ def only_as_province(city: str, shown: str) -> bool:
     city = (city or "").split(",")[0].strip()
     flat = _plain(" ".join((shown or "").split()))
     places = [m.start() for m in re.finditer(rf"\b{re.escape(_plain(city))}\b", flat)] if city else []
-    return bool(places) and all(re.search(r",\s*$", flat[:p]) for p in places)
+
+    def after_other_place(p: int) -> bool:
+        before = flat[:p]
+        if not re.search(r",\s*$", before):
+            return False
+        # «08007, Barcelona» (o «Marca la localización 08007, Barcelona»):
+        # delante solo hay el código postal -> ES Barcelona. Con otra ciudad
+        # delante («L'Hospitalet, 08901, Barcelona») no.
+        head = before.rstrip()[:-1]
+        return not (re.search(r"\d{4,5}\s*$", head) and "," not in head)
+
+    return bool(places) and all(after_other_place(p) for p in places)
 
 
 class _PlaywrightPage(BrowserPage):

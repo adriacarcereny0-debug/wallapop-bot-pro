@@ -133,6 +133,8 @@ class ListingForm:
         self.steps: list[str] = []
         self.skipped: list[str] = []
         self.attributes_filled: dict[str, str] = {}
+        #: Campos en los que ya se ha pulsado una opción (no se repiten).
+        self.clicked_steps: set[str] = set()
         self._photos_before = 0
 
     # ------------------------------------------------------------------
@@ -358,6 +360,10 @@ class ListingForm:
             current = None
             for attempt in range(2):
                 picked = pick(target, box)
+                if picked is not None:
+                    # Ya se ha pulsado una opción de este campo: la revisión
+                    # final NO lo vuelve a tocar (otro clic la desmarcaría).
+                    self.clicked_steps.add(step)
                 if picked is None:
                     # El clic puede haber funcionado aunque no se confirme
                     # (lista que se cierra sola): si el campo YA lo muestra, vale.
@@ -656,7 +662,9 @@ class ListingForm:
             self.skipped.append(f"Ubicación «{city}» (el formulario no muestra el campo)")
             return
         try:
-            if self._shows_city(city, self.page.value_of(opener)):
+            # La caja muestra la etiqueta y, debajo, la dirección
+            # («Marca la localización» / «08007, Barcelona»): se lee entera.
+            if self._shows_city(city, self._field_text(opener)):
                 self.steps.append(f"Ubicación {city} (ya estaba)")
                 return
         except Exception:
@@ -687,7 +695,7 @@ class ListingForm:
             while time.monotonic() < deadline:
                 for where in (field_, opener):
                     try:
-                        shown = self.page.value_of(where)
+                        shown = self._field_text(where)
                     except Exception:
                         continue
                     if self._shows_city(city, shown):
@@ -708,6 +716,10 @@ class ListingForm:
             if not value or spec is None or not spec.targets:
                 continue
             label = f"Característica {ATTRIBUTE_LABELS.get(key, key)}"
+            if label in self.clicked_steps or key in self.attributes_filled:
+                # Ya se eligió (o ya estaba): NUNCA se vuelve a pulsar, porque en
+                # Color y Material otro clic DESMARCA lo que hay.
+                continue
             if self._find(label, spec, wait=False) is None:
                 continue  # el formulario no tiene este campo
             expected = [self.attributes_filled.get(key), value,
@@ -740,8 +752,9 @@ class ListingForm:
         if self.form.price.targets and (value is None or abs(value - float(self.data.price)) > 0.001):
             logger.info("Revisión final: el precio muestra «%s»; se vuelve a poner.", price)
             self._not_blocking("Precio (revisión)", self.fill_price)
-        # Ubicación y envío: solo si la primera vez NO se pudieron hacer.
-        for name, step in (("Ubicación", self.set_location), ("Envío", self.set_shipping)):
+        # Envío: solo si la primera vez NO se pudo. La ubicación no se repite
+        # (se escribía varias veces).
+        for name, step in (("Envío", self.set_shipping),):
             failed = [x for x in self.skipped if x.startswith(f"{name}:") and "NO se ha podido" in x]
             if failed:
                 self.skipped[:] = [x for x in self.skipped if x not in failed]
